@@ -5495,6 +5495,7 @@ mod tests {
             }
         }
         assert!(got_session, "expected session event");
+        assert!(got_text, "expected at least one text delta event");
         assert!(got_done, "expected done event");
     }
 

@@ -153,7 +153,7 @@ listen = "0.0.0.0:8080"
     #[test]
     fn test_config_loader_missing_file_uses_defaults() {
         // Load from a non-existent explicit path should fail
-        let result = ConfigLoader::load(Some(std::path::Path::new("/nonexistent/claw.toml")));
+        let _result = ConfigLoader::load(Some(std::path::Path::new("/nonexistent/claw.toml")));
         // But loading without an explicit path should produce defaults
         // (if no config exists in default locations)
         // We just verify defaults produce a valid config
