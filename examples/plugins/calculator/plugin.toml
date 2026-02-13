@@ -1,0 +1,43 @@
+[plugin]
+name = "calculator"
+version = "0.1.0"
+description = "Math operations as a sandboxed WASM plugin"
+authors = ["Claw Examples"]
+license = "MIT"
+
+[capabilities]
+# Pure computation — no capabilities needed
+
+[[tools]]
+name = "calculate"
+description = "Evaluate a mathematical expression (supports +, -, *, /, ^, parentheses)"
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.expression]
+type = "string"
+description = "The mathematical expression to evaluate"
+
+[[tools]]
+name = "convert"
+description = "Convert between units"
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.value]
+type = "number"
+description = "The value to convert"
+
+[tools.parameters.properties.from]
+type = "string"
+description = "Source unit (e.g. km, miles, celsius, fahrenheit)"
+
+[tools.parameters.properties.to]
+type = "string"
+description = "Target unit"

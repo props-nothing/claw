@@ -1,0 +1,35 @@
+[plugin]
+name = "hello-world"
+version = "0.1.0"
+description = "Minimal Claw plugin — says hello and echoes back"
+authors = ["Claw Examples"]
+license = "MIT"
+
+[capabilities]
+# This plugin needs no special capabilities
+
+[[tools]]
+name = "greet"
+description = "Greet someone by name"
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.name]
+type = "string"
+description = "Name to greet"
+
+[[tools]]
+name = "echo"
+description = "Echo back the input"
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.text]
+type = "string"
+description = "Text to echo"

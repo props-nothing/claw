@@ -1,0 +1,116 @@
+# 🦞 Claw Configuration
+# See https://docs.claw.dev for full reference
+
+[agent]
+model = "anthropic/claude-sonnet-4-20250514"
+# fallback_model = "openai/gpt-4o"
+# fast_model = "anthropic/claude-haiku-3-5"
+# local_model = "local/llama3.2"
+temperature = 0.7
+max_tokens = 16384
+thinking_level = "medium"
+max_iterations = 50
+# system_prompt = "You are Claw, a helpful autonomous AI assistant."
+# system_prompt_file = "SOUL.md"
+
+[autonomy]
+level = 1  # 0=manual, 1=assisted, 2=supervised, 3=autonomous, 4=full_auto
+daily_budget_usd = 10.0
+max_tool_calls_per_loop = 100
+max_delete_files = 5
+approval_threshold = 7
+proactive = false
+# heartbeat_cron = "0 */6 * * *"  # Every 6 hours
+
+# tool_allowlist = ["file.read", "file.list", "memory.search"]
+# tool_denylist = ["shell.exec"]
+
+# [[autonomy.goals]]
+# description = "Monitor my GitHub notifications and summarize important ones"
+# priority = 5
+# cron = "0 9 * * *"
+# enabled = true
+
+[memory]
+db_path = "memory.db"
+max_episodes = 10000
+vector_search = true
+embedding_dims = 384
+auto_summarize_after = 50
+
+[server]
+listen = "127.0.0.1:3700"
+web_ui = true
+# api_key = "your-secret-key"
+cors = false
+
+# ── Services / API Keys ────────────────────────────────────────────
+# API keys can be set here OR via environment variables.
+# Config file values take priority over env vars.
+
+[services]
+# anthropic_api_key = "sk-ant-..."   # or env: ANTHROPIC_API_KEY
+# openai_api_key = "sk-..."          # or env: OPENAI_API_KEY
+# brave_api_key = "..."              # or env: BRAVE_API_KEY
+# hub_url = "http://your-hub:3800"   # Skills Hub
+
+# ── Credentials ─────────────────────────────────────────────────
+# Credential provider for retrieving passwords, API keys, and secrets.
+# The agent uses this to log into websites, servers, and services on your behalf.
+# Secrets are never stored in memory — only the item name / vault mapping is remembered.
+
+[credentials]
+provider = "none"  # "none" or "1password"
+# default_vault = "Personal"
+# service_account_token = "..."  # or env: OP_SERVICE_ACCOUNT_TOKEN (for headless use)
+
+# With 1Password desktop app installed (recommended):
+#   1. Install CLI: brew install --cask 1password-cli
+#   2. Enable CLI integration in 1Password Settings → Developer → CLI
+#   3. Set provider = "1password" — biometric (Touch ID) handles auth automatically
+#
+# For headless / server usage:
+#   1. Create a service account at https://my.1password.com/developer-tools/service-accounts
+#   2. Set service_account_token above or export OP_SERVICE_ACCOUNT_TOKEN
+
+# ── Channels ────────────────────────────────────────────────────
+# Uncomment and configure the channels you want to use.
+
+# [channels.telegram]
+# type = "telegram"
+# token = "YOUR_BOT_TOKEN"
+
+# [channels.discord]
+# type = "discord"
+# token = "YOUR_BOT_TOKEN"
+
+[channels.webchat]
+type = "webchat"
+
+# ── Mesh Network ────────────────────────────────────────────────
+
+[mesh]
+enabled = true
+listen = "/ip4/0.0.0.0/tcp/0"
+mdns = true
+capabilities = ["shell", "browser"]
+# bootstrap_peers = ["/ip4/192.168.1.100/tcp/4001/p2p/PEER_ID"]
+# psk = "shared-secret-for-mesh-encryption"
+
+# ── Plugins ─────────────────────────────────────────────────────
+
+[plugins]
+plugin_dir = "plugins"
+registry_url = "https://registry.clawhub.com"
+# default_capabilities = ["network"]
+
+# [[plugins.install]]
+# name = "web-search"
+# version = "1.0.0"
+
+# ── Logging ─────────────────────────────────────────────────────
+
+[logging]
+level = "info"
+format = "pretty"
+# file = "claw.log"

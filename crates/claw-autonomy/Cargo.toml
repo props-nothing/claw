@@ -1,0 +1,24 @@
+[package]
+name = "claw-autonomy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Autonomy levels, guardrails, goal planning, and human-in-the-loop approval system"
+
+[dependencies]
+claw-core = { workspace = true }
+claw-config = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }

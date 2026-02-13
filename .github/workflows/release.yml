@@ -1,0 +1,261 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── Run tests first ────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  # ── Build native binaries on each OS ───────────────────────────
+  build:
+    name: Build ${{ matrix.target }}
+    needs: test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            binary: claw
+          # Linux ARM64
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            binary: claw
+            cross: true
+          # Linux ARMv7 (Raspberry Pi)
+          - target: armv7-unknown-linux-gnueabihf
+            runner: ubuntu-latest
+            binary: claw
+            cross: true
+          # Linux x86_64 musl (static, Alpine/iSH)
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            binary: claw
+            cross: true
+          # Linux ARM64 musl (static, Alpine/iSH on iOS)
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-latest
+            binary: claw
+            cross: true
+          # macOS ARM64 (Apple Silicon)
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            binary: claw
+          # macOS x86_64 (Intel)
+          - target: x86_64-apple-darwin
+            runner: macos-13
+            binary: claw
+          # Windows x86_64
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            binary: claw.exe
+          # Android ARM64 (Termux)
+          - target: aarch64-linux-android
+            runner: ubuntu-latest
+            binary: claw
+            cross: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # Install cross for cross-compiled targets
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      # Native build
+      - name: Build (native)
+        if: ${{ !matrix.cross }}
+        run: cargo build --release --target ${{ matrix.target }} --bin claw
+
+      # Cross-compiled build
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }} --bin claw
+
+      # Get version from tag
+      - name: Get version
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      # Rename binary with version + target
+      - name: Package
+        shell: bash
+        run: |
+          src="target/${{ matrix.target }}/release/${{ matrix.binary }}"
+          dst="claw-${{ steps.version.outputs.version }}-${{ matrix.target }}"
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            dst="${dst}.exe"
+          fi
+          cp "$src" "$dst"
+          echo "ASSET=${dst}" >> "$GITHUB_ENV"
+
+      # Upload as artifact
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: claw-${{ matrix.target }}
+          path: ${{ env.ASSET }}
+
+  # ── Build Docker images ────────────────────────────────────────
+  docker:
+    name: Docker (${{ matrix.platform }})
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            tag_suffix: amd64
+          - platform: linux/arm64
+            tag_suffix: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          platforms: ${{ matrix.platform }}
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}-${{ matrix.tag_suffix }}
+            ghcr.io/${{ github.repository }}:latest-${{ matrix.tag_suffix }}
+          cache-from: type=gha,scope=${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+
+  # ── Create multi-arch Docker manifest ──────────────────────────
+  docker-manifest:
+    name: Docker manifest
+    needs: docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create manifest
+        run: |
+          docker manifest create ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }} \
+            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}-amd64 \
+            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}-arm64
+          docker manifest push ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
+
+          docker manifest create ghcr.io/${{ github.repository }}:latest \
+            ghcr.io/${{ github.repository }}:latest-amd64 \
+            ghcr.io/${{ github.repository }}:latest-arm64
+          docker manifest push ghcr.io/${{ github.repository }}:latest
+
+  # ── Create GitHub Release with all binaries ────────────────────
+  release:
+    name: GitHub Release
+    needs: [build, docker-manifest]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect binaries
+        run: |
+          mkdir -p release
+          find artifacts -type f -name 'claw-*' -exec mv {} release/ \;
+          ls -lh release/
+
+      - name: Generate checksums
+        working-directory: release
+        run: |
+          sha256sum claw-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release/*
+          body: |
+            ## Install
+
+            **One-line install (macOS / Linux / Android Termux / iOS iSH):**
+            ```bash
+            curl -sSL https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install.sh | sh
+            ```
+
+            **Docker:**
+            ```bash
+            docker run -d --name claw -p 3700:3700 ghcr.io/${{ github.repository }}:latest
+            ```
+
+            **Manual download:** Pick the binary for your platform below.
+
+            | Platform | Binary |
+            |---|---|
+            | Linux x86_64 | `claw-*-x86_64-unknown-linux-gnu` |
+            | Linux ARM64 | `claw-*-aarch64-unknown-linux-gnu` |
+            | Linux ARM64 static | `claw-*-aarch64-unknown-linux-musl` |
+            | macOS Apple Silicon | `claw-*-aarch64-apple-darwin` |
+            | macOS Intel | `claw-*-x86_64-apple-darwin` |
+            | Windows | `claw-*-x86_64-pc-windows-msvc.exe` |
+            | Android (Termux) | `claw-*-aarch64-linux-android` |
+            | iOS (iSH) | `claw-*-aarch64-unknown-linux-musl` |

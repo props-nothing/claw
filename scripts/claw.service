@@ -1,0 +1,56 @@
+# 🦞 Claw — systemd service unit
+#
+# Install:
+#   sudo cp scripts/claw.service /etc/systemd/system/claw.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now claw
+#
+# Logs:
+#   journalctl -u claw -f
+#
+[Unit]
+Description=Claw — Autonomous AI Agent Runtime
+Documentation=https://github.com/claw/claw
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=claw
+Group=claw
+
+# Binary location — adjust if installed elsewhere
+ExecStart=/home/claw/.claw/bin/claw start
+
+# Working directory
+WorkingDirectory=/home/claw
+
+# Config file location
+Environment=CLAW_CONFIG=/home/claw/.claw/claw.toml
+Environment=CLAW_LOG_LEVEL=info
+
+# API keys — uncomment and fill in, or set them in claw.toml instead
+# Environment=ANTHROPIC_API_KEY=sk-ant-...
+# Environment=OPENAI_API_KEY=sk-...
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/claw/.claw
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

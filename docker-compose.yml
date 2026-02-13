@@ -1,0 +1,22 @@
+services:
+  claw:
+    build: .
+    container_name: claw
+    restart: unless-stopped
+    ports:
+      - "3700:3700"
+    volumes:
+      - claw-data:/home/claw/.claw
+      - ./config/claw.toml:/home/claw/.claw/claw.toml:ro
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - CLAW_LOG_LEVEL=${CLAW_LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3700/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  claw-data:

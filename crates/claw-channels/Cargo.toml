@@ -1,0 +1,25 @@
+[package]
+name = "claw-channels"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Channel adapters — Telegram, Discord, WhatsApp, Slack, WebChat, and more"
+
+[dependencies]
+claw-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+reqwest = { workspace = true }
+uuid = { workspace = true }
+dirs = { workspace = true }
+rand = { workspace = true }
+qrcode = { workspace = true }
+chrono = { workspace = true }
+tokio-tungstenite = { workspace = true }
+url = { workspace = true }
+futures-util = { workspace = true }
+base64 = { workspace = true }

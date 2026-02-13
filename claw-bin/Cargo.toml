@@ -1,0 +1,20 @@
+[package]
+name = "claw"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "🦞 Claw — Universal autonomous AI agent runtime"
+default-run = "claw"
+
+[[bin]]
+name = "claw"
+path = "src/main.rs"
+
+[dependencies]
+claw-cli = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+
+[features]
+default = []
+wasm = ["claw-cli/wasm"]
