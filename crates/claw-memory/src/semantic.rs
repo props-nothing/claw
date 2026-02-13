@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// A fact is a piece of knowledge the agent has learned.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,7 +79,10 @@ impl SemanticMemory {
 
     /// Get all facts in a category.
     pub fn category(&self, category: &str) -> &[Fact] {
-        self.facts.get(category).map(|v| v.as_slice()).unwrap_or(&[])
+        self.facts
+            .get(category)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Search across all facts using word-level matching.
@@ -96,7 +99,8 @@ impl SemanticMemory {
 
         if query_words.is_empty() {
             // Fall back to full-string substring match
-            return self.facts
+            return self
+                .facts
                 .values()
                 .flat_map(|facts| {
                     facts.iter().filter(|f| {
@@ -108,7 +112,8 @@ impl SemanticMemory {
         }
 
         // Score each fact by how many query words match in category+key+value
-        let mut scored: Vec<(&Fact, usize)> = self.facts
+        let mut scored: Vec<(&Fact, usize)> = self
+            .facts
             .iter()
             .flat_map(|(cat, facts)| {
                 let cat_lower = cat.to_lowercase();
@@ -116,11 +121,14 @@ impl SemanticMemory {
                 facts.iter().map(move |f| {
                     let key_lower = f.key.to_lowercase();
                     let val_lower = f.value.to_lowercase();
-                    let hit_count = qw.iter().filter(|w| {
-                        cat_lower.contains(*w)
-                            || key_lower.contains(*w)
-                            || val_lower.contains(*w)
-                    }).count();
+                    let hit_count = qw
+                        .iter()
+                        .filter(|w| {
+                            cat_lower.contains(*w)
+                                || key_lower.contains(*w)
+                                || val_lower.contains(*w)
+                        })
+                        .count();
                     (f, hit_count)
                 })
             })

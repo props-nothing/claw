@@ -90,7 +90,11 @@ impl LlmProvider for OpenAiProvider {
                             })
                         }).collect();
                         let text = msg.text_content();
-                        let content = if text.is_empty() { serde_json::Value::Null } else { serde_json::json!(text) };
+                        let content = if text.is_empty() {
+                            serde_json::Value::Null
+                        } else {
+                            serde_json::json!(text)
+                        };
                         messages.push(serde_json::json!({
                             "role": "assistant",
                             "content": content,
@@ -101,7 +105,12 @@ impl LlmProvider for OpenAiProvider {
                 claw_core::Role::Tool => {
                     // Tool result messages — extract tool_call_id from ToolResult content blocks
                     for block in &msg.content {
-                        if let claw_core::MessageContent::ToolResult { tool_call_id, content, .. } = block {
+                        if let claw_core::MessageContent::ToolResult {
+                            tool_call_id,
+                            content,
+                            ..
+                        } = block
+                        {
                             messages.push(serde_json::json!({
                                 "role": "tool",
                                 "tool_call_id": tool_call_id,
@@ -110,7 +119,11 @@ impl LlmProvider for OpenAiProvider {
                         }
                     }
                     // Fallback: if no ToolResult blocks, send as user message to avoid API errors
-                    if !msg.content.iter().any(|c| matches!(c, claw_core::MessageContent::ToolResult { .. })) {
+                    if !msg
+                        .content
+                        .iter()
+                        .any(|c| matches!(c, claw_core::MessageContent::ToolResult { .. }))
+                    {
                         messages.push(serde_json::json!({
                             "role": "user",
                             "content": msg.text_content(),
@@ -280,7 +293,11 @@ impl LlmProvider for OpenAiProvider {
                             })
                         }).collect();
                         let text = msg.text_content();
-                        let content = if text.is_empty() { serde_json::Value::Null } else { serde_json::json!(text) };
+                        let content = if text.is_empty() {
+                            serde_json::Value::Null
+                        } else {
+                            serde_json::json!(text)
+                        };
                         messages.push(serde_json::json!({
                             "role": "assistant",
                             "content": content,
@@ -290,7 +307,12 @@ impl LlmProvider for OpenAiProvider {
                 }
                 claw_core::Role::Tool => {
                     for block in &msg.content {
-                        if let claw_core::MessageContent::ToolResult { tool_call_id, content, .. } = block {
+                        if let claw_core::MessageContent::ToolResult {
+                            tool_call_id,
+                            content,
+                            ..
+                        } = block
+                        {
                             messages.push(serde_json::json!({
                                 "role": "tool",
                                 "tool_call_id": tool_call_id,
@@ -298,7 +320,11 @@ impl LlmProvider for OpenAiProvider {
                             }));
                         }
                     }
-                    if !msg.content.iter().any(|c| matches!(c, claw_core::MessageContent::ToolResult { .. })) {
+                    if !msg
+                        .content
+                        .iter()
+                        .any(|c| matches!(c, claw_core::MessageContent::ToolResult { .. }))
+                    {
                         messages.push(serde_json::json!({
                             "role": "user",
                             "content": msg.text_content(),
@@ -384,13 +410,15 @@ impl LlmProvider for OpenAiProvider {
                                             for (_idx, (id, name, args)) in &tool_calls {
                                                 let arguments: serde_json::Value =
                                                     serde_json::from_str(args).unwrap_or_default();
-                                                let _ = tx.send(StreamChunk::ToolCall(
-                                                    claw_core::ToolCall {
-                                                        id: id.clone(),
-                                                        tool_name: name.clone(),
-                                                        arguments,
-                                                    },
-                                                )).await;
+                                                let _ = tx
+                                                    .send(StreamChunk::ToolCall(
+                                                        claw_core::ToolCall {
+                                                            id: id.clone(),
+                                                            tool_name: name.clone(),
+                                                            arguments,
+                                                        },
+                                                    ))
+                                                    .await;
                                             }
                                             let stop = match finish_reason_str.as_deref() {
                                                 Some("length") => StopReason::MaxTokens,
@@ -398,44 +426,68 @@ impl LlmProvider for OpenAiProvider {
                                                 _ if !tool_calls.is_empty() => StopReason::ToolUse,
                                                 _ => StopReason::EndTurn,
                                             };
-                                            let cost = estimate_openai_cost(&model, input_tokens, output_tokens);
-                                            let _ = tx.send(StreamChunk::Usage(Usage {
+                                            let cost = estimate_openai_cost(
+                                                &model,
                                                 input_tokens,
                                                 output_tokens,
-                                                estimated_cost_usd: cost,
-                                                ..Default::default()
-                                            })).await;
+                                            );
+                                            let _ = tx
+                                                .send(StreamChunk::Usage(Usage {
+                                                    input_tokens,
+                                                    output_tokens,
+                                                    estimated_cost_usd: cost,
+                                                    ..Default::default()
+                                                }))
+                                                .await;
                                             let _ = tx.send(StreamChunk::Done(stop)).await;
                                             return;
                                         }
-                                        if let Ok(event) = serde_json::from_str::<serde_json::Value>(data) {
+                                        if let Ok(event) =
+                                            serde_json::from_str::<serde_json::Value>(data)
+                                        {
                                             let delta = &event["choices"][0]["delta"];
                                             // Text content
                                             if let Some(text) = delta["content"].as_str() {
                                                 if !text.is_empty() {
-                                                    let _ = tx.send(StreamChunk::TextDelta(text.to_string())).await;
+                                                    let _ = tx
+                                                        .send(StreamChunk::TextDelta(
+                                                            text.to_string(),
+                                                        ))
+                                                        .await;
                                                 }
                                             }
                                             // Tool call deltas
                                             if let Some(tcs) = delta["tool_calls"].as_array() {
                                                 for tc in tcs {
                                                     let idx = tc["index"].as_u64().unwrap_or(0);
-                                                    let entry = tool_calls.entry(idx).or_insert_with(|| {
-                                                        (String::new(), String::new(), String::new())
-                                                    });
+                                                    let entry = tool_calls
+                                                        .entry(idx)
+                                                        .or_insert_with(|| {
+                                                            (
+                                                                String::new(),
+                                                                String::new(),
+                                                                String::new(),
+                                                            )
+                                                        });
                                                     if let Some(id) = tc["id"].as_str() {
                                                         entry.0 = id.to_string();
                                                     }
-                                                    if let Some(name) = tc["function"]["name"].as_str() {
+                                                    if let Some(name) =
+                                                        tc["function"]["name"].as_str()
+                                                    {
                                                         entry.1.push_str(name);
                                                     }
-                                                    if let Some(args) = tc["function"]["arguments"].as_str() {
+                                                    if let Some(args) =
+                                                        tc["function"]["arguments"].as_str()
+                                                    {
                                                         entry.2.push_str(args);
                                                     }
                                                 }
                                             }
                                             // Track finish_reason from the choice
-                                            if let Some(fr) = event["choices"][0]["finish_reason"].as_str() {
+                                            if let Some(fr) =
+                                                event["choices"][0]["finish_reason"].as_str()
+                                            {
                                                 finish_reason_str = Some(fr.to_string());
                                             }
                                             // Usage (in final chunk with stream_options)
@@ -443,7 +495,9 @@ impl LlmProvider for OpenAiProvider {
                                                 if let Some(pt) = usage["prompt_tokens"].as_u64() {
                                                     input_tokens = pt as u32;
                                                 }
-                                                if let Some(ct) = usage["completion_tokens"].as_u64() {
+                                                if let Some(ct) =
+                                                    usage["completion_tokens"].as_u64()
+                                                {
                                                     output_tokens = ct as u32;
                                                 }
                                             }

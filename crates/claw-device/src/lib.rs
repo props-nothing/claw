@@ -11,12 +11,12 @@
 //! `claw-runtime` calls into.  All device interaction is stateful (managed
 //! sessions) and guarded by the autonomy / guardrail system.
 
-pub mod browser;
 pub mod android;
+pub mod browser;
 pub mod ios;
 pub mod tools;
 
-pub use browser::BrowserManager;
 pub use android::AndroidBridge;
+pub use browser::BrowserManager;
 pub use ios::IosBridge;
 pub use tools::DeviceTools;

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde_json::Value;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -160,14 +160,7 @@ async fn signal_receive_loop(
         // Spawn signal-cli receive with --json for machine-readable output
         // --timeout 5 means it will block for up to 5 seconds waiting for messages
         let child = tokio::process::Command::new("signal-cli")
-            .args([
-                "-u",
-                &phone,
-                "--output=json",
-                "receive",
-                "--timeout",
-                "5",
-            ])
+            .args(["-u", &phone, "--output=json", "receive", "--timeout", "5"])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn();
@@ -300,10 +293,7 @@ fn parse_signal_message(payload: &Value, channel_id: &str) -> Option<IncomingMes
     let mut attachments = Vec::new();
     if let Some(atts) = data_msg["attachments"].as_array() {
         for att in atts {
-            let filename = att["filename"]
-                .as_str()
-                .unwrap_or("attachment")
-                .to_string();
+            let filename = att["filename"].as_str().unwrap_or("attachment").to_string();
             let content_type = att["contentType"]
                 .as_str()
                 .unwrap_or("application/octet-stream")

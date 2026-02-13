@@ -3,7 +3,7 @@
 //! Exposes browser, Android, and iOS capabilities as tools that the LLM can call.
 //! All tools follow the `claw-core` `ToolExecutor` pattern.
 
-use crate::{BrowserManager, AndroidBridge, IosBridge};
+use crate::{AndroidBridge, BrowserManager, IosBridge};
 use claw_core::{ClawError, Tool, ToolCall, ToolResult};
 use serde_json::json;
 use std::sync::Arc;
@@ -19,10 +19,12 @@ async fn save_screenshot(prefix: &str, base64_data: &str) -> claw_core::Result<(
         .join(".claw")
         .join("screenshots");
 
-    tokio::fs::create_dir_all(&screenshots_dir).await.map_err(|e| ClawError::ToolExecution {
-        tool: "screenshot".into(),
-        reason: format!("failed to create screenshots dir: {e}"),
-    })?;
+    tokio::fs::create_dir_all(&screenshots_dir)
+        .await
+        .map_err(|e| ClawError::ToolExecution {
+            tool: "screenshot".into(),
+            reason: format!("failed to create screenshots dir: {e}"),
+        })?;
 
     // Generate a unique filename: {prefix}_{timestamp}_{short_rand}.png
     let ts = std::time::SystemTime::now()
@@ -41,10 +43,12 @@ async fn save_screenshot(prefix: &str, base64_data: &str) -> claw_core::Result<(
             reason: format!("invalid base64 screenshot data: {e}"),
         })?;
 
-    tokio::fs::write(&filepath, &bytes).await.map_err(|e| ClawError::ToolExecution {
-        tool: "screenshot".into(),
-        reason: format!("failed to write screenshot: {e}"),
-    })?;
+    tokio::fs::write(&filepath, &bytes)
+        .await
+        .map_err(|e| ClawError::ToolExecution {
+            tool: "screenshot".into(),
+            reason: format!("failed to write screenshot: {e}"),
+        })?;
 
     let url_path = format!("/api/v1/screenshots/{filename}");
     let disk_path = filepath.to_string_lossy().to_string();
@@ -176,7 +180,8 @@ impl DeviceTools {
 
         tools.push(Tool {
             name: "browser_screenshot".into(),
-            description: "Take a screenshot of the current browser tab. Returns base64 PNG image.".into(),
+            description: "Take a screenshot of the current browser tab. Returns base64 PNG image."
+                .into(),
             parameters: json!({ "type": "object", "properties": {} }),
             capabilities: vec!["browser".into()],
             is_mutating: false,
@@ -205,7 +210,8 @@ impl DeviceTools {
 
         tools.push(Tool {
             name: "browser_type".into(),
-            description: "Type text into a form field or element identified by CSS selector.".into(),
+            description: "Type text into a form field or element identified by CSS selector."
+                .into(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -353,7 +359,8 @@ impl DeviceTools {
 
         tools.push(Tool {
             name: "browser_status".into(),
-            description: "Get the current browser status: running, port, active tab, tab count.".into(),
+            description: "Get the current browser status: running, port, active tab, tab count."
+                .into(),
             parameters: json!({ "type": "object", "properties": {} }),
             capabilities: vec!["browser".into()],
             is_mutating: false,
@@ -413,7 +420,8 @@ impl DeviceTools {
 
         tools.push(Tool {
             name: "android_screenshot".into(),
-            description: "Take a screenshot of the Android device screen. Returns base64 PNG.".into(),
+            description: "Take a screenshot of the Android device screen. Returns base64 PNG."
+                .into(),
             parameters: json!({ "type": "object", "properties": {} }),
             capabilities: vec!["android".into()],
             is_mutating: false,
@@ -460,7 +468,8 @@ impl DeviceTools {
 
         tools.push(Tool {
             name: "android_type".into(),
-            description: "Type text on the Android device (into the currently focused input).".into(),
+            description: "Type text on the Android device (into the currently focused input)."
+                .into(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -566,7 +575,9 @@ impl DeviceTools {
 
         tools.push(Tool {
             name: "android_screen_info".into(),
-            description: "Get Android screen info: resolution, density, and current foreground activity/app.".into(),
+            description:
+                "Get Android screen info: resolution, density, and current foreground activity/app."
+                    .into(),
             parameters: json!({ "type": "object", "properties": {} }),
             capabilities: vec!["android".into()],
             is_mutating: false,
@@ -586,7 +597,8 @@ impl DeviceTools {
 
         tools.push(Tool {
             name: "android_status".into(),
-            description: "Check Android/ADB status: is ADB available, how many devices connected.".into(),
+            description: "Check Android/ADB status: is ADB available, how many devices connected."
+                .into(),
             parameters: json!({ "type": "object", "properties": {} }),
             capabilities: vec!["android".into()],
             is_mutating: false,
@@ -624,7 +636,8 @@ impl DeviceTools {
 
         tools.push(Tool {
             name: "ios_screenshot".into(),
-            description: "Take a screenshot of the iOS device/simulator. Returns base64 PNG.".into(),
+            description: "Take a screenshot of the iOS device/simulator. Returns base64 PNG."
+                .into(),
             parameters: json!({ "type": "object", "properties": {} }),
             capabilities: vec!["ios".into()],
             is_mutating: false,
@@ -634,7 +647,9 @@ impl DeviceTools {
 
         tools.push(Tool {
             name: "ios_tap".into(),
-            description: "Tap at screen coordinates on the iOS device. Requires idb for physical devices.".into(),
+            description:
+                "Tap at screen coordinates on the iOS device. Requires idb for physical devices."
+                    .into(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -735,7 +750,8 @@ impl DeviceTools {
 
         tools.push(Tool {
             name: "ios_install".into(),
-            description: "Install an app on the iOS device (.ipa for physical, .app for simulator).".into(),
+            description:
+                "Install an app on the iOS device (.ipa for physical, .app for simulator).".into(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -761,7 +777,8 @@ impl DeviceTools {
 
         tools.push(Tool {
             name: "ios_open_url".into(),
-            description: "Open a URL on the iOS device (web URLs or deep links / universal links).".into(),
+            description: "Open a URL on the iOS device (web URLs or deep links / universal links)."
+                .into(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -830,19 +847,34 @@ impl DeviceTools {
                 let headless = call.arguments["headless"].as_bool().unwrap_or(true);
                 let mut browser = self.browser.lock().await;
                 let msg = browser.start(headless).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "browser_stop" => {
                 let mut browser = self.browser.lock().await;
                 let msg = browser.stop().await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "browser_navigate" => {
                 let url = require_str(call, "url")?;
                 let mut browser = self.browser.lock().await;
                 let snapshot = browser.navigate(url).await?;
                 let content = format_page_snapshot(&snapshot);
-                Ok(ToolResult { tool_call_id: call.id.clone(), content, is_error: false, data: Some(serde_json::to_value(&snapshot).unwrap_or_default()) })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content,
+                    is_error: false,
+                    data: Some(serde_json::to_value(&snapshot).unwrap_or_default()),
+                })
             }
             "browser_screenshot" => {
                 let mut browser = self.browser.lock().await;
@@ -850,23 +882,38 @@ impl DeviceTools {
                 let (url_path, disk_path) = save_screenshot("browser", &shot.data_base64).await?;
                 Ok(ToolResult {
                     tool_call_id: call.id.clone(),
-                    content: format!("Screenshot saved to {} ({}x{}). View: {}", disk_path, shot.width, shot.height, url_path),
+                    content: format!(
+                        "Screenshot saved to {} ({}x{}). View: {}",
+                        disk_path, shot.width, shot.height, url_path
+                    ),
                     is_error: false,
-                    data: Some(json!({ "screenshot_url": url_path, "screenshot_path": disk_path, "width": shot.width, "height": shot.height })),
+                    data: Some(
+                        json!({ "screenshot_url": url_path, "screenshot_path": disk_path, "width": shot.width, "height": shot.height }),
+                    ),
                 })
             }
             "browser_click" => {
                 let selector = require_str(call, "selector")?;
                 let mut browser = self.browser.lock().await;
                 let msg = browser.click(selector).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "browser_type" => {
                 let selector = require_str(call, "selector")?;
                 let text = require_str(call, "text")?;
                 let mut browser = self.browser.lock().await;
                 let msg = browser.type_text(selector, text).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "browser_evaluate" => {
                 let expression = require_str(call, "expression")?;
@@ -883,38 +930,67 @@ impl DeviceTools {
                 let mut browser = self.browser.lock().await;
                 let snapshot = browser.snapshot().await?;
                 let content = format_page_snapshot(&snapshot);
-                Ok(ToolResult { tool_call_id: call.id.clone(), content, is_error: false, data: Some(serde_json::to_value(&snapshot).unwrap_or_default()) })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content,
+                    is_error: false,
+                    data: Some(serde_json::to_value(&snapshot).unwrap_or_default()),
+                })
             }
             "browser_tabs" => {
                 let mut browser = self.browser.lock().await;
                 let tabs = browser.tabs().await?;
                 let content = serde_json::to_string_pretty(&tabs).unwrap_or_default();
-                Ok(ToolResult { tool_call_id: call.id.clone(), content, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content,
+                    is_error: false,
+                    data: None,
+                })
             }
             "browser_new_tab" => {
                 let url = require_str(call, "url")?;
                 let mut browser = self.browser.lock().await;
                 let tab = browser.new_tab(url).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: serde_json::to_string_pretty(&tab).unwrap_or_default(), is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: serde_json::to_string_pretty(&tab).unwrap_or_default(),
+                    is_error: false,
+                    data: None,
+                })
             }
             "browser_close_tab" => {
                 let tab_id = require_str(call, "tab_id")?;
                 let mut browser = self.browser.lock().await;
                 browser.close_tab(tab_id).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: format!("closed tab {}", tab_id), is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: format!("closed tab {}", tab_id),
+                    is_error: false,
+                    data: None,
+                })
             }
             "browser_scroll" => {
                 let direction = require_str(call, "direction")?;
                 let amount = call.arguments["amount"].as_i64().unwrap_or(500) as i32;
                 let mut browser = self.browser.lock().await;
                 browser.scroll(direction, amount).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: format!("scrolled {} {}px", direction, amount), is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: format!("scrolled {} {}px", direction, amount),
+                    is_error: false,
+                    data: None,
+                })
             }
             "browser_upload_file" => {
                 let selector = require_str(call, "selector")?;
                 let files: Vec<String> = call.arguments["files"]
                     .as_array()
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 if files.is_empty() {
                     return Ok(ToolResult {
@@ -937,18 +1013,33 @@ impl DeviceTools {
                 }
                 let mut browser = self.browser.lock().await;
                 let msg = browser.upload_file(selector, &files).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "browser_status" => {
                 let mut browser = self.browser.lock().await;
                 let status = browser.status().await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: serde_json::to_string_pretty(&status).unwrap_or_default(), is_error: false, data: Some(status) })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: serde_json::to_string_pretty(&status).unwrap_or_default(),
+                    is_error: false,
+                    data: Some(status),
+                })
             }
             "browser_network" => {
                 let action = require_str(call, "action")?;
                 let mut browser = self.browser.lock().await;
                 let result = browser.network(action).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: result, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: result,
+                    is_error: false,
+                    data: None,
+                })
             }
 
             // ── Android ───────────────────────────────────────
@@ -956,13 +1047,23 @@ impl DeviceTools {
                 let android = self.android.lock().await;
                 let devices = android.list_devices().await?;
                 let content = serde_json::to_string_pretty(&devices).unwrap_or_default();
-                Ok(ToolResult { tool_call_id: call.id.clone(), content, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content,
+                    is_error: false,
+                    data: None,
+                })
             }
             "android_select" => {
                 let serial = require_str(call, "serial")?;
                 let mut android = self.android.lock().await;
                 android.select_device(serial);
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: format!("selected device {}", serial), is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: format!("selected device {}", serial),
+                    is_error: false,
+                    data: None,
+                })
             }
             "android_screenshot" => {
                 let android = self.android.lock().await;
@@ -980,7 +1081,12 @@ impl DeviceTools {
                 let y = call.arguments["y"].as_u64().unwrap_or(0) as u32;
                 let android = self.android.lock().await;
                 let msg = android.tap(x, y).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "android_swipe" => {
                 let x1 = call.arguments["x1"].as_u64().unwrap_or(0) as u32;
@@ -990,65 +1096,120 @@ impl DeviceTools {
                 let dur = call.arguments["duration_ms"].as_u64().unwrap_or(300) as u32;
                 let android = self.android.lock().await;
                 let msg = android.swipe(x1, y1, x2, y2, dur).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "android_type" => {
                 let text = require_str(call, "text")?;
                 let android = self.android.lock().await;
                 let msg = android.type_text(text).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "android_key" => {
                 let key = require_str(call, "key")?;
                 let android = self.android.lock().await;
                 let msg = android.press_key(key).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "android_shell" => {
                 let command = require_str(call, "command")?;
                 let android = self.android.lock().await;
                 let output = android.run_shell(command).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: output, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: output,
+                    is_error: false,
+                    data: None,
+                })
             }
             "android_launch" => {
                 let package = require_str(call, "package")?;
                 let android = self.android.lock().await;
                 let msg = android.launch_app(package).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "android_stop_app" => {
                 let package = require_str(call, "package")?;
                 let android = self.android.lock().await;
                 let msg = android.stop_app(package).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "android_install" => {
                 let apk_path = require_str(call, "apk_path")?;
                 let android = self.android.lock().await;
                 let msg = android.install(apk_path).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "android_apps" => {
                 let android = self.android.lock().await;
                 let apps = android.list_apps().await?;
                 let content = serde_json::to_string_pretty(&apps).unwrap_or_default();
-                Ok(ToolResult { tool_call_id: call.id.clone(), content, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content,
+                    is_error: false,
+                    data: None,
+                })
             }
             "android_screen_info" => {
                 let android = self.android.lock().await;
                 let info = android.screen_info().await?;
                 let content = serde_json::to_string_pretty(&info).unwrap_or_default();
-                Ok(ToolResult { tool_call_id: call.id.clone(), content, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content,
+                    is_error: false,
+                    data: None,
+                })
             }
             "android_ui_dump" => {
                 let android = self.android.lock().await;
                 let xml = android.dump_ui().await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: xml, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: xml,
+                    is_error: false,
+                    data: None,
+                })
             }
             "android_status" => {
                 let android = self.android.lock().await;
                 let status = android.status().await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: serde_json::to_string_pretty(&status).unwrap_or_default(), is_error: false, data: Some(status) })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: serde_json::to_string_pretty(&status).unwrap_or_default(),
+                    is_error: false,
+                    data: Some(status),
+                })
             }
 
             // ── iOS ───────────────────────────────────────────
@@ -1056,14 +1217,28 @@ impl DeviceTools {
                 let ios = self.ios.lock().await;
                 let devices = ios.list_devices().await?;
                 let content = serde_json::to_string_pretty(&devices).unwrap_or_default();
-                Ok(ToolResult { tool_call_id: call.id.clone(), content, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content,
+                    is_error: false,
+                    data: None,
+                })
             }
             "ios_select" => {
                 let udid = require_str(call, "udid")?;
                 let is_sim = call.arguments["is_simulator"].as_bool().unwrap_or(false);
                 let mut ios = self.ios.lock().await;
                 ios.select_device(udid, is_sim);
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: format!("selected {} {}", if is_sim { "simulator" } else { "device" }, udid), is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: format!(
+                        "selected {} {}",
+                        if is_sim { "simulator" } else { "device" },
+                        udid
+                    ),
+                    is_error: false,
+                    data: None,
+                })
             }
             "ios_screenshot" => {
                 let ios = self.ios.lock().await;
@@ -1081,7 +1256,12 @@ impl DeviceTools {
                 let y = call.arguments["y"].as_u64().unwrap_or(0) as u32;
                 let ios = self.ios.lock().await;
                 let msg = ios.tap(x, y).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "ios_swipe" => {
                 let x1 = call.arguments["x1"].as_u64().unwrap_or(0) as u32;
@@ -1091,66 +1271,121 @@ impl DeviceTools {
                 let dur = call.arguments["duration_ms"].as_u64().unwrap_or(300) as u32;
                 let ios = self.ios.lock().await;
                 let msg = ios.swipe(x1, y1, x2, y2, dur).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "ios_type" => {
                 let text = require_str(call, "text")?;
                 let ios = self.ios.lock().await;
                 let msg = ios.type_text(text).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "ios_button" => {
                 let button = require_str(call, "button")?;
                 let ios = self.ios.lock().await;
                 let msg = ios.press_button(button).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "ios_launch" => {
                 let bundle_id = require_str(call, "bundle_id")?;
                 let ios = self.ios.lock().await;
                 let msg = ios.launch_app(bundle_id).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "ios_terminate" => {
                 let bundle_id = require_str(call, "bundle_id")?;
                 let ios = self.ios.lock().await;
                 let msg = ios.terminate_app(bundle_id).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "ios_install" => {
                 let path = require_str(call, "path")?;
                 let ios = self.ios.lock().await;
                 let msg = ios.install_app(path).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "ios_apps" => {
                 let ios = self.ios.lock().await;
                 let apps = ios.list_apps().await?;
                 let content = serde_json::to_string_pretty(&apps).unwrap_or_default();
-                Ok(ToolResult { tool_call_id: call.id.clone(), content, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content,
+                    is_error: false,
+                    data: None,
+                })
             }
             "ios_open_url" => {
                 let url = require_str(call, "url")?;
                 let ios = self.ios.lock().await;
                 let msg = ios.open_url(url).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "ios_boot_sim" => {
                 let udid = require_str(call, "udid")?;
                 let ios = self.ios.lock().await;
                 let msg = ios.boot_simulator(udid).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "ios_shutdown_sim" => {
                 let udid = require_str(call, "udid")?;
                 let ios = self.ios.lock().await;
                 let msg = ios.shutdown_simulator(udid).await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: msg, is_error: false, data: None })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: msg,
+                    is_error: false,
+                    data: None,
+                })
             }
             "ios_status" => {
                 let ios = self.ios.lock().await;
                 let status = ios.status().await?;
-                Ok(ToolResult { tool_call_id: call.id.clone(), content: serde_json::to_string_pretty(&status).unwrap_or_default(), is_error: false, data: Some(status) })
+                Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: serde_json::to_string_pretty(&status).unwrap_or_default(),
+                    is_error: false,
+                    data: Some(status),
+                })
             }
 
             _ => Err(ClawError::ToolNotFound(call.tool_name.clone())),
@@ -1162,10 +1397,12 @@ impl DeviceTools {
 
 /// Extract a required string argument from a tool call.
 fn require_str<'a>(call: &'a ToolCall, key: &str) -> claw_core::Result<&'a str> {
-    call.arguments[key].as_str().ok_or_else(|| ClawError::ToolExecution {
-        tool: call.tool_name.clone(),
-        reason: format!("missing '{}' argument", key),
-    })
+    call.arguments[key]
+        .as_str()
+        .ok_or_else(|| ClawError::ToolExecution {
+            tool: call.tool_name.clone(),
+            reason: format!("missing '{}' argument", key),
+        })
 }
 
 /// Format a page snapshot into a readable text for the LLM.
@@ -1188,7 +1425,11 @@ fn format_page_snapshot(snapshot: &crate::browser::PageSnapshot) -> String {
         for el in &snapshot.interactive_elements {
             out.push_str(&format!(
                 "[{}] <{}> role={} text=\"{}\" selector=\"{}\"\n",
-                el.index, el.tag, el.role, el.text.chars().take(80).collect::<String>(), el.selector
+                el.index,
+                el.tag,
+                el.role,
+                el.text.chars().take(80).collect::<String>(),
+                el.selector
             ));
         }
     }

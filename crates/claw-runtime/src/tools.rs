@@ -1,9 +1,9 @@
-use claw_core::{Tool, ToolCall, ToolResult, Result};
+use claw_core::{Result, Tool, ToolCall, ToolResult};
 use serde_json::json;
-use tracing::info;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use tokio::sync::Mutex;
+use tracing::info;
 
 /// Info about a background process started by the agent.
 #[derive(Debug, Clone)]
@@ -809,17 +809,21 @@ impl BuiltinTools {
     }
 
     async fn exec_shell(&self, call: &ToolCall) -> Result<ToolResult> {
-        let command = call.arguments["command"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+        let command = call.arguments["command"].as_str().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "shell_exec".into(),
                 reason: "missing 'command' argument".into(),
-            })?;
+            }
+        })?;
 
         let timeout_secs = call.arguments["timeout_secs"].as_u64().unwrap_or(120);
         let working_dir = call.arguments["working_dir"].as_str();
 
-        info!(command = command, timeout_secs = timeout_secs, "executing shell command");
+        info!(
+            command = command,
+            timeout_secs = timeout_secs,
+            "executing shell command"
+        );
 
         let mut cmd = tokio::process::Command::new("sh");
         cmd.arg("-c").arg(command);
@@ -830,19 +834,17 @@ impl BuiltinTools {
             cmd.current_dir(dir);
         }
 
-        let output = tokio::time::timeout(
-            std::time::Duration::from_secs(timeout_secs),
-            cmd.output(),
-        )
-        .await
-        .map_err(|_| claw_core::ClawError::ToolExecution {
-            tool: "shell_exec".into(),
-            reason: format!("command timed out after {}s", timeout_secs),
-        })?
-        .map_err(|e| claw_core::ClawError::ToolExecution {
-            tool: "shell_exec".into(),
-            reason: e.to_string(),
-        })?;
+        let output =
+            tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output())
+                .await
+                .map_err(|_| claw_core::ClawError::ToolExecution {
+                    tool: "shell_exec".into(),
+                    reason: format!("command timed out after {}s", timeout_secs),
+                })?
+                .map_err(|e| claw_core::ClawError::ToolExecution {
+                    tool: "shell_exec".into(),
+                    reason: e.to_string(),
+                })?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -864,12 +866,13 @@ impl BuiltinTools {
     }
 
     async fn exec_file_read(&self, call: &ToolCall) -> Result<ToolResult> {
-        let path = call.arguments["path"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
-                tool: "file_read".into(),
-                reason: "missing 'path' argument".into(),
-            })?;
+        let path =
+            call.arguments["path"]
+                .as_str()
+                .ok_or_else(|| claw_core::ClawError::ToolExecution {
+                    tool: "file_read".into(),
+                    reason: "missing 'path' argument".into(),
+                })?;
 
         match tokio::fs::read_to_string(path).await {
             Ok(content) => Ok(ToolResult {
@@ -888,18 +891,19 @@ impl BuiltinTools {
     }
 
     async fn exec_file_write(&self, call: &ToolCall) -> Result<ToolResult> {
-        let path = call.arguments["path"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
-                tool: "file_write".into(),
-                reason: "missing 'path' argument".into(),
-            })?;
-        let content = call.arguments["content"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+        let path =
+            call.arguments["path"]
+                .as_str()
+                .ok_or_else(|| claw_core::ClawError::ToolExecution {
+                    tool: "file_write".into(),
+                    reason: "missing 'path' argument".into(),
+                })?;
+        let content = call.arguments["content"].as_str().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "file_write".into(),
                 reason: "missing 'content' argument".into(),
-            })?;
+            }
+        })?;
 
         // Create parent directories
         if let Some(parent) = std::path::Path::new(path).parent() {
@@ -923,27 +927,31 @@ impl BuiltinTools {
     }
 
     async fn exec_file_list(&self, call: &ToolCall) -> Result<ToolResult> {
-        let path = call.arguments["path"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
-                tool: "file_list".into(),
-                reason: "missing 'path' argument".into(),
-            })?;
+        let path =
+            call.arguments["path"]
+                .as_str()
+                .ok_or_else(|| claw_core::ClawError::ToolExecution {
+                    tool: "file_list".into(),
+                    reason: "missing 'path' argument".into(),
+                })?;
 
         let mut entries = Vec::new();
-        let mut dir = tokio::fs::read_dir(path).await.map_err(|e| {
-            claw_core::ClawError::ToolExecution {
-                tool: "file_list".into(),
-                reason: e.to_string(),
-            }
-        })?;
+        let mut dir =
+            tokio::fs::read_dir(path)
+                .await
+                .map_err(|e| claw_core::ClawError::ToolExecution {
+                    tool: "file_list".into(),
+                    reason: e.to_string(),
+                })?;
 
-        while let Some(entry) = dir.next_entry().await.map_err(|e| {
-            claw_core::ClawError::ToolExecution {
-                tool: "file_list".into(),
-                reason: e.to_string(),
-            }
-        })? {
+        while let Some(entry) =
+            dir.next_entry()
+                .await
+                .map_err(|e| claw_core::ClawError::ToolExecution {
+                    tool: "file_list".into(),
+                    reason: e.to_string(),
+                })?
+        {
             let name = entry.file_name().to_string_lossy().to_string();
             let file_type = entry.file_type().await.ok();
             let prefix = if file_type.map(|ft| ft.is_dir()).unwrap_or(false) {
@@ -964,12 +972,13 @@ impl BuiltinTools {
     }
 
     async fn exec_http_fetch(&self, call: &ToolCall) -> Result<ToolResult> {
-        let url = call.arguments["url"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
-                tool: "http_fetch".into(),
-                reason: "missing 'url' argument".into(),
-            })?;
+        let url =
+            call.arguments["url"]
+                .as_str()
+                .ok_or_else(|| claw_core::ClawError::ToolExecution {
+                    tool: "http_fetch".into(),
+                    reason: "missing 'url' argument".into(),
+                })?;
 
         let max_bytes = call.arguments["max_bytes"].as_u64().unwrap_or(50_000) as usize;
 
@@ -977,22 +986,21 @@ impl BuiltinTools {
 
         // Use curl via shell for simplicity — no extra HTTP client dependency needed
         let mut cmd = tokio::process::Command::new("sh");
-        cmd.arg("-c")
-            .arg(format!("curl -sL --max-time 30 '{}'", url.replace('\'', "'\\''")));
+        cmd.arg("-c").arg(format!(
+            "curl -sL --max-time 30 '{}'",
+            url.replace('\'', "'\\''")
+        ));
 
-        let output = tokio::time::timeout(
-            std::time::Duration::from_secs(35),
-            cmd.output(),
-        )
-        .await
-        .map_err(|_| claw_core::ClawError::ToolExecution {
-            tool: "http_fetch".into(),
-            reason: "request timed out".into(),
-        })?
-        .map_err(|e| claw_core::ClawError::ToolExecution {
-            tool: "http_fetch".into(),
-            reason: e.to_string(),
-        })?;
+        let output = tokio::time::timeout(std::time::Duration::from_secs(35), cmd.output())
+            .await
+            .map_err(|_| claw_core::ClawError::ToolExecution {
+                tool: "http_fetch".into(),
+                reason: "request timed out".into(),
+            })?
+            .map_err(|e| claw_core::ClawError::ToolExecution {
+                tool: "http_fetch".into(),
+                reason: e.to_string(),
+            })?;
 
         let body = String::from_utf8_lossy(&output.stdout);
         let content: String = body.chars().take(max_bytes).collect();
@@ -1008,33 +1016,36 @@ impl BuiltinTools {
     // ── file_edit: surgical search-and-replace ─────────────────
 
     async fn exec_file_edit(&self, call: &ToolCall) -> Result<ToolResult> {
-        let path = call.arguments["path"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
-                tool: "file_edit".into(),
-                reason: "missing 'path' argument".into(),
-            })?;
-        let old_string = call.arguments["old_string"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+        let path =
+            call.arguments["path"]
+                .as_str()
+                .ok_or_else(|| claw_core::ClawError::ToolExecution {
+                    tool: "file_edit".into(),
+                    reason: "missing 'path' argument".into(),
+                })?;
+        let old_string = call.arguments["old_string"].as_str().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "file_edit".into(),
                 reason: "missing 'old_string' argument".into(),
-            })?;
-        let new_string = call.arguments["new_string"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+            }
+        })?;
+        let new_string = call.arguments["new_string"].as_str().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "file_edit".into(),
                 reason: "missing 'new_string' argument".into(),
-            })?;
+            }
+        })?;
 
         let content = match tokio::fs::read_to_string(path).await {
             Ok(c) => c,
-            Err(e) => return Ok(ToolResult {
-                tool_call_id: call.id.clone(),
-                content: format!("Error reading {}: {}", path, e),
-                is_error: true,
-                data: None,
-            }),
+            Err(e) => {
+                return Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: format!("Error reading {}: {}", path, e),
+                    is_error: true,
+                    data: None,
+                });
+            }
         };
 
         // Smart guard: if old_string covers >50% of the file, nudge toward file_write
@@ -1049,7 +1060,8 @@ impl BuiltinTools {
                 content: format!(
                     "The old_string covers {:.0}% of {} — that's a rewrite, not a surgical edit. \
                      Use file_write to replace the whole file instead.",
-                    coverage * 100.0, path
+                    coverage * 100.0,
+                    path
                 ),
                 is_error: true,
                 data: None,
@@ -1084,7 +1096,9 @@ impl BuiltinTools {
             Ok(_) => {
                 let mut msg = format!(
                     "Successfully edited {} ({} occurrence{} found, replaced first)",
-                    path, occurrences, if occurrences == 1 { "" } else { "s" }
+                    path,
+                    occurrences,
+                    if occurrences == 1 { "" } else { "s" }
                 );
                 if edit_count >= 2 {
                     msg.push_str(&format!(
@@ -1112,18 +1126,18 @@ impl BuiltinTools {
     // ── file_find: recursive glob search ───────────────────────
 
     async fn exec_file_find(&self, call: &ToolCall) -> Result<ToolResult> {
-        let directory = call.arguments["directory"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+        let directory = call.arguments["directory"].as_str().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "file_find".into(),
                 reason: "missing 'directory' argument".into(),
-            })?;
-        let pattern = call.arguments["pattern"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+            }
+        })?;
+        let pattern = call.arguments["pattern"].as_str().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "file_find".into(),
                 reason: "missing 'pattern' argument".into(),
-            })?;
+            }
+        })?;
         let max_results = call.arguments["max_results"].as_u64().unwrap_or(100) as usize;
 
         // Exclusion list for common junk directories
@@ -1140,12 +1154,18 @@ impl BuiltinTools {
             // Path-style glob — use find with -path
             format!(
                 "find {} {} -path '{}' -type f -print 2>/dev/null | head -n {}",
-                shell_escape(directory), excludes, shell_escape(clean_pattern), max_results
+                shell_escape(directory),
+                excludes,
+                shell_escape(clean_pattern),
+                max_results
             )
         } else {
             format!(
                 "find {} {} -name '{}' -type f -print 2>/dev/null | head -n {}",
-                shell_escape(directory), excludes, shell_escape(clean_pattern), max_results
+                shell_escape(directory),
+                excludes,
+                shell_escape(clean_pattern),
+                max_results
             )
         };
 
@@ -1182,18 +1202,18 @@ impl BuiltinTools {
     // ── file_grep: search file contents ────────────────────────
 
     async fn exec_file_grep(&self, call: &ToolCall) -> Result<ToolResult> {
-        let directory = call.arguments["directory"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+        let directory = call.arguments["directory"].as_str().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "file_grep".into(),
                 reason: "missing 'directory' argument".into(),
-            })?;
-        let pattern = call.arguments["pattern"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+            }
+        })?;
+        let pattern = call.arguments["pattern"].as_str().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "file_grep".into(),
                 reason: "missing 'pattern' argument".into(),
-            })?;
+            }
+        })?;
         let file_pattern = call.arguments["file_pattern"].as_str();
         let max_results = call.arguments["max_results"].as_u64().unwrap_or(50) as usize;
 
@@ -1204,12 +1224,19 @@ impl BuiltinTools {
         let cmd = if let Some(fp) = file_pattern {
             format!(
                 "grep -rn {} --include='{}' -E {} {} 2>/dev/null | head -n {}",
-                excludes, shell_escape(fp), shell_escape(pattern), shell_escape(directory), max_results
+                excludes,
+                shell_escape(fp),
+                shell_escape(pattern),
+                shell_escape(directory),
+                max_results
             )
         } else {
             format!(
                 "grep -rn {} -I -E {} {} 2>/dev/null | head -n {}",
-                excludes, shell_escape(pattern), shell_escape(directory), max_results
+                excludes,
+                shell_escape(pattern),
+                shell_escape(directory),
+                max_results
             )
         };
 
@@ -1246,25 +1273,26 @@ impl BuiltinTools {
     // ── process_start: launch background process with output capture ──
 
     async fn exec_process_start(&self, call: &ToolCall) -> Result<ToolResult> {
-        let command = call.arguments["command"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+        let command = call.arguments["command"].as_str().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "process_start".into(),
                 reason: "missing 'command' argument".into(),
-            })?;
+            }
+        })?;
         let working_dir = call.arguments["working_dir"].as_str();
         let label = call.arguments["label"].as_str().unwrap_or("background");
 
-        info!(command = command, label = label, "starting background process");
+        info!(
+            command = command,
+            label = label,
+            "starting background process"
+        );
 
         // Create a temp log file for capturing output
         let log_file = format!("/tmp/claw-proc-{}.log", uuid::Uuid::new_v4().as_simple());
 
         // Redirect stdout+stderr to log file, pipe stdin from /dev/null
-        let wrapped_command = format!(
-            "{} > {} 2>&1 < /dev/null",
-            command, shell_escape(&log_file)
-        );
+        let wrapped_command = format!("{} > {} 2>&1 < /dev/null", command, shell_escape(&log_file));
 
         let mut cmd = tokio::process::Command::new("sh");
         cmd.arg("-c").arg(&wrapped_command);
@@ -1283,13 +1311,16 @@ impl BuiltinTools {
                 std::mem::forget(child);
 
                 // Track the process in the registry
-                PROCESS_REGISTRY.lock().await.insert(pid, TrackedProcess {
+                PROCESS_REGISTRY.lock().await.insert(
                     pid,
-                    label: label.to_string(),
-                    command: command.to_string(),
-                    log_file: log_file.clone(),
-                    started_at: std::time::Instant::now(),
-                });
+                    TrackedProcess {
+                        pid,
+                        label: label.to_string(),
+                        command: command.to_string(),
+                        log_file: log_file.clone(),
+                        started_at: std::time::Instant::now(),
+                    },
+                );
 
                 Ok(ToolResult {
                     tool_call_id: call.id.clone(),
@@ -1321,14 +1352,18 @@ impl BuiltinTools {
         if registry.is_empty() {
             return Ok(ToolResult {
                 tool_call_id: call.id.clone(),
-                content: "No background processes tracked. Use `process_start` to launch one.".into(),
+                content: "No background processes tracked. Use `process_start` to launch one."
+                    .into(),
                 is_error: false,
                 data: None,
             });
         }
 
         let mut lines = Vec::new();
-        lines.push(format!("{:<8} {:<6} {:<12} {:<10} {}", "PID", "ALIVE", "LABEL", "UPTIME", "COMMAND"));
+        lines.push(format!(
+            "{:<8} {:<6} {:<12} {:<10} {}",
+            "PID", "ALIVE", "LABEL", "UPTIME", "COMMAND"
+        ));
         lines.push("─".repeat(70));
 
         for proc in registry.values() {
@@ -1355,12 +1390,13 @@ impl BuiltinTools {
     // ── process_output: read output from a background process ──
 
     async fn exec_process_output(&self, call: &ToolCall) -> Result<ToolResult> {
-        let pid = call.arguments["pid"]
-            .as_u64()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
-                tool: "process_output".into(),
-                reason: "missing or invalid 'pid' argument".into(),
-            })? as u32;
+        let pid =
+            call.arguments["pid"]
+                .as_u64()
+                .ok_or_else(|| claw_core::ClawError::ToolExecution {
+                    tool: "process_output".into(),
+                    reason: "missing or invalid 'pid' argument".into(),
+                })? as u32;
         let max_lines = call.arguments["lines"].as_u64().unwrap_or(50) as usize;
 
         let registry = PROCESS_REGISTRY.lock().await;
@@ -1381,7 +1417,10 @@ impl BuiltinTools {
             Err(e) => {
                 return Ok(ToolResult {
                     tool_call_id: call.id.clone(),
-                    content: format!("Process '{}' (PID {}) — could not read log: {}", label, pid, e),
+                    content: format!(
+                        "Process '{}' (PID {}) — could not read log: {}",
+                        label, pid, e
+                    ),
                     is_error: true,
                     data: None,
                 });
@@ -1400,7 +1439,11 @@ impl BuiltinTools {
         let status_str = if alive { "RUNNING ✅" } else { "EXITED ❌" };
         let header = format!(
             "Process '{}' (PID {}) — {} — uptime {}s — {} total lines\n{}",
-            label, pid, status_str, uptime, total_lines,
+            label,
+            pid,
+            status_str,
+            uptime,
+            total_lines,
             "─".repeat(60)
         );
 
@@ -1422,12 +1465,13 @@ impl BuiltinTools {
     // ── process_kill: kill a background process ────────────────
 
     async fn exec_process_kill(&self, call: &ToolCall) -> Result<ToolResult> {
-        let pid = call.arguments["pid"]
-            .as_u64()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
-                tool: "process_kill".into(),
-                reason: "missing or invalid 'pid' argument".into(),
-            })?;
+        let pid =
+            call.arguments["pid"]
+                .as_u64()
+                .ok_or_else(|| claw_core::ClawError::ToolExecution {
+                    tool: "process_kill".into(),
+                    reason: "missing or invalid 'pid' argument".into(),
+                })?;
 
         info!(pid = pid, "killing process");
 
@@ -1443,7 +1487,10 @@ impl BuiltinTools {
         // Remove from registry
         let label = {
             let mut registry = PROCESS_REGISTRY.lock().await;
-            registry.remove(&(pid as u32)).map(|p| p.label).unwrap_or_default()
+            registry
+                .remove(&(pid as u32))
+                .map(|p| p.label)
+                .unwrap_or_default()
         };
 
         if output.status.success() {
@@ -1465,12 +1512,12 @@ impl BuiltinTools {
     }
 
     async fn exec_apply_patch(&self, call: &ToolCall) -> Result<ToolResult> {
-        let edits = call.arguments["edits"]
-            .as_array()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+        let edits = call.arguments["edits"].as_array().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "apply_patch".into(),
                 reason: "missing 'edits' array argument".into(),
-            })?;
+            }
+        })?;
 
         if edits.is_empty() {
             return Ok(ToolResult {
@@ -1498,7 +1545,11 @@ impl BuiltinTools {
                 Some(s) => s,
                 None => {
                     fail_count += 1;
-                    results.push(format!("Edit {} ({}): FAILED — missing 'old_string'", i + 1, path));
+                    results.push(format!(
+                        "Edit {} ({}): FAILED — missing 'old_string'",
+                        i + 1,
+                        path
+                    ));
                     continue;
                 }
             };
@@ -1506,7 +1557,11 @@ impl BuiltinTools {
                 Some(s) => s,
                 None => {
                     fail_count += 1;
-                    results.push(format!("Edit {} ({}): FAILED — missing 'new_string'", i + 1, path));
+                    results.push(format!(
+                        "Edit {} ({}): FAILED — missing 'new_string'",
+                        i + 1,
+                        path
+                    ));
                     continue;
                 }
             };
@@ -1525,7 +1580,11 @@ impl BuiltinTools {
             let occurrences = content.matches(old_string).count();
             if occurrences == 0 {
                 fail_count += 1;
-                results.push(format!("Edit {} ({}): FAILED — old_string not found in file", i + 1, path));
+                results.push(format!(
+                    "Edit {} ({}): FAILED — old_string not found in file",
+                    i + 1,
+                    path
+                ));
                 continue;
             }
 
@@ -1544,14 +1603,22 @@ impl BuiltinTools {
                 }
                 Err(e) => {
                     fail_count += 1;
-                    results.push(format!("Edit {} ({}): FAILED — write error: {}", i + 1, path, e));
+                    results.push(format!(
+                        "Edit {} ({}): FAILED — write error: {}",
+                        i + 1,
+                        path,
+                        e
+                    ));
                 }
             }
         }
 
         let summary = format!(
             "Applied {}/{} edits ({} failed)\n\n{}",
-            success_count, edits.len(), fail_count, results.join("\n")
+            success_count,
+            edits.len(),
+            fail_count,
+            results.join("\n")
         );
 
         Ok(ToolResult {
@@ -1565,9 +1632,7 @@ impl BuiltinTools {
     // ── Terminal (PTY) Tool Handlers ──────────────────────────────────
 
     async fn exec_terminal_open(&self, call: &ToolCall) -> Result<ToolResult> {
-        let label = call.arguments["label"]
-            .as_str()
-            .unwrap_or("default");
+        let label = call.arguments["label"].as_str().unwrap_or("default");
         let working_dir = call.arguments["working_dir"].as_str();
 
         match crate::terminal::terminal_open(label, working_dir).await {
@@ -1593,19 +1658,19 @@ impl BuiltinTools {
     }
 
     async fn exec_terminal_run(&self, call: &ToolCall) -> Result<ToolResult> {
-        let terminal_id = call.arguments["terminal_id"]
-            .as_u64()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+        let terminal_id = call.arguments["terminal_id"].as_u64().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "terminal_run".into(),
                 reason: "missing 'terminal_id' argument".into(),
-            })? as u32;
+            }
+        })? as u32;
 
-        let command = call.arguments["command"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+        let command = call.arguments["command"].as_str().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "terminal_run".into(),
                 reason: "missing 'command' argument".into(),
-            })?;
+            }
+        })?;
 
         let timeout_secs = call.arguments["timeout_secs"].as_u64().unwrap_or(120);
         let timeout_ms = timeout_secs * 1000;
@@ -1629,12 +1694,12 @@ impl BuiltinTools {
     }
 
     async fn exec_terminal_view(&self, call: &ToolCall) -> Result<ToolResult> {
-        let terminal_id = call.arguments["terminal_id"]
-            .as_u64()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+        let terminal_id = call.arguments["terminal_id"].as_u64().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "terminal_view".into(),
                 reason: "missing 'terminal_id' argument".into(),
-            })? as u32;
+            }
+        })? as u32;
 
         let lines = call.arguments["lines"].as_u64().unwrap_or(50) as usize;
 
@@ -1655,24 +1720,29 @@ impl BuiltinTools {
     }
 
     async fn exec_terminal_input(&self, call: &ToolCall) -> Result<ToolResult> {
-        let terminal_id = call.arguments["terminal_id"]
-            .as_u64()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+        let terminal_id = call.arguments["terminal_id"].as_u64().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "terminal_input".into(),
                 reason: "missing 'terminal_id' argument".into(),
-            })? as u32;
+            }
+        })? as u32;
 
-        let text = call.arguments["text"]
-            .as_str()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
-                tool: "terminal_input".into(),
-                reason: "missing 'text' argument".into(),
-            })?;
+        let text =
+            call.arguments["text"]
+                .as_str()
+                .ok_or_else(|| claw_core::ClawError::ToolExecution {
+                    tool: "terminal_input".into(),
+                    reason: "missing 'text' argument".into(),
+                })?;
 
         let timeout_secs = call.arguments["timeout_secs"].as_u64().unwrap_or(10);
         let timeout_ms = timeout_secs * 1000;
 
-        info!(terminal_id = terminal_id, text_len = text.len(), "terminal_input");
+        info!(
+            terminal_id = terminal_id,
+            text_len = text.len(),
+            "terminal_input"
+        );
 
         match crate::terminal::terminal_input(terminal_id, text, timeout_ms).await {
             Ok(output) => Ok(ToolResult {
@@ -1691,12 +1761,12 @@ impl BuiltinTools {
     }
 
     async fn exec_terminal_close(&self, call: &ToolCall) -> Result<ToolResult> {
-        let terminal_id = call.arguments["terminal_id"]
-            .as_u64()
-            .ok_or_else(|| claw_core::ClawError::ToolExecution {
+        let terminal_id = call.arguments["terminal_id"].as_u64().ok_or_else(|| {
+            claw_core::ClawError::ToolExecution {
                 tool: "terminal_close".into(),
                 reason: "missing 'terminal_id' argument".into(),
-            })? as u32;
+            }
+        })? as u32;
 
         match crate::terminal::terminal_close(terminal_id).await {
             Ok(msg) => Ok(ToolResult {

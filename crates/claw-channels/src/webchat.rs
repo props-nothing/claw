@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use tokio::sync::mpsc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::mpsc;
 
 use crate::adapter::*;
 
@@ -60,10 +60,12 @@ impl Channel for WebChatChannel {
 
     async fn send(&self, message: OutgoingMessage) -> claw_core::Result<()> {
         if let Some(ref tx) = self.outgoing_tx {
-            tx.send(message).await.map_err(|e| claw_core::ClawError::Channel {
-                channel: "webchat".into(),
-                reason: e.to_string(),
-            })?;
+            tx.send(message)
+                .await
+                .map_err(|e| claw_core::ClawError::Channel {
+                    channel: "webchat".into(),
+                    reason: e.to_string(),
+                })?;
         }
         Ok(())
     }

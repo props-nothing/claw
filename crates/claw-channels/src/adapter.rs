@@ -62,7 +62,10 @@ pub enum ChannelEvent {
     /// The channel disconnected.
     Disconnected(Option<String>),
     /// A typing indicator was received.
-    Typing { sender: String, group: Option<String> },
+    Typing {
+        sender: String,
+        group: Option<String>,
+    },
     /// A reaction was added.
     Reaction {
         message_id: String,
@@ -119,14 +122,22 @@ pub trait Channel: Send + Sync {
 
     /// Send a message and return its platform-specific message ID (for later editing).
     /// Default implementation delegates to `send()` and returns `None`.
-    async fn send_returning_id(&self, message: OutgoingMessage) -> claw_core::Result<Option<String>> {
+    async fn send_returning_id(
+        &self,
+        message: OutgoingMessage,
+    ) -> claw_core::Result<Option<String>> {
         self.send(message).await?;
         Ok(None)
     }
 
     /// Edit a previously sent message by its platform-specific message ID.
     /// Default implementation is a no-op (channels that don't support editing).
-    async fn edit_message(&self, _target: &str, _message_id: &str, _text: &str) -> claw_core::Result<()> {
+    async fn edit_message(
+        &self,
+        _target: &str,
+        _message_id: &str,
+        _text: &str,
+    ) -> claw_core::Result<()> {
         Ok(())
     }
 
@@ -142,9 +153,12 @@ pub trait Channel: Send + Sync {
              📋 Reason: {}\n\
              ```\n{}\n```\n\n\
              _Reply with /approve {} or /deny {}_",
-            prompt.tool_name, prompt.risk_level, prompt.reason,
+            prompt.tool_name,
+            prompt.risk_level,
+            prompt.reason,
             args_preview,
-            prompt.approval_id, prompt.approval_id,
+            prompt.approval_id,
+            prompt.approval_id,
         );
         self.send(OutgoingMessage {
             channel: self.id().to_string(),
@@ -152,7 +166,8 @@ pub trait Channel: Send + Sync {
             text,
             attachments: vec![],
             reply_to: None,
-        }).await
+        })
+        .await
     }
 
     /// Stop the channel adapter gracefully.

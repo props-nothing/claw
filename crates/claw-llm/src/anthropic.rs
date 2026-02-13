@@ -26,10 +26,7 @@ impl AnthropicProvider {
         self
     }
 
-    fn build_request_body(
-        &self,
-        request: &LlmRequest,
-    ) -> serde_json::Value {
+    fn build_request_body(&self, request: &LlmRequest) -> serde_json::Value {
         let mut messages = Vec::new();
         for msg in &request.messages {
             match msg.role {
@@ -74,7 +71,12 @@ impl AnthropicProvider {
                     // Tool results sent as user message with tool_result content blocks
                     let mut content_blocks: Vec<serde_json::Value> = Vec::new();
                     for block in &msg.content {
-                        if let claw_core::MessageContent::ToolResult { tool_call_id, content, is_error } = block {
+                        if let claw_core::MessageContent::ToolResult {
+                            tool_call_id,
+                            content,
+                            is_error,
+                        } = block
+                        {
                             content_blocks.push(serde_json::json!({
                                 "type": "tool_result",
                                 "tool_use_id": tool_call_id,
@@ -258,13 +260,16 @@ impl LlmProvider for AnthropicProvider {
                 input_tokens,
                 output_tokens,
                 thinking_tokens: 0,
-                cache_read_tokens: usage_data["cache_read_input_tokens"]
-                    .as_u64()
-                    .unwrap_or(0) as u32,
+                cache_read_tokens: usage_data["cache_read_input_tokens"].as_u64().unwrap_or(0)
+                    as u32,
                 cache_write_tokens: usage_data["cache_creation_input_tokens"]
                     .as_u64()
                     .unwrap_or(0) as u32,
-                estimated_cost_usd: estimate_anthropic_cost(&request.model, input_tokens, output_tokens),
+                estimated_cost_usd: estimate_anthropic_cost(
+                    &request.model,
+                    input_tokens,
+                    output_tokens,
+                ),
             },
             has_tool_calls,
             stop_reason,
@@ -324,15 +329,21 @@ impl LlmProvider for AnthropicProvider {
                                         // Could be "event: ..." line — skip
                                         continue;
                                     };
-                                    let Ok(event) = serde_json::from_str::<serde_json::Value>(data) else {
+                                    let Ok(event) = serde_json::from_str::<serde_json::Value>(data)
+                                    else {
                                         continue;
                                     };
 
                                     match event["type"].as_str() {
                                         Some("message_start") => {
                                             // Extract usage from message_start
-                                            if let Some(usage) = event["message"]["usage"].as_object() {
-                                                if let Some(it) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
+                                            if let Some(usage) =
+                                                event["message"]["usage"].as_object()
+                                            {
+                                                if let Some(it) = usage
+                                                    .get("input_tokens")
+                                                    .and_then(|v| v.as_u64())
+                                                {
                                                     input_tokens = it as u32;
                                                 }
                                             }
@@ -340,8 +351,10 @@ impl LlmProvider for AnthropicProvider {
                                         Some("content_block_start") => {
                                             let cb = &event["content_block"];
                                             if cb["type"].as_str() == Some("tool_use") {
-                                                current_tool_id = cb["id"].as_str().unwrap_or("").to_string();
-                                                current_tool_name = cb["name"].as_str().unwrap_or("").to_string();
+                                                current_tool_id =
+                                                    cb["id"].as_str().unwrap_or("").to_string();
+                                                current_tool_name =
+                                                    cb["name"].as_str().unwrap_or("").to_string();
                                                 current_tool_input.clear();
                                                 in_tool_input = true;
                                             }
@@ -351,16 +364,26 @@ impl LlmProvider for AnthropicProvider {
                                             match delta["type"].as_str() {
                                                 Some("text_delta") => {
                                                     if let Some(text) = delta["text"].as_str() {
-                                                        let _ = tx.send(StreamChunk::TextDelta(text.to_string())).await;
+                                                        let _ = tx
+                                                            .send(StreamChunk::TextDelta(
+                                                                text.to_string(),
+                                                            ))
+                                                            .await;
                                                     }
                                                 }
                                                 Some("thinking_delta") => {
                                                     if let Some(text) = delta["thinking"].as_str() {
-                                                        let _ = tx.send(StreamChunk::Thinking(text.to_string())).await;
+                                                        let _ = tx
+                                                            .send(StreamChunk::Thinking(
+                                                                text.to_string(),
+                                                            ))
+                                                            .await;
                                                     }
                                                 }
                                                 Some("input_json_delta") => {
-                                                    if let Some(partial) = delta["partial_json"].as_str() {
+                                                    if let Some(partial) =
+                                                        delta["partial_json"].as_str()
+                                                    {
                                                         current_tool_input.push_str(partial);
                                                     }
                                                 }
@@ -370,20 +393,24 @@ impl LlmProvider for AnthropicProvider {
                                         Some("content_block_stop") => {
                                             if in_tool_input {
                                                 let arguments: serde_json::Value =
-                                                    serde_json::from_str(&current_tool_input).unwrap_or_default();
-                                                let _ = tx.send(StreamChunk::ToolCall(
-                                                    claw_core::ToolCall {
-                                                        id: current_tool_id.clone(),
-                                                        tool_name: current_tool_name.clone(),
-                                                        arguments,
-                                                    },
-                                                )).await;
+                                                    serde_json::from_str(&current_tool_input)
+                                                        .unwrap_or_default();
+                                                let _ = tx
+                                                    .send(StreamChunk::ToolCall(
+                                                        claw_core::ToolCall {
+                                                            id: current_tool_id.clone(),
+                                                            tool_name: current_tool_name.clone(),
+                                                            arguments,
+                                                        },
+                                                    ))
+                                                    .await;
                                                 has_tool_calls = true;
                                                 in_tool_input = false;
                                             }
                                         }
                                         Some("message_delta") => {
-                                            if let Some(sr) = event["delta"]["stop_reason"].as_str() {
+                                            if let Some(sr) = event["delta"]["stop_reason"].as_str()
+                                            {
                                                 stop_reason = match sr {
                                                     "tool_use" => StopReason::ToolUse,
                                                     "max_tokens" => StopReason::MaxTokens,
@@ -392,26 +419,42 @@ impl LlmProvider for AnthropicProvider {
                                                 };
                                             }
                                             if let Some(usage) = event["usage"].as_object() {
-                                                if let Some(ot) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
+                                                if let Some(ot) = usage
+                                                    .get("output_tokens")
+                                                    .and_then(|v| v.as_u64())
+                                                {
                                                     output_tokens = ot as u32;
                                                 }
                                             }
                                         }
                                         Some("message_stop") => {
-                                            let cost = estimate_anthropic_cost(&model, input_tokens, output_tokens);
-                                            let _ = tx.send(StreamChunk::Usage(Usage {
+                                            let cost = estimate_anthropic_cost(
+                                                &model,
                                                 input_tokens,
                                                 output_tokens,
-                                                estimated_cost_usd: cost,
-                                                ..Default::default()
-                                            })).await;
-                                            let final_stop = if has_tool_calls { StopReason::ToolUse } else { stop_reason };
+                                            );
+                                            let _ = tx
+                                                .send(StreamChunk::Usage(Usage {
+                                                    input_tokens,
+                                                    output_tokens,
+                                                    estimated_cost_usd: cost,
+                                                    ..Default::default()
+                                                }))
+                                                .await;
+                                            let final_stop = if has_tool_calls {
+                                                StopReason::ToolUse
+                                            } else {
+                                                stop_reason
+                                            };
                                             let _ = tx.send(StreamChunk::Done(final_stop)).await;
                                             return;
                                         }
                                         Some("error") => {
-                                            let msg = event["error"]["message"].as_str().unwrap_or("unknown error");
-                                            let _ = tx.send(StreamChunk::Error(msg.to_string())).await;
+                                            let msg = event["error"]["message"]
+                                                .as_str()
+                                                .unwrap_or("unknown error");
+                                            let _ =
+                                                tx.send(StreamChunk::Error(msg.to_string())).await;
                                             return;
                                         }
                                         _ => {}

@@ -5,9 +5,11 @@
 //!
 //! Supports hot-reload via filesystem watcher.
 
-pub mod schema;
 pub mod loader;
+pub mod schema;
 
-pub use schema::ClawConfig;
-pub use schema::{ConfigWarning, WarningSeverity, ServicesConfig, CredentialsConfig, resolve_context_window};
 pub use loader::ConfigLoader;
+pub use schema::ClawConfig;
+pub use schema::{
+    ConfigWarning, CredentialsConfig, ServicesConfig, WarningSeverity, resolve_context_window,
+};

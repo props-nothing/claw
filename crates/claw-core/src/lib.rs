@@ -12,5 +12,5 @@ pub mod types;
 pub use error::{ClawError, Result};
 pub use event::{Event, EventBus};
 pub use message::{Message, MessageContent, Role};
-pub use tool::{Tool, ToolCall, ToolResult, ToolExecutor};
+pub use tool::{Tool, ToolCall, ToolExecutor, ToolResult};
 pub use types::*;

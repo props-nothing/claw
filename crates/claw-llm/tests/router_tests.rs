@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use claw_llm::mock::{MockProvider, MockResponse};
-    use claw_llm::router::ModelRouter;
-    use claw_llm::provider::LlmRequest;
     use claw_core::{Message, Role};
+    use claw_llm::mock::{MockProvider, MockResponse};
+    use claw_llm::provider::LlmRequest;
+    use claw_llm::router::ModelRouter;
+    use std::sync::Arc;
     use uuid::Uuid;
 
     fn make_request(model: &str) -> LlmRequest {
@@ -39,7 +39,10 @@ mod tests {
         let req = make_request("nonexistent/model");
         let result = router.complete(&req, None).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), claw_core::ClawError::ModelNotFound(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            claw_core::ClawError::ModelNotFound(_)
+        ));
     }
 
     #[tokio::test]
@@ -115,8 +118,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_request_recording() {
-        let mock = MockProvider::new("recorder")
-            .with_response("ok");
+        let mock = MockProvider::new("recorder").with_response("ok");
         let requests = mock.recorded_requests();
 
         let mut router = ModelRouter::new();

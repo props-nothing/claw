@@ -107,7 +107,8 @@ impl RateLimiter {
     /// Call periodically in a background task.
     pub fn cleanup(&self) {
         let cutoff = Instant::now() - std::time::Duration::from_secs(300);
-        self.buckets.retain(|_ip, bucket| bucket.last_refill > cutoff);
+        self.buckets
+            .retain(|_ip, bucket| bucket.last_refill > cutoff);
     }
 }
 
@@ -132,10 +133,8 @@ pub async fn rate_limit_middleware(
                 format!("Rate limit exceeded. Retry after {} seconds.", retry_after),
             )
                 .into_response();
-            resp.headers_mut().insert(
-                "retry-after",
-                retry_after.to_string().parse().unwrap(),
-            );
+            resp.headers_mut()
+                .insert("retry-after", retry_after.to_string().parse().unwrap());
             resp
         }
     }
@@ -174,7 +173,10 @@ mod tests {
 
     #[test]
     fn test_bucket_allows_burst() {
-        let config = RateLimitConfig { burst: 3, refill_per_sec: 1.0 };
+        let config = RateLimitConfig {
+            burst: 3,
+            refill_per_sec: 1.0,
+        };
         let limiter = RateLimiter::new(config);
         let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
 
@@ -187,7 +189,10 @@ mod tests {
 
     #[test]
     fn test_different_ips_independent() {
-        let config = RateLimitConfig { burst: 1, refill_per_sec: 0.0 };
+        let config = RateLimitConfig {
+            burst: 1,
+            refill_per_sec: 0.0,
+        };
         let limiter = RateLimiter::new(config);
         let ip1 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
         let ip2 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
@@ -200,7 +205,10 @@ mod tests {
 
     #[test]
     fn test_retry_after_value() {
-        let config = RateLimitConfig { burst: 1, refill_per_sec: 1.0 };
+        let config = RateLimitConfig {
+            burst: 1,
+            refill_per_sec: 1.0,
+        };
         let limiter = RateLimiter::new(config);
         let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
 

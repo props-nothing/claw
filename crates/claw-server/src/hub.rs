@@ -10,12 +10,12 @@
 //!    to deal with CORS to the remote hub.
 
 use axum::{
+    Router,
     body::Body,
     extract::{Path, Query, Request, State},
     http::StatusCode,
     response::{Json, Response},
     routing::{get, post},
-    Router,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -106,9 +106,7 @@ impl HubState {
 
 /// Build a fully self-contained hub router with its own state and CORS.
 /// Called by `claw hub serve` — no dependency on `AppState`.
-pub fn standalone_hub_router(
-    db_path: &std::path::Path,
-) -> Result<Router, String> {
+pub fn standalone_hub_router(db_path: &std::path::Path) -> Result<Router, String> {
     let state = Arc::new(HubState::new(db_path)?);
 
     let router = Router::new()
@@ -218,9 +216,10 @@ async fn proxy_forward(
     let status = StatusCode::from_u16(upstream_resp.status().as_u16())
         .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
-    let resp_bytes = upstream_resp.bytes().await.map_err(|_| {
-        StatusCode::BAD_GATEWAY
-    })?;
+    let resp_bytes = upstream_resp
+        .bytes()
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
 
     Ok(Response::builder()
         .status(status)
@@ -348,7 +347,8 @@ async fn publish_skill(
         &req.skill_content,
         std::path::PathBuf::from("hub://uploaded"),
         std::path::PathBuf::from("hub://"),
-    ).map_err(|e| {
+    )
+    .map_err(|e| {
         warn!(error = %e, "invalid SKILL.md submitted to hub");
         StatusCode::BAD_REQUEST
     })?;
@@ -487,8 +487,7 @@ async fn hub_stats(
         .prepare("SELECT tags FROM skills")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let mut tag_counts: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
+    let mut tag_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let rows = stmt
         .query_map([], |row| row.get::<_, String>(0))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

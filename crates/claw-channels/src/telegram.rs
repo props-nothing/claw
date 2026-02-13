@@ -1,9 +1,9 @@
 use async_trait::async_trait;
-use tokio::sync::mpsc;
-use tracing::{info, warn, error, debug};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::path::PathBuf;
+use tokio::sync::mpsc;
+use tracing::{debug, error, info, warn};
 
 use crate::adapter::*;
 
@@ -17,7 +17,9 @@ fn extract_screenshot_filenames(text: &str) -> Vec<String> {
     let mut search_from = 0;
     while let Some(pos) = text[search_from..].find(prefix) {
         let start = search_from + pos + prefix.len();
-        if let Some(end) = text[start..].find(|c: char| !c.is_alphanumeric() && c != '_' && c != '.' && c != '-') {
+        if let Some(end) =
+            text[start..].find(|c: char| !c.is_alphanumeric() && c != '_' && c != '.' && c != '-')
+        {
             let candidate = &text[start..start + end];
             if IMAGE_EXTENSIONS.iter().any(|ext| candidate.ends_with(ext)) {
                 filenames.push(candidate.to_string());
@@ -47,11 +49,10 @@ fn expand_home(path: &str) -> String {
 /// All known file extensions (images + documents) as a combined list for regex.
 #[allow(dead_code)]
 const ALL_EXTENSIONS: &[&str] = &[
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".txt", ".zip",
-    ".tar", ".gz", ".json", ".xml", ".html", ".md", ".py", ".rs", ".js",
-    ".ts", ".sh", ".log", ".mp4", ".mp3", ".wav", ".ogg", ".m4a", ".aac",
-    ".flac", ".aiff", ".mov", ".avi", ".mkv", ".webm",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".pdf", ".doc", ".docx", ".xls", ".xlsx",
+    ".csv", ".txt", ".zip", ".tar", ".gz", ".json", ".xml", ".html", ".md", ".py", ".rs", ".js",
+    ".ts", ".sh", ".log", ".mp4", ".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac", ".aiff", ".mov",
+    ".avi", ".mkv", ".webm",
 ];
 
 /// Extract file paths from text — handles paths with spaces.
@@ -92,7 +93,10 @@ fn extract_all_paths(text: &str) -> (Vec<String>, Vec<String>) {
 
                 // Deduplicate
                 if !image_paths.contains(&expanded) && !doc_paths.contains(&expanded) {
-                    if IMAGE_EXTENSIONS.iter().any(|e| expanded.to_lowercase().ends_with(e)) {
+                    if IMAGE_EXTENSIONS
+                        .iter()
+                        .any(|e| expanded.to_lowercase().ends_with(e))
+                    {
                         image_paths.push(expanded);
                     } else {
                         doc_paths.push(expanded);
@@ -151,8 +155,23 @@ fn find_path_start(text_before_ext: &str) -> Option<usize> {
 /// Check if a byte is a path delimiter (indicates the start of a path).
 #[allow(dead_code)]
 fn is_path_delimiter(b: u8) -> bool {
-    matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'"' | b'\'' | b'`' | b'(' | b'[' | b'{'
-        | b',' | b';' | b':' | b'>' | b'|')
+    matches!(
+        b,
+        b' ' | b'\t'
+            | b'\n'
+            | b'\r'
+            | b'"'
+            | b'\''
+            | b'`'
+            | b'('
+            | b'['
+            | b'{'
+            | b','
+            | b';'
+            | b':'
+            | b'>'
+            | b'|'
+    )
 }
 
 /// Extract absolute image file paths from text (convenience wrapper).
@@ -186,7 +205,8 @@ fn strip_file_references(text: &str, _api_filenames: &[String], disk_paths: &[St
         } else {
             pos
         };
-        let url_end = result[pos..].find(|c: char| c.is_whitespace())
+        let url_end = result[pos..]
+            .find(|c: char| c.is_whitespace())
             .map(|e| pos + e)
             .unwrap_or(result.len());
         result = format!("{}{}", &result[..start], &result[url_end..]);
@@ -196,23 +216,33 @@ fn strip_file_references(text: &str, _api_filenames: &[String], disk_paths: &[St
     for path in disk_paths {
         while let Some(pos) = result.find(path.as_str()) {
             // Look back for common prefixes
-            let start = ["Saved at: ", "saved at: ", "saved to ", "Saved to ", "Path: ", "path: ", "File: ", "file: "]
-                .iter()
-                .find_map(|prefix| {
-                    if pos >= prefix.len() && &result[pos - prefix.len()..pos] == *prefix {
-                        Some(pos - prefix.len())
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or(pos);
+            let start = [
+                "Saved at: ",
+                "saved at: ",
+                "saved to ",
+                "Saved to ",
+                "Path: ",
+                "path: ",
+                "File: ",
+                "file: ",
+            ]
+            .iter()
+            .find_map(|prefix| {
+                if pos >= prefix.len() && &result[pos - prefix.len()..pos] == *prefix {
+                    Some(pos - prefix.len())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(pos);
             let end = pos + path.len();
             result = format!("{}{}", &result[..start], &result[end..]);
         }
     }
 
     // Clean up leftover artifacts: multiple blank lines, trailing whitespace, "- " bullet on empty line
-    let lines: Vec<&str> = result.lines()
+    let lines: Vec<&str> = result
+        .lines()
         .map(|l| l.trim_end())
         .filter(|l| !l.is_empty() && *l != "-" && *l != "- ")
         .collect();
@@ -261,12 +291,13 @@ impl TelegramChannel {
         photo_path: &std::path::Path,
         caption: Option<&str>,
     ) -> claw_core::Result<()> {
-        let file_bytes = tokio::fs::read(photo_path).await.map_err(|e| {
-            claw_core::ClawError::Channel {
-                channel: "telegram".into(),
-                reason: format!("failed to read photo {}: {}", photo_path.display(), e),
-            }
-        })?;
+        let file_bytes =
+            tokio::fs::read(photo_path)
+                .await
+                .map_err(|e| claw_core::ClawError::Channel {
+                    channel: "telegram".into(),
+                    reason: format!("failed to read photo {}: {}", photo_path.display(), e),
+                })?;
 
         let filename = photo_path
             .file_name()
@@ -358,10 +389,7 @@ impl Channel for TelegramChannel {
                     break;
                 }
 
-                let url = format!(
-                    "{}/getUpdates?offset={}&timeout=30",
-                    base_url, offset
-                );
+                let url = format!("{}/getUpdates?offset={}&timeout=30", base_url, offset);
 
                 tokio::select! {
                     biased; // prefer shutdown signal
@@ -588,13 +616,19 @@ impl Channel for TelegramChannel {
             }
         }
         if !photo_paths.is_empty() {
-            debug!(total = photo_paths.len(), uploaded, "Telegram photo upload summary");
+            debug!(
+                total = photo_paths.len(),
+                uploaded, "Telegram photo upload summary"
+            );
         }
 
         // ── 4. Upload documents/files ────────────────────────────────
         for doc_path in &doc_paths {
-            let filename = doc_path.file_name()
-                .unwrap_or_default().to_string_lossy().to_string();
+            let filename = doc_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             let lower_name = filename.to_lowercase();
 
             let bytes = match tokio::fs::read(doc_path).await {
@@ -609,26 +643,30 @@ impl Channel for TelegramChannel {
             // - sendAudio for .mp3/.m4a (shows in music player)
             // - sendVideo for .mp4/.mov/.avi/.mkv (shows video player)
             // - sendDocument for everything else
-            let (api_method, field_name) = if lower_name.ends_with(".mp3") || lower_name.ends_with(".m4a") {
-                ("sendAudio", "audio")
-            } else if lower_name.ends_with(".ogg") {
-                // .ogg can be voice — but sendAudio also handles it
-                ("sendAudio", "audio")
-            } else if lower_name.ends_with(".mp4") || lower_name.ends_with(".mov")
-                || lower_name.ends_with(".avi") || lower_name.ends_with(".mkv")
-                || lower_name.ends_with(".webm") {
-                ("sendVideo", "video")
-            } else {
-                ("sendDocument", "document")
-            };
+            let (api_method, field_name) =
+                if lower_name.ends_with(".mp3") || lower_name.ends_with(".m4a") {
+                    ("sendAudio", "audio")
+                } else if lower_name.ends_with(".ogg") {
+                    // .ogg can be voice — but sendAudio also handles it
+                    ("sendAudio", "audio")
+                } else if lower_name.ends_with(".mp4")
+                    || lower_name.ends_with(".mov")
+                    || lower_name.ends_with(".avi")
+                    || lower_name.ends_with(".mkv")
+                    || lower_name.ends_with(".webm")
+                {
+                    ("sendVideo", "video")
+                } else {
+                    ("sendDocument", "document")
+                };
 
-            let part = reqwest::multipart::Part::bytes(bytes)
-                .file_name(filename.clone());
+            let part = reqwest::multipart::Part::bytes(bytes).file_name(filename.clone());
             let form = reqwest::multipart::Form::new()
                 .text("chat_id", message.target.clone())
                 .part(field_name, part);
 
-            match self.client
+            match self
+                .client
                 .post(&self.api_url(api_method))
                 .multipart(form)
                 .send()
@@ -645,12 +683,18 @@ impl Channel for TelegramChannel {
                     if api_method != "sendDocument" {
                         debug!(path = %doc_path.display(), "falling back to sendDocument");
                         if let Ok(bytes) = tokio::fs::read(doc_path).await {
-                            let part = reqwest::multipart::Part::bytes(bytes)
-                                .file_name(filename.clone());
+                            let part =
+                                reqwest::multipart::Part::bytes(bytes).file_name(filename.clone());
                             let form = reqwest::multipart::Form::new()
                                 .text("chat_id", message.target.clone())
                                 .part("document", part);
-                            match self.client.post(&self.api_url("sendDocument")).multipart(form).send().await {
+                            match self
+                                .client
+                                .post(&self.api_url("sendDocument"))
+                                .multipart(form)
+                                .send()
+                                .await
+                            {
                                 Ok(r2) if r2.status().is_success() => {
                                     uploaded += 1;
                                     info!(path = %doc_path.display(), "sent file via sendDocument fallback");
@@ -676,20 +720,28 @@ impl Channel for TelegramChannel {
         };
 
         // If we uploaded at least one photo and the remaining text is empty, we're done
-        if uploaded > 0 && (clean_text.is_empty() || clean_text.chars().all(|c| c.is_whitespace())) {
+        if uploaded > 0 && (clean_text.is_empty() || clean_text.chars().all(|c| c.is_whitespace()))
+        {
             return Ok(());
         }
 
         // If the only content is "I can't attach/upload/send" after a successful upload, skip it
         if uploaded > 0 {
             let lower = clean_text.to_lowercase();
-            if lower.contains("can't attach") || lower.contains("cannot attach")
-                || lower.contains("can't upload") || lower.contains("cannot upload")
-                || lower.contains("can't send the image") || lower.contains("unable to attach")
-                || lower.contains("unable to upload") || lower.contains("unable to send the image")
-                || lower.contains("can't send the file") || lower.contains("cannot send the file")
-                || lower.contains("can't send file") || lower.contains("unable to send file")
-                || lower.contains("don't have a direct way to send") || lower.contains("cannot directly send")
+            if lower.contains("can't attach")
+                || lower.contains("cannot attach")
+                || lower.contains("can't upload")
+                || lower.contains("cannot upload")
+                || lower.contains("can't send the image")
+                || lower.contains("unable to attach")
+                || lower.contains("unable to upload")
+                || lower.contains("unable to send the image")
+                || lower.contains("can't send the file")
+                || lower.contains("cannot send the file")
+                || lower.contains("can't send file")
+                || lower.contains("unable to send file")
+                || lower.contains("don't have a direct way to send")
+                || lower.contains("cannot directly send")
             {
                 debug!("suppressing 'can't send' text since file was already sent");
                 return Ok(());
@@ -762,7 +814,8 @@ impl Channel for TelegramChannel {
             .replace('&', "&amp;")
             .replace('<', "&lt;")
             .replace('>', "&gt;");
-        let reason_escaped = prompt.reason
+        let reason_escaped = prompt
+            .reason
             .replace('&', "&amp;")
             .replace('<', "&lt;")
             .replace('>', "&gt;");
@@ -774,8 +827,7 @@ impl Channel for TelegramChannel {
              📋 Reason: {}\n\
              <pre>{}</pre>\n\
              🆔 <code>{}</code>",
-            prompt.tool_name, prompt.risk_level, reason_escaped, args_escaped,
-            prompt.approval_id,
+            prompt.tool_name, prompt.risk_level, reason_escaped, args_escaped, prompt.approval_id,
         );
 
         let body = serde_json::json!({
@@ -815,7 +867,10 @@ impl Channel for TelegramChannel {
         Ok(())
     }
 
-    async fn send_returning_id(&self, message: OutgoingMessage) -> claw_core::Result<Option<String>> {
+    async fn send_returning_id(
+        &self,
+        message: OutgoingMessage,
+    ) -> claw_core::Result<Option<String>> {
         // Send with Markdown, parse message_id from Telegram response
         let body = serde_json::json!({
             "chat_id": message.target,
@@ -835,11 +890,18 @@ impl Channel for TelegramChannel {
             })?;
 
         let json: serde_json::Value = resp.json().await.unwrap_or_default();
-        let msg_id = json["result"]["message_id"].as_i64().map(|id| id.to_string());
+        let msg_id = json["result"]["message_id"]
+            .as_i64()
+            .map(|id| id.to_string());
         Ok(msg_id)
     }
 
-    async fn edit_message(&self, target: &str, message_id: &str, text: &str) -> claw_core::Result<()> {
+    async fn edit_message(
+        &self,
+        target: &str,
+        message_id: &str,
+        text: &str,
+    ) -> claw_core::Result<()> {
         let body = serde_json::json!({
             "chat_id": target,
             "message_id": message_id.parse::<i64>().unwrap_or(0),
@@ -895,7 +957,9 @@ impl Channel for TelegramChannel {
 
 /// Exponential backoff with jitter: 1s, 2s, 4s, 8s, … capped at `max_secs`.
 fn backoff_duration(consecutive_failures: u32, max_secs: u64) -> std::time::Duration {
-    let base = 1u64.checked_shl(consecutive_failures.min(6)).unwrap_or(max_secs);
+    let base = 1u64
+        .checked_shl(consecutive_failures.min(6))
+        .unwrap_or(max_secs);
     let capped = base.min(max_secs);
     // Add ±25% jitter to prevent thundering herd
     let jitter_ms = (rand::random::<u64>() % (capped * 500 + 1)) as i64 - (capped as i64 * 250);
@@ -982,7 +1046,10 @@ mod tests {
     fn test_extract_path_with_spaces() {
         let text = "Screenshot: /Users/wichard/Desktop/Schermafbeelding 2026-01-13 om 14.30.00.png";
         let (images, docs) = extract_all_paths(text);
-        assert_eq!(images, vec!["/Users/wichard/Desktop/Schermafbeelding 2026-01-13 om 14.30.00.png"]);
+        assert_eq!(
+            images,
+            vec!["/Users/wichard/Desktop/Schermafbeelding 2026-01-13 om 14.30.00.png"]
+        );
         assert!(docs.is_empty());
     }
 

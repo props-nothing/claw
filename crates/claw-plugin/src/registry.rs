@@ -18,22 +18,23 @@ impl PluginRegistry {
     /// Search for plugins by query.
     pub async fn search(&self, query: &str) -> claw_core::Result<Vec<RegistryEntry>> {
         let url = format!("{}/api/v1/plugins?q={}", self.registry_url, query);
-        let resp = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| claw_core::ClawError::Plugin {
-                plugin: "registry".into(),
-                reason: e.to_string(),
-            })?;
+        let resp =
+            self.client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| claw_core::ClawError::Plugin {
+                    plugin: "registry".into(),
+                    reason: e.to_string(),
+                })?;
 
-        let entries: Vec<RegistryEntry> = resp.json().await.map_err(|e| {
-            claw_core::ClawError::Plugin {
-                plugin: "registry".into(),
-                reason: e.to_string(),
-            }
-        })?;
+        let entries: Vec<RegistryEntry> =
+            resp.json()
+                .await
+                .map_err(|e| claw_core::ClawError::Plugin {
+                    plugin: "registry".into(),
+                    reason: e.to_string(),
+                })?;
 
         Ok(entries)
     }
@@ -53,15 +54,15 @@ impl PluginRegistry {
 
         info!(plugin = name, version = version_part, "downloading plugin");
 
-        let resp = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| claw_core::ClawError::Plugin {
-                plugin: name.to_string(),
-                reason: e.to_string(),
-            })?;
+        let resp =
+            self.client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| claw_core::ClawError::Plugin {
+                    plugin: name.to_string(),
+                    reason: e.to_string(),
+                })?;
 
         if !resp.status().is_success() {
             return Err(claw_core::ClawError::Plugin {
@@ -70,10 +71,13 @@ impl PluginRegistry {
             });
         }
 
-        let bytes = resp.bytes().await.map_err(|e| claw_core::ClawError::Plugin {
-            plugin: name.to_string(),
-            reason: e.to_string(),
-        })?;
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| claw_core::ClawError::Plugin {
+                plugin: name.to_string(),
+                reason: e.to_string(),
+            })?;
 
         // Extract the tarball/zip to dest_dir/name/
         let plugin_dir = dest_dir.join(name);

@@ -33,11 +33,13 @@
 //! ```
 
 pub mod agent;
-pub mod tools;
 pub mod session;
 pub mod terminal;
+pub mod tools;
 
 pub use agent::AgentRuntime;
-pub use agent::{RuntimeHandle, ApiResponse, QueryKind, StreamEvent, get_runtime_handle, set_runtime_handle};
-pub use agent::{build_test_state, build_test_state_with_router, SharedAgentState};
+pub use agent::{
+    ApiResponse, QueryKind, RuntimeHandle, StreamEvent, get_runtime_handle, set_runtime_handle,
+};
+pub use agent::{SharedAgentState, build_test_state, build_test_state_with_router};
 pub use session::Session;

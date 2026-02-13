@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use semver::Version;
+use serde::{Deserialize, Serialize};
 
 /// Plugin manifest — loaded from `plugin.toml` alongside the `.wasm` file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,11 +59,9 @@ pub struct PluginToolDef {
 impl PluginManifest {
     /// Parse from TOML string.
     pub fn from_toml(s: &str) -> claw_core::Result<Self> {
-        toml::from_str(s).map_err(|e| {
-            claw_core::ClawError::Plugin {
-                plugin: "unknown".into(),
-                reason: format!("failed to parse plugin.toml: {}", e),
-            }
+        toml::from_str(s).map_err(|e| claw_core::ClawError::Plugin {
+            plugin: "unknown".into(),
+            reason: format!("failed to parse plugin.toml: {}", e),
         })
     }
 

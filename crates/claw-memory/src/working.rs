@@ -34,15 +34,17 @@ impl WorkingMemory {
 
     /// Get or create a session context.
     pub fn session(&mut self, session_id: Uuid) -> &mut SessionContext {
-        self.sessions.entry(session_id).or_insert_with(|| SessionContext {
-            session_id,
-            messages: Vec::new(),
-            system_prompt: None,
-            estimated_tokens: 0,
-            max_tokens: 128_000,
-            compaction_threshold: 0.75,
-            compaction_count: 0,
-        })
+        self.sessions
+            .entry(session_id)
+            .or_insert_with(|| SessionContext {
+                session_id,
+                messages: Vec::new(),
+                system_prompt: None,
+                estimated_tokens: 0,
+                max_tokens: 128_000,
+                compaction_threshold: 0.75,
+                compaction_count: 0,
+            })
     }
 
     /// Configure the context window for a session.
@@ -104,7 +106,9 @@ impl WorkingMemory {
         }
 
         // Pin: first User message is always kept
-        let pin_count = ctx.messages.iter()
+        let pin_count = ctx
+            .messages
+            .iter()
             .take(3) // only check first 3 messages
             .position(|m| m.role == claw_core::Role::User)
             .map(|i| i + 1) // include the pinned message
@@ -140,7 +144,11 @@ impl WorkingMemory {
         let summary = format!(
             "[Compacted {} earlier messages]\n{}",
             messages_summarized,
-            summary_parts.join("\n").chars().take(2000).collect::<String>()
+            summary_parts
+                .join("\n")
+                .chars()
+                .take(2000)
+                .collect::<String>()
         );
 
         // Rebuild: pinned + summary + recent tail
@@ -148,7 +156,8 @@ impl WorkingMemory {
         let recent: Vec<Message> = ctx.messages[to_summarize_end..].to_vec();
         ctx.messages.clear();
         ctx.messages.extend(pinned);
-        ctx.messages.push(Message::text(session_id, claw_core::Role::System, &summary));
+        ctx.messages
+            .push(Message::text(session_id, claw_core::Role::System, &summary));
         ctx.messages.extend(recent);
 
         // Recount tokens
@@ -168,7 +177,9 @@ impl WorkingMemory {
         }
 
         // Pin: first User message is always kept
-        let pin_count = ctx.messages.iter()
+        let pin_count = ctx
+            .messages
+            .iter()
             .take(3)
             .position(|m| m.role == claw_core::Role::User)
             .map(|i| i + 1)
@@ -204,7 +215,11 @@ impl WorkingMemory {
                 compaction_text.push_str(&format!(
                     "[Tool Call]: {}({})\n",
                     tc.tool_name,
-                    tc.arguments.to_string().chars().take(200).collect::<String>()
+                    tc.arguments
+                        .to_string()
+                        .chars()
+                        .take(200)
+                        .collect::<String>()
                 ));
             }
         }
@@ -214,10 +229,17 @@ impl WorkingMemory {
 
     /// Apply an LLM-generated summary, replacing old messages with the summary.
     /// Preserves pinned messages (first User message) at the front.
-    pub fn apply_llm_compaction(&mut self, session_id: Uuid, summary: &str, messages_to_remove: usize) {
+    pub fn apply_llm_compaction(
+        &mut self,
+        session_id: Uuid,
+        summary: &str,
+        messages_to_remove: usize,
+    ) {
         if let Some(ctx) = self.sessions.get_mut(&session_id) {
             // Pin: first User message is always kept
-            let pin_count = ctx.messages.iter()
+            let pin_count = ctx
+                .messages
+                .iter()
                 .take(3)
                 .position(|m| m.role == claw_core::Role::User)
                 .map(|i| i + 1)
@@ -239,7 +261,10 @@ impl WorkingMemory {
             let summary_msg = Message::text(
                 session_id,
                 claw_core::Role::System,
-                &format!("[Conversation summary — compacted {} messages]\n{}", messages_to_remove, summary),
+                &format!(
+                    "[Conversation summary — compacted {} messages]\n{}",
+                    messages_to_remove, summary
+                ),
             );
             ctx.messages.push(summary_msg);
             ctx.messages.extend(recent);

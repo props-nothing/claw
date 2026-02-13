@@ -265,7 +265,7 @@ mod tests {
             assert!(msgs.len() >= 4);
             // First message is pinned (original user request), second is the compaction summary
             assert!(msgs[0].text_content().contains("message 0")); // pinned
-            assert!(msgs[1].text_content().contains("Compacted"));  // summary
+            assert!(msgs[1].text_content().contains("Compacted")); // summary
         }
 
         #[test]
@@ -302,7 +302,11 @@ mod tests {
             // Verify we can query the tables
             let db = store.db();
             let count: i64 = db
-                .query_row("SELECT count(*) FROM sqlite_master WHERE type='table'", [], |r| r.get(0))
+                .query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table'",
+                    [],
+                    |r| r.get(0),
+                )
                 .unwrap();
             // At least episodes, facts, goals, goal_steps, audit_log
             assert!(count >= 5, "expected at least 5 tables, got {}", count);
@@ -314,7 +318,9 @@ mod tests {
             let db_path = dir.path().join("test.db");
             let mut store = MemoryStore::open(&db_path).unwrap();
             store.persist_fact("user", "name", "Alice").unwrap();
-            store.persist_fact("user", "email", "alice@test.com").unwrap();
+            store
+                .persist_fact("user", "email", "alice@test.com")
+                .unwrap();
 
             // Reload facts from DB
             let count = store.load_facts().unwrap();
@@ -329,7 +335,9 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let db_path = dir.path().join("test.db");
             let store = MemoryStore::open(&db_path).unwrap();
-            store.audit("tool_call", "shell_exec", Some("ls -la")).unwrap();
+            store
+                .audit("tool_call", "shell_exec", Some("ls -la"))
+                .unwrap();
             store.audit("approval", "approved", None).unwrap();
 
             let log = store.audit_log(10);

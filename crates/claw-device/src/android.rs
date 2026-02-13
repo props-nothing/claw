@@ -15,7 +15,7 @@
 
 use claw_core::ClawError;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -129,7 +129,8 @@ impl AndroidBridge {
                 let state = parts[1].to_string();
 
                 // Extract model from device info
-                let model = parts.iter()
+                let model = parts
+                    .iter()
                     .find(|p| p.starts_with("model:"))
                     .map(|p| p.strip_prefix("model:").unwrap_or("").to_string());
 
@@ -163,26 +164,34 @@ impl AndroidBridge {
     pub async fn screen_info(&self) -> claw_core::Result<ScreenInfo> {
         let size = self.shell("wm size").await.unwrap_or_default();
         let density = self.shell("wm density").await.unwrap_or_default();
-        let activity = self.shell("dumpsys activity activities | grep mResumedActivity").await.unwrap_or_default();
+        let activity = self
+            .shell("dumpsys activity activities | grep mResumedActivity")
+            .await
+            .unwrap_or_default();
 
         // Parse "Physical size: 1080x2400"
-        let (width, height) = size.trim()
+        let (width, height) = size
+            .trim()
             .split_once(": ")
             .and_then(|(_, s)| s.split_once('x'))
-            .map(|(w, h)| (
-                w.trim().parse::<u32>().unwrap_or(1080),
-                h.trim().parse::<u32>().unwrap_or(1920),
-            ))
+            .map(|(w, h)| {
+                (
+                    w.trim().parse::<u32>().unwrap_or(1080),
+                    h.trim().parse::<u32>().unwrap_or(1920),
+                )
+            })
             .unwrap_or((1080, 1920));
 
         // Parse "Physical density: 420"
-        let density_val = density.trim()
+        let density_val = density
+            .trim()
             .split_once(": ")
             .map(|(_, d)| d.trim().parse::<u32>().unwrap_or(420))
             .unwrap_or(420);
 
         // Parse current activity
-        let (package, act) = activity.trim()
+        let (package, act) = activity
+            .trim()
             .rsplit_once(' ')
             .and_then(|(_, comp)| comp.split_once('/'))
             .map(|(p, a)| (p.to_string(), format!("{}/{}", p, a.trim_end_matches('}'))))
@@ -210,11 +219,19 @@ impl AndroidBridge {
             }
             Err(_) => {
                 // Fallback: capture to file, pull, read, delete
-                self.shell("screencap -p /sdcard/claw_screenshot.png").await?;
-                let _pull = self.adb(&["pull", "/sdcard/claw_screenshot.png", "/tmp/claw_android_screenshot.png"]).await?;
+                self.shell("screencap -p /sdcard/claw_screenshot.png")
+                    .await?;
+                let _pull = self
+                    .adb(&[
+                        "pull",
+                        "/sdcard/claw_screenshot.png",
+                        "/tmp/claw_android_screenshot.png",
+                    ])
+                    .await?;
                 self.shell("rm /sdcard/claw_screenshot.png").await?;
 
-                let bytes = tokio::fs::read("/tmp/claw_android_screenshot.png").await
+                let bytes = tokio::fs::read("/tmp/claw_android_screenshot.png")
+                    .await
                     .map_err(|e| ClawError::ToolExecution {
                         tool: "android".into(),
                         reason: format!("failed to read screenshot: {e}"),
@@ -234,15 +251,32 @@ impl AndroidBridge {
     }
 
     /// Swipe from one point to another.
-    pub async fn swipe(&self, x1: u32, y1: u32, x2: u32, y2: u32, duration_ms: u32) -> claw_core::Result<String> {
-        self.shell(&format!("input swipe {} {} {} {} {}", x1, y1, x2, y2, duration_ms)).await?;
-        Ok(format!("swiped ({},{}) → ({},{}) over {}ms", x1, y1, x2, y2, duration_ms))
+    pub async fn swipe(
+        &self,
+        x1: u32,
+        y1: u32,
+        x2: u32,
+        y2: u32,
+        duration_ms: u32,
+    ) -> claw_core::Result<String> {
+        self.shell(&format!(
+            "input swipe {} {} {} {} {}",
+            x1, y1, x2, y2, duration_ms
+        ))
+        .await?;
+        Ok(format!(
+            "swiped ({},{}) → ({},{}) over {}ms",
+            x1, y1, x2, y2, duration_ms
+        ))
     }
 
     /// Type text on the device.
     pub async fn type_text(&self, text: &str) -> claw_core::Result<String> {
         // ADB input text doesn't handle spaces well, use key events for spaces
-        let escaped = text.replace(' ', "%s").replace('&', "\\&").replace('\'', "\\'");
+        let escaped = text
+            .replace(' ', "%s")
+            .replace('&', "\\&")
+            .replace('\'', "\\'");
         self.shell(&format!("input text '{}'", escaped)).await?;
         Ok(format!("typed {} chars", text.len()))
     }
@@ -275,10 +309,12 @@ impl AndroidBridge {
 
     /// Launch an app by package name.
     pub async fn launch_app(&self, package: &str) -> claw_core::Result<String> {
-        let _output = self.shell(&format!(
-            "monkey -p {} -c android.intent.category.LAUNCHER 1",
-            package
-        )).await?;
+        let _output = self
+            .shell(&format!(
+                "monkey -p {} -c android.intent.category.LAUNCHER 1",
+                package
+            ))
+            .await?;
         Ok(format!("launched {}", package))
     }
 
@@ -291,7 +327,8 @@ impl AndroidBridge {
     /// List installed packages.
     pub async fn list_apps(&self) -> claw_core::Result<Vec<AppInfo>> {
         let output = self.shell("pm list packages -3").await?;
-        let apps: Vec<AppInfo> = output.lines()
+        let apps: Vec<AppInfo> = output
+            .lines()
             .filter_map(|line| {
                 line.strip_prefix("package:").map(|pkg| AppInfo {
                     package: pkg.trim().to_string(),

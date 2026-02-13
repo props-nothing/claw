@@ -32,15 +32,9 @@ pub enum MeshMessage {
         data: serde_json::Value,
     },
     /// Heartbeat / keepalive.
-    Ping {
-        peer_id: String,
-        timestamp: i64,
-    },
+    Ping { peer_id: String, timestamp: i64 },
     /// Response to ping.
-    Pong {
-        peer_id: String,
-        timestamp: i64,
-    },
+    Pong { peer_id: String, timestamp: i64 },
     /// Free-form text message to a specific peer (used by `claw mesh send`).
     DirectMessage {
         from_peer: String,
@@ -49,9 +43,7 @@ pub enum MeshMessage {
         timestamp: i64,
     },
     /// Peer disconnected (local-only, not sent over the wire).
-    PeerLeft {
-        peer_id: String,
-    },
+    PeerLeft { peer_id: String },
 }
 
 /// A task delegated to a specific device in the mesh.

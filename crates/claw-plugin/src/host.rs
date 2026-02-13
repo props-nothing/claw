@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 #[cfg(feature = "wasm")]
 use wasmtime::*;
 
-use claw_core::{Tool, ToolCall, ToolResult, Result};
 use crate::manifest::PluginManifest;
+use claw_core::{Result, Tool, ToolCall, ToolResult};
 
 /// A loaded plugin instance.
 pub struct LoadedPlugin {
@@ -54,11 +54,9 @@ impl PluginHost {
             config.async_support(true);
             config.consume_fuel(true);
 
-            let engine = Engine::new(&config).map_err(|e| {
-                claw_core::ClawError::Plugin {
-                    plugin: "host".into(),
-                    reason: format!("failed to create WASM engine: {}", e),
-                }
+            let engine = Engine::new(&config).map_err(|e| claw_core::ClawError::Plugin {
+                plugin: "host".into(),
+                reason: format!("failed to create WASM engine: {}", e),
             })?;
 
             Ok(Self {
@@ -109,8 +107,8 @@ impl PluginHost {
             return Ok(loaded);
         }
 
-        let entries = std::fs::read_dir(&self.plugin_dir)
-            .map_err(|e| claw_core::ClawError::Plugin {
+        let entries =
+            std::fs::read_dir(&self.plugin_dir).map_err(|e| claw_core::ClawError::Plugin {
                 plugin: "host".into(),
                 reason: format!("failed to read plugin dir: {}", e),
             })?;
@@ -141,12 +139,11 @@ impl PluginHost {
     /// Load a plugin from a directory (must contain plugin.toml + *.wasm).
     fn load_from_dir(&mut self, dir: &Path) -> Result<String> {
         let manifest_path = dir.join("plugin.toml");
-        let manifest_str = std::fs::read_to_string(&manifest_path).map_err(|e| {
-            claw_core::ClawError::Plugin {
+        let manifest_str =
+            std::fs::read_to_string(&manifest_path).map_err(|e| claw_core::ClawError::Plugin {
                 plugin: dir.display().to_string(),
                 reason: format!("missing plugin.toml: {}", e),
-            }
-        })?;
+            })?;
 
         let manifest = PluginManifest::from_toml(&manifest_str)?;
         let name = manifest.plugin.name.clone();
@@ -187,12 +184,11 @@ impl PluginHost {
         }
 
         #[cfg(feature = "wasm")]
-        let module = Module::new(&self.engine, &wasm_bytes).map_err(|e| {
-            claw_core::ClawError::Plugin {
+        let module =
+            Module::new(&self.engine, &wasm_bytes).map_err(|e| claw_core::ClawError::Plugin {
                 plugin: name.clone(),
                 reason: format!("failed to compile wasm: {}", e),
-            }
-        })?;
+            })?;
 
         self.plugins.insert(
             name.clone(),
@@ -233,29 +229,37 @@ impl PluginHost {
     /// - `claw_invoke(ptr: u32, len: u32) -> u64` — execute tool, return packed (ptr << 32 | len)
     pub async fn execute(&self, call: &ToolCall) -> Result<ToolResult> {
         // Parse "plugin_name.tool_name" format
-        let (plugin_name, tool_name) = call.tool_name.split_once('.').ok_or_else(|| {
-            claw_core::ClawError::ToolNotFound(call.tool_name.clone())
-        })?;
+        let (plugin_name, tool_name) = call
+            .tool_name
+            .split_once('.')
+            .ok_or_else(|| claw_core::ClawError::ToolNotFound(call.tool_name.clone()))?;
 
-        let plugin = self.plugins.get(plugin_name).ok_or_else(|| {
-            claw_core::ClawError::Plugin {
+        let plugin = self
+            .plugins
+            .get(plugin_name)
+            .ok_or_else(|| claw_core::ClawError::Plugin {
                 plugin: plugin_name.to_string(),
                 reason: "plugin not loaded".into(),
-            }
-        })?;
+            })?;
 
         // Verify the tool exists in the manifest
         if !plugin.manifest.tools.iter().any(|t| t.name == tool_name) {
-            return Err(claw_core::ClawError::ToolNotFound(
-                format!("{}.{}", plugin_name, tool_name),
-            ));
+            return Err(claw_core::ClawError::ToolNotFound(format!(
+                "{}.{}",
+                plugin_name, tool_name
+            )));
         }
 
-        debug!(plugin = plugin_name, tool = tool_name, "executing plugin tool");
+        debug!(
+            plugin = plugin_name,
+            tool = tool_name,
+            "executing plugin tool"
+        );
 
         #[cfg(feature = "wasm")]
         {
-            self.execute_wasm(plugin, tool_name, &call.arguments, &call.id).await
+            self.execute_wasm(plugin, tool_name, &call.arguments, &call.id)
+                .await
         }
 
         #[cfg(not(feature = "wasm"))]
@@ -293,10 +297,12 @@ impl PluginHost {
 
         // Create a sandboxed store with fuel limits (prevents infinite loops)
         let mut store = Store::new(&self.engine, ());
-        store.set_fuel(10_000_000).map_err(|e| claw_core::ClawError::Plugin {
-            plugin: plugin_name.clone(),
-            reason: format!("failed to set fuel: {}", e),
-        })?;
+        store
+            .set_fuel(10_000_000)
+            .map_err(|e| claw_core::ClawError::Plugin {
+                plugin: plugin_name.clone(),
+                reason: format!("failed to set fuel: {}", e),
+            })?;
 
         // Instantiate the module with an empty linker (sandboxed — no WASI imports)
         let linker = Linker::new(&self.engine);
@@ -451,11 +457,9 @@ impl PluginHost {
 
         let plugin_path = self.plugin_dir.join(name);
         if plugin_path.exists() && plugin_path.is_dir() {
-            std::fs::remove_dir_all(&plugin_path).map_err(|e| {
-                claw_core::ClawError::Plugin {
-                    plugin: name.to_string(),
-                    reason: format!("failed to delete plugin directory: {}", e),
-                }
+            std::fs::remove_dir_all(&plugin_path).map_err(|e| claw_core::ClawError::Plugin {
+                plugin: name.to_string(),
+                reason: format!("failed to delete plugin directory: {}", e),
             })?;
             info!(plugin = name, path = ?plugin_path, "deleted plugin directory");
         } else {
@@ -564,7 +568,8 @@ type = "object"
 
     #[test]
     fn manifest_checksum_verification() {
-        let manifest = PluginManifest::from_toml(r#"
+        let manifest = PluginManifest::from_toml(
+            r#"
 [plugin]
 name = "checksummed"
 version = "1.0.0"
@@ -575,7 +580,9 @@ checksum = "0000000000000000000000000000000000000000000000000000000000000000"
 name = "t"
 description = "t"
 parameters = {}
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         // Wrong checksum should fail
         assert!(!manifest.verify_checksum(b"hello world"));
@@ -583,7 +590,8 @@ parameters = {}
 
     #[test]
     fn manifest_no_checksum_passes() {
-        let manifest = PluginManifest::from_toml(r#"
+        let manifest = PluginManifest::from_toml(
+            r#"
 [plugin]
 name = "no-checksum"
 version = "1.0.0"
@@ -593,7 +601,9 @@ description = "test"
 name = "t"
 description = "t"
 parameters = {}
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         // No checksum = always passes
         assert!(manifest.verify_checksum(b"anything"));
@@ -601,7 +611,8 @@ parameters = {}
 
     #[test]
     fn capabilities_parsing() {
-        let manifest = PluginManifest::from_toml(r#"
+        let manifest = PluginManifest::from_toml(
+            r#"
 [plugin]
 name = "capable"
 version = "1.0.0"
@@ -617,9 +628,14 @@ host_functions = ["log"]
 name = "t"
 description = "t"
 parameters = {}
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
-        assert_eq!(manifest.capabilities.network, vec!["https://api.example.com/*"]);
+        assert_eq!(
+            manifest.capabilities.network,
+            vec!["https://api.example.com/*"]
+        );
         assert_eq!(manifest.capabilities.filesystem, vec!["/tmp/safe/*"]);
         assert!(manifest.capabilities.shell);
         assert_eq!(manifest.capabilities.host_functions, vec!["log"]);

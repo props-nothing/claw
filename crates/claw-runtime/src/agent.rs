@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
-use tokio::sync::{mpsc, oneshot, Mutex as TokioMutex};
-use tracing::{info, warn, error, debug};
+use tokio::sync::{Mutex as TokioMutex, mpsc, oneshot};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// Global handle so the HTTP server can reach the running agent runtime.
@@ -19,15 +19,17 @@ pub async fn set_runtime_handle(handle: RuntimeHandle) {
 }
 
 use claw_autonomy::{
-    ApprovalGate, ApprovalResponse, AutonomyLevel, BudgetTracker, GoalPlanner,
-    GuardrailEngine, guardrail::GuardrailVerdict,
+    ApprovalGate, ApprovalResponse, AutonomyLevel, BudgetTracker, GoalPlanner, GuardrailEngine,
+    guardrail::GuardrailVerdict,
 };
-use claw_channels::adapter::{ApprovalPrompt, Channel, ChannelEvent, IncomingMessage, OutgoingMessage};
+use claw_channels::adapter::{
+    ApprovalPrompt, Channel, ChannelEvent, IncomingMessage, OutgoingMessage,
+};
 use claw_config::ClawConfig;
 use claw_core::{Event, EventBus, Message, Role, Tool, ToolCall, ToolResult};
-use claw_mesh::{MeshNode, MeshMessage};
 use claw_llm::{LlmProvider, LlmRequest, ModelRouter, StopReason};
 use claw_memory::MemoryStore;
+use claw_mesh::{MeshMessage, MeshNode};
 use claw_plugin::PluginHost;
 use claw_skills::SkillRegistry;
 
@@ -115,11 +117,26 @@ pub enum StreamEvent {
     #[serde(rename = "thinking")]
     Thinking { content: String },
     #[serde(rename = "tool_call")]
-    ToolCall { name: String, id: String, #[serde(default)] args: serde_json::Value },
+    ToolCall {
+        name: String,
+        id: String,
+        #[serde(default)]
+        args: serde_json::Value,
+    },
     #[serde(rename = "tool_result")]
-    ToolResult { id: String, content: String, is_error: bool, #[serde(skip_serializing_if = "Option::is_none")] data: Option<serde_json::Value> },
+    ToolResult {
+        id: String,
+        content: String,
+        is_error: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        data: Option<serde_json::Value>,
+    },
     #[serde(rename = "usage")]
-    Usage { input_tokens: u32, output_tokens: u32, cost_usd: f64 },
+    Usage {
+        input_tokens: u32,
+        output_tokens: u32,
+        cost_usd: f64,
+    },
     #[serde(rename = "done")]
     Done,
     #[serde(rename = "error")]
@@ -229,7 +246,11 @@ impl RuntimeHandle {
 
     /// Approve a pending approval request.
     pub async fn approve(&self, id: Uuid) -> Result<(), String> {
-        let tx = self.pending_approvals.lock().await.remove(&id)
+        let tx = self
+            .pending_approvals
+            .lock()
+            .await
+            .remove(&id)
             .ok_or_else(|| "approval request not found or already resolved".to_string())?;
         let _ = tx.send(ApprovalResponse::Approved);
         Ok(())
@@ -237,7 +258,11 @@ impl RuntimeHandle {
 
     /// Deny a pending approval request.
     pub async fn deny(&self, id: Uuid) -> Result<(), String> {
-        let tx = self.pending_approvals.lock().await.remove(&id)
+        let tx = self
+            .pending_approvals
+            .lock()
+            .await
+            .remove(&id)
             .ok_or_else(|| "approval request not found or already resolved".to_string())?;
         let _ = tx.send(ApprovalResponse::Denied);
         Ok(())
@@ -249,23 +274,33 @@ impl RuntimeHandle {
     }
 
     /// Send a non-streaming chat message — spawns a concurrent task.
-    pub async fn chat(&self, text: String, session_id: Option<String>) -> Result<ApiResponse, String> {
+    pub async fn chat(
+        &self,
+        text: String,
+        session_id: Option<String>,
+    ) -> Result<ApiResponse, String> {
         let state = self.state.clone();
-        let handle = tokio::spawn(async move {
-            process_api_message(state, text, session_id).await
-        });
+        let handle =
+            tokio::spawn(async move { process_api_message(state, text, session_id).await });
         handle.await.map_err(|e| format!("task panicked: {}", e))
     }
 
     /// Send a streaming chat message. Returns a receiver for stream events.
-    pub async fn chat_stream(&self, text: String, session_id: Option<String>) -> Result<mpsc::Receiver<StreamEvent>, String> {
+    pub async fn chat_stream(
+        &self,
+        text: String,
+        session_id: Option<String>,
+    ) -> Result<mpsc::Receiver<StreamEvent>, String> {
         let (chunk_tx, chunk_rx) = mpsc::channel(256);
         let msg = StreamApiMessage {
             text,
             session_id,
             chunk_tx,
         };
-        self.stream_tx.send(msg).await.map_err(|_| "runtime is not running".to_string())?;
+        self.stream_tx
+            .send(msg)
+            .await
+            .map_err(|_| "runtime is not running".to_string())?;
         Ok(chunk_rx)
     }
 
@@ -333,7 +368,10 @@ impl AgentRuntime {
                 let count = rows.len();
                 for row in rows {
                     if let Ok(id) = row.id.parse::<Uuid>() {
-                        let parent_id = row.parent_id.as_deref().and_then(|s| s.parse::<Uuid>().ok());
+                        let parent_id = row
+                            .parent_id
+                            .as_deref()
+                            .and_then(|s| s.parse::<Uuid>().ok());
                         planner.restore_goal(
                             id,
                             row.description,
@@ -341,10 +379,14 @@ impl AgentRuntime {
                             row.priority,
                             row.progress,
                             parent_id,
-                            row.steps.into_iter().map(|s| {
-                                let step_id = s.id.parse::<Uuid>().unwrap_or_else(|_| Uuid::new_v4());
-                                (step_id, s.description, s.status, s.result)
-                            }).collect(),
+                            row.steps
+                                .into_iter()
+                                .map(|s| {
+                                    let step_id =
+                                        s.id.parse::<Uuid>().unwrap_or_else(|_| Uuid::new_v4());
+                                    (step_id, s.description, s.status, s.result)
+                                })
+                                .collect(),
                         );
                     }
                 }
@@ -384,7 +426,11 @@ impl AgentRuntime {
 
     /// Register a channel adapter.
     pub fn add_channel(&mut self, channel: Box<dyn Channel>) {
-        info!(channel = channel.channel_type(), id = channel.id(), "registered channel");
+        info!(
+            channel = channel.channel_type(),
+            id = channel.id(),
+            "registered channel"
+        );
         self.channels.push(channel);
     }
 
@@ -421,14 +467,17 @@ impl AgentRuntime {
                     if let Ok(id) = row.id.parse::<Uuid>() {
                         // Only restore sessions that have messages (skip stale empties)
                         if row.active && row.message_count > 0 {
-                            self.sessions.restore(id, row.name, row.channel, row.target, row.message_count).await;
+                            self.sessions
+                                .restore(id, row.name, row.channel, row.target, row.message_count)
+                                .await;
                             // Restore working memory messages for this session
                             match self.memory.load_session_messages(&id) {
                                 Ok(messages) if !messages.is_empty() => {
                                     let msg_count = messages.len();
                                     let ctx = self.memory.working.session(id);
                                     ctx.messages = messages;
-                                    ctx.estimated_tokens = ctx.messages.iter().map(|m| m.estimate_tokens()).sum();
+                                    ctx.estimated_tokens =
+                                        ctx.messages.iter().map(|m| m.estimate_tokens()).sum();
                                     tracing::debug!(session = %id, messages = msg_count, "restored session messages");
                                 }
                                 _ => {}
@@ -456,7 +505,10 @@ impl AgentRuntime {
             .unwrap_or_else(|| std::path::PathBuf::from("."))
             .join(".claw");
         let skills_dir = if self.config.plugins.plugin_dir.is_absolute() {
-            self.config.plugins.plugin_dir.parent()
+            self.config
+                .plugins
+                .plugin_dir
+                .parent()
                 .unwrap_or(std::path::Path::new("."))
                 .join("skills")
         } else {
@@ -464,17 +516,37 @@ impl AgentRuntime {
         };
 
         // Auto-seed bundled skills if the skills directory is empty or missing
-        if !skills_dir.exists() || skills_dir.read_dir().map(|mut d| d.next().is_none()).unwrap_or(true) {
+        if !skills_dir.exists()
+            || skills_dir
+                .read_dir()
+                .map(|mut d| d.next().is_none())
+                .unwrap_or(true)
+        {
             info!("seeding bundled skills into {}", skills_dir.display());
             let bundled: &[(&str, &str)] = &[
-                ("plesk-server", include_str!("../../../skills/plesk-server/SKILL.md")),
+                (
+                    "plesk-server",
+                    include_str!("../../../skills/plesk-server/SKILL.md"),
+                ),
                 ("github", include_str!("../../../skills/github/SKILL.md")),
                 ("docker", include_str!("../../../skills/docker/SKILL.md")),
-                ("server-management", include_str!("../../../skills/server-management/SKILL.md")),
+                (
+                    "server-management",
+                    include_str!("../../../skills/server-management/SKILL.md"),
+                ),
                 ("coding", include_str!("../../../skills/coding/SKILL.md")),
-                ("web-research", include_str!("../../../skills/web-research/SKILL.md")),
-                ("system-admin", include_str!("../../../skills/system-admin/SKILL.md")),
-                ("1password", include_str!("../../../skills/1password/SKILL.md")),
+                (
+                    "web-research",
+                    include_str!("../../../skills/web-research/SKILL.md"),
+                ),
+                (
+                    "system-admin",
+                    include_str!("../../../skills/system-admin/SKILL.md"),
+                ),
+                (
+                    "1password",
+                    include_str!("../../../skills/1password/SKILL.md"),
+                ),
             ];
             for (name, content) in bundled {
                 let skill_dir = skills_dir.join(name);
@@ -576,11 +648,14 @@ impl AgentRuntime {
         let mut mesh_rx: Option<mpsc::Receiver<MeshMessage>> = None;
         if self.config.mesh.enabled {
             let mut mesh = state.mesh.lock().await;
-            match mesh.start(
-                &self.config.mesh.listen,
-                &self.config.mesh.bootstrap_peers,
-                self.config.mesh.capabilities.clone(),
-            ).await {
+            match mesh
+                .start(
+                    &self.config.mesh.listen,
+                    &self.config.mesh.bootstrap_peers,
+                    self.config.mesh.capabilities.clone(),
+                )
+                .await
+            {
                 Ok(rx) => {
                     info!(
                         peer_id = %mesh.peer_id(),
@@ -915,18 +990,20 @@ async fn handle_query(
         }
         QueryKind::Sessions => {
             let sessions = state.sessions.list_sessions().await;
-            let list: Vec<serde_json::Value> = sessions.iter()
+            let list: Vec<serde_json::Value> = sessions
+                .iter()
                 .filter(|s| s.message_count > 0)
                 .map(|s| {
-                serde_json::json!({
-                    "id": s.id.to_string(),
-                    "name": s.name,
-                    "active": s.active,
-                    "message_count": s.message_count,
-                    "channel": s.channel,
-                    "created_at": s.created_at.to_rfc3339(),
+                    serde_json::json!({
+                        "id": s.id.to_string(),
+                        "name": s.name,
+                        "active": s.active,
+                        "message_count": s.message_count,
+                        "channel": s.channel,
+                        "created_at": s.created_at.to_rfc3339(),
+                    })
                 })
-            }).collect();
+                .collect();
             serde_json::json!({ "sessions": list })
         }
         QueryKind::SessionMessages(ref session_id_str) => {
@@ -945,19 +1022,22 @@ async fn handle_query(
                     }
                 }
 
-                let list: Vec<serde_json::Value> = messages_slice.iter().map(|m| {
-                    serde_json::json!({
-                        "id": m.id.to_string(),
-                        "role": m.role,
-                        "content": m.text_content(),
-                        "tool_calls": m.tool_calls.iter().map(|tc| serde_json::json!({
-                            "id": tc.id,
-                            "tool_name": tc.tool_name,
-                            "arguments": tc.arguments,
-                        })).collect::<Vec<_>>(),
-                        "timestamp": m.timestamp.to_rfc3339(),
+                let list: Vec<serde_json::Value> = messages_slice
+                    .iter()
+                    .map(|m| {
+                        serde_json::json!({
+                            "id": m.id.to_string(),
+                            "role": m.role,
+                            "content": m.text_content(),
+                            "tool_calls": m.tool_calls.iter().map(|tc| serde_json::json!({
+                                "id": tc.id,
+                                "tool_name": tc.tool_name,
+                                "arguments": tc.arguments,
+                            })).collect::<Vec<_>>(),
+                            "timestamp": m.timestamp.to_rfc3339(),
+                        })
                     })
-                }).collect();
+                    .collect();
                 serde_json::json!({ "messages": list })
             } else {
                 serde_json::json!({ "error": "invalid session_id" })
@@ -965,76 +1045,98 @@ async fn handle_query(
         }
         QueryKind::Goals => {
             let planner = state.planner.lock().await;
-            let goals: Vec<serde_json::Value> = planner.active_goals().iter().map(|g| {
-                serde_json::json!({
-                    "id": g.id.to_string(),
-                    "description": g.description,
-                    "priority": g.priority,
-                    "progress": g.progress,
-                    "steps": g.steps.iter().map(|s| serde_json::json!({
-                        "description": s.description,
-                        "status": format!("{:?}", s.status),
-                    })).collect::<Vec<_>>(),
+            let goals: Vec<serde_json::Value> = planner
+                .active_goals()
+                .iter()
+                .map(|g| {
+                    serde_json::json!({
+                        "id": g.id.to_string(),
+                        "description": g.description,
+                        "priority": g.priority,
+                        "progress": g.progress,
+                        "steps": g.steps.iter().map(|s| serde_json::json!({
+                            "description": s.description,
+                            "status": format!("{:?}", s.status),
+                        })).collect::<Vec<_>>(),
+                    })
                 })
-            }).collect();
+                .collect();
             serde_json::json!({ "goals": goals })
         }
         QueryKind::Tools => {
-            let tools: Vec<serde_json::Value> = state.tools.tools().iter().map(|t| {
-                serde_json::json!({
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
-                    "risk_level": t.risk_level,
-                    "is_mutating": t.is_mutating,
-                    "capabilities": t.capabilities,
-                    "provider": t.provider,
+            let tools: Vec<serde_json::Value> = state
+                .tools
+                .tools()
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                        "risk_level": t.risk_level,
+                        "is_mutating": t.is_mutating,
+                        "capabilities": t.capabilities,
+                        "provider": t.provider,
+                    })
                 })
-            }).collect();
-            let mut plugin_tools: Vec<serde_json::Value> = state.plugins.tools().iter().map(|t| {
-                serde_json::json!({
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
-                    "risk_level": t.risk_level,
-                    "is_mutating": t.is_mutating,
-                    "capabilities": t.capabilities,
-                    "provider": t.provider,
+                .collect();
+            let mut plugin_tools: Vec<serde_json::Value> = state
+                .plugins
+                .tools()
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                        "risk_level": t.risk_level,
+                        "is_mutating": t.is_mutating,
+                        "capabilities": t.capabilities,
+                        "provider": t.provider,
+                    })
                 })
-            }).collect();
+                .collect();
             let mut all = tools;
             all.append(&mut plugin_tools);
             // Skills are prompt-injected (SKILL.md), not listed as tools.
             // They appear in the system prompt via <available_skills>.
             // Add device tools (browser, android, ios)
-            let device_tools: Vec<serde_json::Value> = DeviceTools::tools().iter().map(|t| {
-                serde_json::json!({
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
-                    "risk_level": t.risk_level,
-                    "is_mutating": t.is_mutating,
-                    "capabilities": t.capabilities,
-                    "provider": "device",
+            let device_tools: Vec<serde_json::Value> = DeviceTools::tools()
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                        "risk_level": t.risk_level,
+                        "is_mutating": t.is_mutating,
+                        "capabilities": t.capabilities,
+                        "provider": "device",
+                    })
                 })
-            }).collect();
+                .collect();
             all.extend(device_tools);
             serde_json::json!({ "tools": all })
         }
         QueryKind::Facts => {
             let mem = state.memory.lock().await;
-            let facts: Vec<serde_json::Value> = mem.semantic.all_facts().iter().map(|f| {
-                serde_json::json!({
-                    "id": f.id.to_string(),
-                    "category": f.category,
-                    "key": f.key,
-                    "value": f.value,
-                    "confidence": f.confidence,
-                    "source": f.source,
-                    "created_at": f.created_at.to_rfc3339(),
-                    "updated_at": f.updated_at.to_rfc3339(),
+            let facts: Vec<serde_json::Value> = mem
+                .semantic
+                .all_facts()
+                .iter()
+                .map(|f| {
+                    serde_json::json!({
+                        "id": f.id.to_string(),
+                        "category": f.category,
+                        "key": f.key,
+                        "value": f.value,
+                        "confidence": f.confidence,
+                        "source": f.source,
+                        "created_at": f.created_at.to_rfc3339(),
+                        "updated_at": f.updated_at.to_rfc3339(),
+                    })
                 })
-            }).collect();
+                .collect();
             let count = facts.len();
             serde_json::json!({ "facts": facts, "count": count })
         }
@@ -1056,48 +1158,65 @@ async fn handle_query(
             let fact_results: Vec<serde_json::Value> = if let Some(ref qemb) = query_embedding {
                 let vector_hits = mem.semantic.vector_search(qemb, 20);
                 if !vector_hits.is_empty() {
-                    vector_hits.iter().map(|(f, score)| {
-                        serde_json::json!({
-                            "type": "fact",
-                            "category": f.category,
-                            "key": f.key,
-                            "value": f.value,
-                            "confidence": f.confidence,
-                            "relevance": score,
+                    vector_hits
+                        .iter()
+                        .map(|(f, score)| {
+                            serde_json::json!({
+                                "type": "fact",
+                                "category": f.category,
+                                "key": f.key,
+                                "value": f.value,
+                                "confidence": f.confidence,
+                                "relevance": score,
+                            })
                         })
-                    }).collect()
+                        .collect()
                 } else {
-                    mem.semantic.search(query_text).iter().take(20).map(|f| {
-                        serde_json::json!({
-                            "type": "fact",
-                            "category": f.category,
-                            "key": f.key,
-                            "value": f.value,
-                            "confidence": f.confidence,
+                    mem.semantic
+                        .search(query_text)
+                        .iter()
+                        .take(20)
+                        .map(|f| {
+                            serde_json::json!({
+                                "type": "fact",
+                                "category": f.category,
+                                "key": f.key,
+                                "value": f.value,
+                                "confidence": f.confidence,
+                            })
                         })
-                    }).collect()
+                        .collect()
                 }
             } else {
-                mem.semantic.search(query_text).iter().take(20).map(|f| {
-                    serde_json::json!({
-                        "type": "fact",
-                        "category": f.category,
-                        "key": f.key,
-                        "value": f.value,
-                        "confidence": f.confidence,
+                mem.semantic
+                    .search(query_text)
+                    .iter()
+                    .take(20)
+                    .map(|f| {
+                        serde_json::json!({
+                            "type": "fact",
+                            "category": f.category,
+                            "key": f.key,
+                            "value": f.value,
+                            "confidence": f.confidence,
+                        })
                     })
-                }).collect()
+                    .collect()
             };
 
-            let ep_results: Vec<serde_json::Value> = episodes.iter().take(10).map(|e| {
-                serde_json::json!({
-                    "type": "episode",
-                    "summary": e.summary,
-                    "outcome": e.outcome,
-                    "tags": e.tags,
-                    "created_at": e.created_at.to_rfc3339(),
+            let ep_results: Vec<serde_json::Value> = episodes
+                .iter()
+                .take(10)
+                .map(|e| {
+                    serde_json::json!({
+                        "type": "episode",
+                        "summary": e.summary,
+                        "outcome": e.outcome,
+                        "tags": e.tags,
+                        "created_at": e.created_at.to_rfc3339(),
+                    })
                 })
-            }).collect();
+                .collect();
             let mut results = ep_results;
             results.extend(fact_results);
             serde_json::json!({ "results": results, "query": query_text })
@@ -1146,7 +1265,8 @@ async fn handle_query(
         }
         QueryKind::AuditLog(limit) => {
             let mem = state.memory.lock().await;
-            let entries: Vec<serde_json::Value> = mem.audit_log(limit)
+            let entries: Vec<serde_json::Value> = mem
+                .audit_log(limit)
                 .into_iter()
                 .map(|(timestamp, event_type, action, details)| {
                     serde_json::json!({
@@ -1162,14 +1282,18 @@ async fn handle_query(
         }
         QueryKind::MeshPeers => {
             let mesh = state.mesh.lock().await;
-            let peers: Vec<serde_json::Value> = mesh.peer_list().iter().map(|p| {
-                serde_json::json!({
-                    "peer_id": p.peer_id,
-                    "hostname": p.hostname,
-                    "capabilities": p.capabilities,
-                    "os": p.os,
+            let peers: Vec<serde_json::Value> = mesh
+                .peer_list()
+                .iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "peer_id": p.peer_id,
+                        "hostname": p.hostname,
+                        "capabilities": p.capabilities,
+                        "os": p.os,
+                    })
                 })
-            }).collect();
+                .collect();
             let count = peers.len();
             serde_json::json!({ "peers": peers, "count": count })
         }
@@ -1223,14 +1347,11 @@ async fn process_mesh_message(state: SharedAgentState, message: MeshMessage) {
             );
 
             // Execute the task by processing it as a chat message
-            let result_text = match process_api_message(
-                state.clone(),
-                task.description.clone(),
-                None,
-            ).await {
-                resp if resp.error.is_none() => resp.text,
-                resp => format!("Error: {}", resp.error.unwrap_or_default()),
-            };
+            let result_text =
+                match process_api_message(state.clone(), task.description.clone(), None).await {
+                    resp if resp.error.is_none() => resp.text,
+                    resp => format!("Error: {}", resp.error.unwrap_or_default()),
+                };
 
             // Send the result back to the originator
             let result_msg = MeshMessage::TaskResult {
@@ -1244,7 +1365,12 @@ async fn process_mesh_message(state: SharedAgentState, message: MeshMessage) {
                 warn!(error = %e, from = %task.from_peer, "failed to send task result");
             }
         }
-        MeshMessage::TaskResult { task_id, peer_id, success, result } => {
+        MeshMessage::TaskResult {
+            task_id,
+            peer_id,
+            success,
+            result,
+        } => {
             info!(
                 task_id = %task_id,
                 from = %peer_id,
@@ -1278,14 +1404,20 @@ async fn process_mesh_message(state: SharedAgentState, message: MeshMessage) {
                 }
             }
         }
-        MeshMessage::DirectMessage { from_peer, content, .. } => {
+        MeshMessage::DirectMessage {
+            from_peer, content, ..
+        } => {
             info!(
                 from = %from_peer,
                 content = %content,
                 "received direct message from mesh peer"
             );
         }
-        MeshMessage::SyncDelta { peer_id, delta_type, data } => {
+        MeshMessage::SyncDelta {
+            peer_id,
+            delta_type,
+            data,
+        } => {
             debug!(
                 from = %peer_id,
                 delta_type = %delta_type,
@@ -1300,7 +1432,10 @@ async fn process_mesh_message(state: SharedAgentState, message: MeshMessage) {
                         data.get("key").and_then(|v| v.as_str()),
                         data.get("value").and_then(|v| v.as_str()),
                     ) {
-                        let confidence = data.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.8);
+                        let confidence = data
+                            .get("confidence")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.8);
                         let source = format!("mesh:{}", peer_id);
                         let mut mem = state.memory.lock().await;
                         // Upsert into in-memory semantic store
@@ -1330,10 +1465,18 @@ async fn process_mesh_message(state: SharedAgentState, message: MeshMessage) {
                 "episode" => {
                     // Apply incoming episode summary
                     if let Some(summary) = data.get("summary").and_then(|v| v.as_str()) {
-                        let outcome = data.get("outcome").and_then(|v| v.as_str()).map(String::from);
-                        let tags: Vec<String> = data.get("tags")
+                        let outcome = data
+                            .get("outcome")
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
+                        let tags: Vec<String> = data
+                            .get("tags")
                             .and_then(|v| v.as_array())
-                            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect()
+                            })
                             .unwrap_or_default();
                         let mut mem = state.memory.lock().await;
                         let episode = claw_memory::episodic::Episode {
@@ -1414,7 +1557,11 @@ async fn process_channel_message(
     channel_id: &str,
     incoming: IncomingMessage,
 ) -> claw_core::Result<()> {
-    let target = incoming.group.as_deref().unwrap_or(&incoming.sender).to_string();
+    let target = incoming
+        .group
+        .as_deref()
+        .unwrap_or(&incoming.sender)
+        .to_string();
     let channel_id_owned = channel_id.to_string();
 
     // Spawn periodic typing indicator so the user sees activity
@@ -1436,12 +1583,19 @@ async fn process_channel_message(
     let state_stream = state.clone();
     let cid_stream = channel_id_owned.clone();
     let stream_handle = tokio::spawn(async move {
-        let result = process_message_streaming_shared(
-            &state_stream, &cid_stream, incoming, &tx, None,
-        ).await;
+        let result =
+            process_message_streaming_shared(&state_stream, &cid_stream, incoming, &tx, None).await;
         match &result {
-            Ok(()) => { let _ = tx.send(StreamEvent::Done).await; }
-            Err(e) => { let _ = tx.send(StreamEvent::Error { message: e.to_string() }).await; }
+            Ok(()) => {
+                let _ = tx.send(StreamEvent::Done).await;
+            }
+            Err(e) => {
+                let _ = tx
+                    .send(StreamEvent::Error {
+                        message: e.to_string(),
+                    })
+                    .await;
+            }
         }
         result
     });
@@ -1488,18 +1642,34 @@ async fn process_channel_message(
             StreamEvent::TextDelta { content } => {
                 final_text.push_str(&content);
             }
-            StreamEvent::ApprovalRequired { id, tool_name, tool_args, reason, risk_level } => {
+            StreamEvent::ApprovalRequired {
+                id,
+                tool_name,
+                tool_args,
+                reason,
+                risk_level,
+            } => {
                 send_approval_prompt_shared(
-                    &state, &channel_id_owned, &target,
-                    &id, &tool_name, &tool_args, &reason, risk_level,
-                ).await;
+                    &state,
+                    &channel_id_owned,
+                    &target,
+                    &id,
+                    &tool_name,
+                    &tool_args,
+                    &reason,
+                    risk_level,
+                )
+                .await;
             }
             StreamEvent::Done => break,
             StreamEvent::Error { message } => {
                 let _ = send_response_shared(
-                    &state, &channel_id_owned, &target,
+                    &state,
+                    &channel_id_owned,
+                    &target,
                     &format!("❌ Error: {}", message),
-                ).await;
+                )
+                .await;
                 break;
             }
             _ => {}
@@ -1512,14 +1682,18 @@ async fn process_channel_message(
                 let text = format!("🤖 *Working on it…*\n\n{}", progress_lines.join("\n"));
                 match &progress_msg_id {
                     Some(msg_id) => {
-                        let _ = edit_channel_message(
-                            &state, &channel_id_owned, &target, msg_id, &text,
-                        ).await;
+                        let _ =
+                            edit_channel_message(&state, &channel_id_owned, &target, msg_id, &text)
+                                .await;
                     }
                     None => {
                         progress_msg_id = send_channel_message_returning_id(
-                            &state, &channel_id_owned, &target, &text,
-                        ).await;
+                            &state,
+                            &channel_id_owned,
+                            &target,
+                            &text,
+                        )
+                        .await;
                     }
                 }
                 last_edit_time = now;
@@ -1533,9 +1707,8 @@ async fn process_channel_message(
         let text = format!("🤖 *Done*\n\n{}", progress_lines.join("\n"));
         match &progress_msg_id {
             Some(msg_id) => {
-                let _ = edit_channel_message(
-                    &state, &channel_id_owned, &target, msg_id, &text,
-                ).await;
+                let _ =
+                    edit_channel_message(&state, &channel_id_owned, &target, msg_id, &text).await;
             }
             None => {
                 let _ = send_response_shared(&state, &channel_id_owned, &target, &text).await;
@@ -1578,7 +1751,11 @@ async fn process_stream_message(
         state.sessions.create_for_channel("api", "api_user").await
     };
 
-    let _ = tx.send(StreamEvent::Session { session_id: session_id.to_string() }).await;
+    let _ = tx
+        .send(StreamEvent::Session {
+            session_id: session_id.to_string(),
+        })
+        .await;
 
     let incoming = IncomingMessage {
         id: Uuid::new_v4().to_string(),
@@ -1598,7 +1775,11 @@ async fn process_stream_message(
             let _ = tx.send(StreamEvent::Done).await;
         }
         Err(e) => {
-            let _ = tx.send(StreamEvent::Error { message: e.to_string() }).await;
+            let _ = tx
+                .send(StreamEvent::Error {
+                    message: e.to_string(),
+                })
+                .await;
         }
     }
 }
@@ -1674,7 +1855,10 @@ fn is_lazy_stop(text: &str, iteration: usize) -> bool {
         "and so on for",
     ];
 
-    let deferral_count: usize = deferral_phrases.iter().filter(|p| lower.contains(**p)).count();
+    let deferral_count: usize = deferral_phrases
+        .iter()
+        .filter(|p| lower.contains(**p))
+        .count();
 
     // ── Scaffolding-only — model ran a create-* command and stopped ──
     // Only check in early iterations (< 5) when the model hasn't done much yet
@@ -1716,7 +1900,14 @@ fn truncate_tool_result(content: &str, max_tokens: usize) -> String {
     let head_chars = (max_chars * 6) / 10;
     let tail_chars = (max_chars * 2) / 10;
     let head: String = content.chars().take(head_chars).collect();
-    let tail: String = content.chars().rev().take(tail_chars).collect::<Vec<_>>().into_iter().rev().collect();
+    let tail: String = content
+        .chars()
+        .rev()
+        .take(tail_chars)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
     let omitted_chars = content.len() - head_chars - tail_chars;
     let omitted_tokens = omitted_chars / 4;
 
@@ -1754,7 +1945,11 @@ async fn maybe_compact_context(
     info!(session = %session_id, messages = messages_to_remove, "performing LLM-powered context compaction");
 
     // Use fast model for compaction if available, otherwise primary
-    let compaction_model = state.config.agent.fast_model.as_deref()
+    let compaction_model = state
+        .config
+        .agent
+        .fast_model
+        .as_deref()
         .unwrap_or(&state.config.agent.model);
 
     let compaction_prompt = format!(
@@ -1765,14 +1960,18 @@ async fn maybe_compact_context(
          - Any errors encountered and how they were resolved\n\
          - Current state of progress (what's done, what remains)\n\n\
          Keep the summary under 500 words. Be factual and specific.\n\n\
-         Conversation to summarize:\n{}", text_to_summarize
+         Conversation to summarize:\n{}",
+        text_to_summarize
     );
 
     let request = LlmRequest {
         model: compaction_model.to_string(),
         messages: vec![Message::text(Uuid::nil(), Role::User, &compaction_prompt)],
         tools: vec![],
-        system: Some("You are a precise conversation summarizer. Output only the summary, nothing else.".to_string()),
+        system: Some(
+            "You are a precise conversation summarizer. Output only the summary, nothing else."
+                .to_string(),
+        ),
         max_tokens: 2048,
         temperature: 0.3,
         thinking_level: Some("off".to_string()),
@@ -1783,7 +1982,8 @@ async fn maybe_compact_context(
         Ok(response) => {
             let summary = response.message.text_content();
             let mut mem = state.memory.lock().await;
-            mem.working.apply_llm_compaction(session_id, &summary, messages_to_remove);
+            mem.working
+                .apply_llm_compaction(session_id, &summary, messages_to_remove);
             let new_token_count = mem.working.token_count(session_id);
             info!(
                 session = %session_id,
@@ -1867,7 +2067,10 @@ async fn process_message_shared(
             for (fact, _score) in mem.semantic.vector_search(qemb, 10) {
                 let fk = format!("{}:{}", fact.category, fact.key);
                 if seen_fact_keys.insert(fk) {
-                    relevant_facts.push(format!("- [{}] {}: {}", fact.category, fact.key, fact.value));
+                    relevant_facts.push(format!(
+                        "- [{}] {}: {}",
+                        fact.category, fact.key, fact.value
+                    ));
                 }
             }
         }
@@ -1876,7 +2079,10 @@ async fn process_message_shared(
         for fact in mem.semantic.search(&user_text).iter().take(10) {
             let fk = format!("{}:{}", fact.category, fact.key);
             if seen_fact_keys.insert(fk) {
-                relevant_facts.push(format!("- [{}] {}: {}", fact.category, fact.key, fact.value));
+                relevant_facts.push(format!(
+                    "- [{}] {}: {}",
+                    fact.category, fact.key, fact.value
+                ));
             }
         }
 
@@ -1885,7 +2091,10 @@ async fn process_message_shared(
             for fact in mem.semantic.search(&search_terms).iter().take(5) {
                 let fk = format!("{}:{}", fact.category, fact.key);
                 if seen_fact_keys.insert(fk) {
-                    relevant_facts.push(format!("- [{}] {}: {}", fact.category, fact.key, fact.value));
+                    relevant_facts.push(format!(
+                        "- [{}] {}: {}",
+                        fact.category, fact.key, fact.value
+                    ));
                 }
             }
         }
@@ -1896,15 +2105,26 @@ async fn process_message_shared(
         let mut parts = Vec::new();
         if !relevant_episodes.is_empty() {
             let episodes_text: Vec<String> = relevant_episodes
-                .iter().take(5).map(|e| format!("- {}", e.summary)).collect();
-            parts.push(format!("Relevant past conversations:\n{}", episodes_text.join("\n")));
+                .iter()
+                .take(5)
+                .map(|e| format!("- {}", e.summary))
+                .collect();
+            parts.push(format!(
+                "Relevant past conversations:\n{}",
+                episodes_text.join("\n")
+            ));
         }
         if !relevant_facts.is_empty() {
-            parts.push(format!("Relevant knowledge:\n{}", relevant_facts.join("\n")));
+            parts.push(format!(
+                "Relevant knowledge:\n{}",
+                relevant_facts.join("\n")
+            ));
         }
 
         // Always load learned lessons — these are high-value self-corrections
-        let lessons: Vec<String> = mem.semantic.category("learned_lessons")
+        let lessons: Vec<String> = mem
+            .semantic
+            .category("learned_lessons")
             .iter()
             .map(|f| format!("- **{}**: {}", f.key, f.value))
             .collect();
@@ -1925,7 +2145,11 @@ async fn process_message_shared(
     };
 
     // 2. BUILD system prompt — no locks needed
-    let mut system_prompt = state.config.agent.system_prompt.clone()
+    let mut system_prompt = state
+        .config
+        .agent
+        .system_prompt
+        .clone()
         .unwrap_or_else(build_default_system_prompt);
     if !context_parts.is_empty() {
         system_prompt.push_str("\n\n<memory>\n");
@@ -1937,7 +2161,9 @@ async fn process_message_shared(
         for goal in &active_goals {
             system_prompt.push_str(&format!(
                 "- [{}] {} (progress: {:.0}%)\n",
-                goal.id, goal.description, goal.progress * 100.0
+                goal.id,
+                goal.description,
+                goal.progress * 100.0
             ));
         }
         system_prompt.push_str("</active_goals>");
@@ -1950,8 +2176,14 @@ async fn process_message_shared(
             let peers = mesh.peer_list();
             if !peers.is_empty() {
                 system_prompt.push_str("\n\n<mesh_network>\n");
-                system_prompt.push_str(&format!("Your peer ID: {}\n", &mesh.peer_id()[..12.min(mesh.peer_id().len())]));
-                system_prompt.push_str(&format!("Your capabilities: [{}]\n", state.config.mesh.capabilities.join(", ")));
+                system_prompt.push_str(&format!(
+                    "Your peer ID: {}\n",
+                    &mesh.peer_id()[..12.min(mesh.peer_id().len())]
+                ));
+                system_prompt.push_str(&format!(
+                    "Your capabilities: [{}]\n",
+                    state.config.mesh.capabilities.join(", ")
+                ));
                 system_prompt.push_str(&format!("Connected peers ({}):\n", peers.len()));
                 for p in &peers {
                     system_prompt.push_str(&format!(
@@ -1961,7 +2193,9 @@ async fn process_message_shared(
                         p.capabilities.join(", "),
                     ));
                 }
-                system_prompt.push_str("Use mesh_delegate to send tasks to peers with capabilities you lack.\n");
+                system_prompt.push_str(
+                    "Use mesh_delegate to send tasks to peers with capabilities you lack.\n",
+                );
                 system_prompt.push_str("</mesh_network>");
             }
         }
@@ -1978,7 +2212,10 @@ async fn process_message_shared(
     // Add credential provider context so the LLM knows how to retrieve secrets
     if state.config.credentials.provider != "none" {
         system_prompt.push_str("\n\n<credentials>\n");
-        system_prompt.push_str(&format!("Provider: {}\n", state.config.credentials.provider));
+        system_prompt.push_str(&format!(
+            "Provider: {}\n",
+            state.config.credentials.provider
+        ));
         if let Some(ref vault) = state.config.credentials.default_vault {
             system_prompt.push_str(&format!("Default vault: {}\n", vault));
         }
@@ -2067,7 +2304,8 @@ async fn process_message_shared(
                 final_response = format!(
                     "I ran out of time ({}s limit reached after {} iterations). Here's what I accomplished so far. \
                      You can send another message to continue where I left off.",
-                    timeout_secs, iteration - 1
+                    timeout_secs,
+                    iteration - 1
                 );
                 break;
             }
@@ -2088,7 +2326,11 @@ async fn process_message_shared(
         let request = LlmRequest {
             model: if consecutive_llm_failures >= 3 {
                 // After 3 consecutive failures from primary, switch to fallback for this run
-                state.config.agent.fallback_model.as_deref()
+                state
+                    .config
+                    .agent
+                    .fallback_model
+                    .as_deref()
                     .unwrap_or(&state.config.agent.model)
                     .to_string()
             } else {
@@ -2104,7 +2346,8 @@ async fn process_message_shared(
         };
 
         // Call LLM with overflow recovery and model fallback
-        let response = match state.llm
+        let response = match state
+            .llm
             .complete(&request, state.config.agent.fallback_model.as_deref())
             .await
         {
@@ -2112,8 +2355,12 @@ async fn process_message_shared(
                 consecutive_llm_failures = 0;
                 resp
             }
-            Err(ref e) if matches!(e, claw_core::ClawError::ContextOverflow { .. } | claw_core::ClawError::LlmProvider(_))
-                && iteration <= max_iterations =>
+            Err(ref e)
+                if matches!(
+                    e,
+                    claw_core::ClawError::ContextOverflow { .. }
+                        | claw_core::ClawError::LlmProvider(_)
+                ) && iteration <= max_iterations =>
             {
                 consecutive_llm_failures += 1;
                 // Context might be too large — force compaction and retry
@@ -2132,14 +2379,17 @@ async fn process_message_shared(
                     messages,
                     ..request
                 };
-                state.llm
+                state
+                    .llm
                     .complete(&retry_request, state.config.agent.fallback_model.as_deref())
                     .await?
             }
             Err(e) => return Err(e),
         };
 
-        state.budget.record_spend(response.usage.estimated_cost_usd)?;
+        state
+            .budget
+            .record_spend(response.usage.estimated_cost_usd)?;
 
         // Store assistant message — brief lock
         {
@@ -2172,15 +2422,17 @@ async fn process_message_shared(
                     // Skip lazy-stop if last turn started a dev server / background process
                     let text = response.message.text_content();
                     let lower = text.to_lowercase();
-                    let just_started_server = last_turn_tool_names.iter().any(|name| {
-                        name == "process_start" || name == "terminal_run"
-                    }) && (
-                        lower.contains("localhost")
-                        || lower.contains("running")
-                        || lower.contains("dev server")
-                        || lower.contains("started")
-                    );
-                    if !just_started_server && is_lazy_stop(&text, iteration as usize) && iteration < max_iterations {
+                    let just_started_server = last_turn_tool_names
+                        .iter()
+                        .any(|name| name == "process_start" || name == "terminal_run")
+                        && (lower.contains("localhost")
+                            || lower.contains("running")
+                            || lower.contains("dev server")
+                            || lower.contains("started"));
+                    if !just_started_server
+                        && is_lazy_stop(&text, iteration as usize)
+                        && iteration < max_iterations
+                    {
                         info!(session = %session_id, iteration, "detected lazy model stop, re-prompting");
                         let mut mem = state.memory.lock().await;
                         let nudge_msg = Message::text(
@@ -2214,7 +2466,8 @@ async fn process_message_shared(
                 tool_call_id: tool_call.id.clone(),
             });
 
-            let tool_def = all_tools.iter()
+            let tool_def = all_tools
+                .iter()
                 .find(|t| t.name == tool_call.tool_name)
                 .cloned()
                 .unwrap_or_else(|| Tool {
@@ -2227,11 +2480,11 @@ async fn process_message_shared(
                     provider: None,
                 });
 
-            let verdict = state.guardrails.evaluate(&tool_def, tool_call, autonomy_level);
+            let verdict = state
+                .guardrails
+                .evaluate(&tool_def, tool_call, autonomy_level);
             let tool_result = match verdict {
-                GuardrailVerdict::Approve => {
-                    execute_tool_shared(state, tool_call).await
-                }
+                GuardrailVerdict::Approve => execute_tool_shared(state, tool_call).await,
                 GuardrailVerdict::Deny(reason) => ToolResult {
                     tool_call_id: tool_call.id.clone(),
                     content: format!("DENIED: {}", reason),
@@ -2244,17 +2497,27 @@ async fn process_message_shared(
 
                     // Send approval prompt to the originating channel
                     send_approval_prompt_shared(
-                        state, &channel_id_owned, &target_owned,
-                        &approval_id.to_string(), &tool_call.tool_name,
-                        &tool_call.arguments, &reason, tool_def.risk_level,
-                    ).await;
+                        state,
+                        &channel_id_owned,
+                        &target_owned,
+                        &approval_id.to_string(),
+                        &tool_call.tool_name,
+                        &tool_call.arguments,
+                        &reason,
+                        tool_def.risk_level,
+                    )
+                    .await;
 
                     // Now wait for approval (resolved via callback query, /approve command, or API)
-                    let response = state.approval
+                    let response = state
+                        .approval
                         .request_approval_with_id(
                             approval_id,
-                            &tool_call.tool_name, &tool_call.arguments,
-                            &reason, tool_def.risk_level, 120,
+                            &tool_call.tool_name,
+                            &tool_call.arguments,
+                            &reason,
+                            tool_def.risk_level,
+                            120,
                         )
                         .await;
                     match response {
@@ -2283,7 +2546,8 @@ async fn process_message_shared(
             });
 
             // Truncate tool result to fit context window
-            let truncated_content = truncate_tool_result(&tool_result.content, tool_result_max_tokens);
+            let truncated_content =
+                truncate_tool_result(&tool_result.content, tool_result_max_tokens);
 
             // Store tool result — brief lock
             {
@@ -2309,7 +2573,12 @@ async fn process_message_shared(
         let _ = maybe_compact_context(state, session_id).await;
 
         // Record this turn's tool names for next iteration's lazy-stop check
-        last_turn_tool_names = response.message.tool_calls.iter().map(|tc| tc.tool_name.clone()).collect();
+        last_turn_tool_names = response
+            .message
+            .tool_calls
+            .iter()
+            .map(|tc| tc.tool_name.clone())
+            .collect();
     }
 
     // 5. REMEMBER — record episodic memory + audit
@@ -2326,7 +2595,11 @@ async fn process_message_shared(
                 id: uuid::Uuid::new_v4(),
                 session_id,
                 summary,
-                outcome: if final_response.is_empty() { None } else { Some("completed".to_string()) },
+                outcome: if final_response.is_empty() {
+                    None
+                } else {
+                    Some("completed".to_string())
+                },
                 tags: extract_episode_tags(&user_text),
                 created_at: chrono::Utc::now(),
                 updated_at: chrono::Utc::now(),
@@ -2342,7 +2615,12 @@ async fn process_message_shared(
     if let Some(session) = state.sessions.get(session_id).await {
         if session.name.is_none() && !user_text.is_empty() {
             let label: String = user_text.chars().take(60).collect();
-            let label = label.split('\n').next().unwrap_or(&label).trim().to_string();
+            let label = label
+                .split('\n')
+                .next()
+                .unwrap_or(&label)
+                .trim()
+                .to_string();
             state.sessions.set_name(session_id, &label).await;
         }
     }
@@ -2404,7 +2682,10 @@ async fn process_message_streaming_shared(
             for (fact, _score) in mem.semantic.vector_search(qemb, 10) {
                 let fk = format!("{}:{}", fact.category, fact.key);
                 if seen_fact_keys.insert(fk) {
-                    relevant_facts.push(format!("- [{}] {}: {}", fact.category, fact.key, fact.value));
+                    relevant_facts.push(format!(
+                        "- [{}] {}: {}",
+                        fact.category, fact.key, fact.value
+                    ));
                 }
             }
         }
@@ -2413,7 +2694,10 @@ async fn process_message_streaming_shared(
         for fact in mem.semantic.search(&user_text).iter().take(10) {
             let fk = format!("{}:{}", fact.category, fact.key);
             if seen_fact_keys.insert(fk) {
-                relevant_facts.push(format!("- [{}] {}: {}", fact.category, fact.key, fact.value));
+                relevant_facts.push(format!(
+                    "- [{}] {}: {}",
+                    fact.category, fact.key, fact.value
+                ));
             }
         }
 
@@ -2422,7 +2706,10 @@ async fn process_message_streaming_shared(
             for fact in mem.semantic.search(&search_terms).iter().take(5) {
                 let fk = format!("{}:{}", fact.category, fact.key);
                 if seen_fact_keys.insert(fk) {
-                    relevant_facts.push(format!("- [{}] {}: {}", fact.category, fact.key, fact.value));
+                    relevant_facts.push(format!(
+                        "- [{}] {}: {}",
+                        fact.category, fact.key, fact.value
+                    ));
                 }
             }
         }
@@ -2432,15 +2719,26 @@ async fn process_message_streaming_shared(
         let mut parts = Vec::new();
         if !relevant_episodes.is_empty() {
             let episodes_text: Vec<String> = relevant_episodes
-                .iter().take(5).map(|e| format!("- {}", e.summary)).collect();
-            parts.push(format!("Relevant past conversations:\n{}", episodes_text.join("\n")));
+                .iter()
+                .take(5)
+                .map(|e| format!("- {}", e.summary))
+                .collect();
+            parts.push(format!(
+                "Relevant past conversations:\n{}",
+                episodes_text.join("\n")
+            ));
         }
         if !relevant_facts.is_empty() {
-            parts.push(format!("Relevant knowledge:\n{}", relevant_facts.join("\n")));
+            parts.push(format!(
+                "Relevant knowledge:\n{}",
+                relevant_facts.join("\n")
+            ));
         }
 
         // Always load learned lessons — these are high-value self-corrections
-        let lessons: Vec<String> = mem.semantic.category("learned_lessons")
+        let lessons: Vec<String> = mem
+            .semantic
+            .category("learned_lessons")
             .iter()
             .map(|f| format!("- **{}**: {}", f.key, f.value))
             .collect();
@@ -2461,7 +2759,11 @@ async fn process_message_streaming_shared(
     };
 
     // 2. BUILD system prompt — no locks needed
-    let mut system_prompt = state.config.agent.system_prompt.clone()
+    let mut system_prompt = state
+        .config
+        .agent
+        .system_prompt
+        .clone()
         .unwrap_or_else(build_default_system_prompt);
     if !context_parts.is_empty() {
         system_prompt.push_str("\n\n<memory>\n");
@@ -2473,7 +2775,9 @@ async fn process_message_streaming_shared(
         for goal in &active_goals {
             system_prompt.push_str(&format!(
                 "- [{}] {} (progress: {:.0}%)\n",
-                goal.id, goal.description, goal.progress * 100.0
+                goal.id,
+                goal.description,
+                goal.progress * 100.0
             ));
         }
         system_prompt.push_str("</active_goals>");
@@ -2486,8 +2790,14 @@ async fn process_message_streaming_shared(
             let peers = mesh.peer_list();
             if !peers.is_empty() {
                 system_prompt.push_str("\n\n<mesh_network>\n");
-                system_prompt.push_str(&format!("Your peer ID: {}\n", &mesh.peer_id()[..12.min(mesh.peer_id().len())]));
-                system_prompt.push_str(&format!("Your capabilities: [{}]\n", state.config.mesh.capabilities.join(", ")));
+                system_prompt.push_str(&format!(
+                    "Your peer ID: {}\n",
+                    &mesh.peer_id()[..12.min(mesh.peer_id().len())]
+                ));
+                system_prompt.push_str(&format!(
+                    "Your capabilities: [{}]\n",
+                    state.config.mesh.capabilities.join(", ")
+                ));
                 system_prompt.push_str(&format!("Connected peers ({}):\n", peers.len()));
                 for p in &peers {
                     system_prompt.push_str(&format!(
@@ -2497,7 +2807,9 @@ async fn process_message_streaming_shared(
                         p.capabilities.join(", "),
                     ));
                 }
-                system_prompt.push_str("Use mesh_delegate to send tasks to peers with capabilities you lack.\n");
+                system_prompt.push_str(
+                    "Use mesh_delegate to send tasks to peers with capabilities you lack.\n",
+                );
                 system_prompt.push_str("</mesh_network>");
             }
         }
@@ -2514,7 +2826,10 @@ async fn process_message_streaming_shared(
     // Add credential provider context so the LLM knows how to retrieve secrets
     if state.config.credentials.provider != "none" {
         system_prompt.push_str("\n\n<credentials>\n");
-        system_prompt.push_str(&format!("Provider: {}\n", state.config.credentials.provider));
+        system_prompt.push_str(&format!(
+            "Provider: {}\n",
+            state.config.credentials.provider
+        ));
         if let Some(ref vault) = state.config.credentials.default_vault {
             system_prompt.push_str(&format!("Default vault: {}\n", vault));
         }
@@ -2625,7 +2940,11 @@ async fn process_message_streaming_shared(
 
         let request = LlmRequest {
             model: if consecutive_llm_failures >= 3 {
-                state.config.agent.fallback_model.as_deref()
+                state
+                    .config
+                    .agent
+                    .fallback_model
+                    .as_deref()
                     .unwrap_or(&state.config.agent.model)
                     .to_string()
             } else {
@@ -2641,7 +2960,8 @@ async fn process_message_streaming_shared(
         };
 
         // Stream from LLM with overflow recovery and model fallback
-        let mut chunk_rx = match state.llm
+        let mut chunk_rx = match state
+            .llm
             .stream(&request, state.config.agent.fallback_model.as_deref())
             .await
         {
@@ -2649,8 +2969,12 @@ async fn process_message_streaming_shared(
                 consecutive_llm_failures = 0;
                 rx
             }
-            Err(ref e) if matches!(e, claw_core::ClawError::ContextOverflow { .. } | claw_core::ClawError::LlmProvider(_))
-                && iteration <= max_iterations =>
+            Err(ref e)
+                if matches!(
+                    e,
+                    claw_core::ClawError::ContextOverflow { .. }
+                        | claw_core::ClawError::LlmProvider(_)
+                ) && iteration <= max_iterations =>
             {
                 consecutive_llm_failures += 1;
                 warn!(session = %session_id, error = %e, consecutive_failures = consecutive_llm_failures,
@@ -2667,7 +2991,8 @@ async fn process_message_streaming_shared(
                     messages,
                     ..request
                 };
-                state.llm
+                state
+                    .llm
                     .stream(&retry_request, state.config.agent.fallback_model.as_deref())
                     .await?
             }
@@ -2691,17 +3016,25 @@ async fn process_message_streaming_shared(
                     let _ = tx.send(StreamEvent::Thinking { content: text }).await;
                 }
                 claw_llm::StreamChunk::ToolCall(tc) => {
-                    let _ = tx.send(StreamEvent::ToolCall { name: tc.tool_name.clone(), id: tc.id.clone(), args: tc.arguments.clone() }).await;
+                    let _ = tx
+                        .send(StreamEvent::ToolCall {
+                            name: tc.tool_name.clone(),
+                            id: tc.id.clone(),
+                            args: tc.arguments.clone(),
+                        })
+                        .await;
                     tool_calls.push(tc);
                     has_tool_calls = true;
                 }
                 claw_llm::StreamChunk::Usage(usage) => {
                     total_usage.merge(&usage);
-                    let _ = tx.send(StreamEvent::Usage {
-                        input_tokens: usage.input_tokens,
-                        output_tokens: usage.output_tokens,
-                        cost_usd: usage.estimated_cost_usd,
-                    }).await;
+                    let _ = tx
+                        .send(StreamEvent::Usage {
+                            input_tokens: usage.input_tokens,
+                            output_tokens: usage.output_tokens,
+                            cost_usd: usage.estimated_cost_usd,
+                        })
+                        .await;
                 }
                 claw_llm::StreamChunk::Done(reason) => {
                     stop_reason = reason;
@@ -2740,24 +3073,28 @@ async fn process_message_streaming_shared(
                          just keep going with the next tool calls or remaining work.]",
                     );
                     mem.working.push(continue_msg);
-                    let _ = tx.send(StreamEvent::TextDelta {
-                        content: "\n\n*Continuing...*\n\n".to_string(),
-                    }).await;
+                    let _ = tx
+                        .send(StreamEvent::TextDelta {
+                            content: "\n\n*Continuing...*\n\n".to_string(),
+                        })
+                        .await;
                     continue;
                 }
                 _ => {
                     // Model chose to stop — check if it's being lazy
                     // BUT: skip lazy-stop if the model just started a dev server
                     // or background process — that's a legitimate final step.
-                    let just_started_server = last_turn_tool_names.iter().any(|name| {
-                        name == "process_start" || name == "terminal_run"
-                    }) && (
-                        full_text.to_lowercase().contains("localhost")
-                        || full_text.to_lowercase().contains("running")
-                        || full_text.to_lowercase().contains("dev server")
-                        || full_text.to_lowercase().contains("started")
-                    );
-                    if !just_started_server && is_lazy_stop(&full_text, iteration as usize) && iteration < max_iterations {
+                    let just_started_server = last_turn_tool_names
+                        .iter()
+                        .any(|name| name == "process_start" || name == "terminal_run")
+                        && (full_text.to_lowercase().contains("localhost")
+                            || full_text.to_lowercase().contains("running")
+                            || full_text.to_lowercase().contains("dev server")
+                            || full_text.to_lowercase().contains("started"));
+                    if !just_started_server
+                        && is_lazy_stop(&full_text, iteration as usize)
+                        && iteration < max_iterations
+                    {
                         info!(session = %session_id, iteration, "detected lazy model stop in stream, re-prompting");
                         let mut mem = state.memory.lock().await;
                         let nudge_msg = Message::text(
@@ -2768,9 +3105,11 @@ async fn process_message_streaming_shared(
                              Continue working now.]",
                         );
                         mem.working.push(nudge_msg);
-                        let _ = tx.send(StreamEvent::TextDelta {
-                            content: "\n\n*Continuing...*\n\n".to_string(),
-                        }).await;
+                        let _ = tx
+                            .send(StreamEvent::TextDelta {
+                                content: "\n\n*Continuing...*\n\n".to_string(),
+                            })
+                            .await;
                         continue;
                     }
                     // Genuinely done
@@ -2783,7 +3122,8 @@ async fn process_message_streaming_shared(
         for tool_call in &tool_calls {
             state.budget.record_tool_call()?;
 
-            let tool_def = all_tools.iter()
+            let tool_def = all_tools
+                .iter()
                 .find(|t| t.name == tool_call.tool_name)
                 .cloned()
                 .unwrap_or_else(|| Tool {
@@ -2796,7 +3136,9 @@ async fn process_message_streaming_shared(
                     provider: None,
                 });
 
-            let verdict = state.guardrails.evaluate(&tool_def, tool_call, autonomy_level);
+            let verdict = state
+                .guardrails
+                .evaluate(&tool_def, tool_call, autonomy_level);
             let tool_result = match verdict {
                 GuardrailVerdict::Approve => execute_tool_shared(state, tool_call).await,
                 GuardrailVerdict::Deny(reason) => ToolResult {
@@ -2809,20 +3151,28 @@ async fn process_message_streaming_shared(
                     let approval_id = Uuid::new_v4();
 
                     // Emit approval event to stream so UI can show approve/deny
-                    let _ = tx.send(StreamEvent::ApprovalRequired {
-                        id: approval_id.to_string(),
-                        tool_name: tool_call.tool_name.clone(),
-                        tool_args: tool_call.arguments.clone(),
-                        reason: _reason.clone(),
-                        risk_level: tool_def.risk_level,
-                    }).await;
+                    let _ = tx
+                        .send(StreamEvent::ApprovalRequired {
+                            id: approval_id.to_string(),
+                            tool_name: tool_call.tool_name.clone(),
+                            tool_args: tool_call.arguments.clone(),
+                            reason: _reason.clone(),
+                            risk_level: tool_def.risk_level,
+                        })
+                        .await;
 
                     // Wait for approval — no lock held during this potentially long wait
-                    let response = state.approval.request_approval_with_id(
-                        approval_id,
-                        &tool_call.tool_name, &tool_call.arguments, &_reason,
-                        tool_def.risk_level, 120,
-                    ).await;
+                    let response = state
+                        .approval
+                        .request_approval_with_id(
+                            approval_id,
+                            &tool_call.tool_name,
+                            &tool_call.arguments,
+                            &_reason,
+                            tool_def.risk_level,
+                            120,
+                        )
+                        .await;
                     match response {
                         ApprovalResponse::Approved => execute_tool_shared(state, tool_call).await,
                         ApprovalResponse::Denied => ToolResult {
@@ -2841,15 +3191,18 @@ async fn process_message_streaming_shared(
                 }
             };
 
-            let _ = tx.send(StreamEvent::ToolResult {
-                id: tool_call.id.clone(),
-                content: tool_result.content.clone(),
-                is_error: tool_result.is_error,
-                data: tool_result.data.clone(),
-            }).await;
+            let _ = tx
+                .send(StreamEvent::ToolResult {
+                    id: tool_call.id.clone(),
+                    content: tool_result.content.clone(),
+                    is_error: tool_result.is_error,
+                    data: tool_result.data.clone(),
+                })
+                .await;
 
             // Truncate tool result to fit context window
-            let truncated_content = truncate_tool_result(&tool_result.content, tool_result_max_tokens);
+            let truncated_content =
+                truncate_tool_result(&tool_result.content, tool_result_max_tokens);
 
             // Store tool result — brief lock
             {
@@ -2888,7 +3241,9 @@ async fn process_message_streaming_shared(
         let msg_count = messages.len();
         if msg_count >= 2 {
             // Get last assistant text for summary
-            let last_assistant = messages.iter().rev()
+            let last_assistant = messages
+                .iter()
+                .rev()
                 .find(|m| m.role == Role::Assistant)
                 .map(|m| m.text_content())
                 .unwrap_or_default();
@@ -2913,7 +3268,12 @@ async fn process_message_streaming_shared(
     if let Some(session) = state.sessions.get(session_id).await {
         if session.name.is_none() && !user_text.is_empty() {
             let label: String = user_text.chars().take(60).collect();
-            let label = label.split('\n').next().unwrap_or(&label).trim().to_string();
+            let label = label
+                .split('\n')
+                .next()
+                .unwrap_or(&label)
+                .trim()
+                .to_string();
             state.sessions.set_name(session_id, &label).await;
         }
     }
@@ -3024,7 +3384,9 @@ async fn exec_llm_generate_shared(state: &SharedAgentState, call: &ToolCall) -> 
             id: uuid::Uuid::new_v4(),
             session_id: uuid::Uuid::nil(),
             role: claw_core::Role::User,
-            content: vec![claw_core::MessageContent::Text { text: prompt.to_string() }],
+            content: vec![claw_core::MessageContent::Text {
+                text: prompt.to_string(),
+            }],
             timestamp: chrono::Utc::now(),
             tool_calls: vec![],
             metadata: serde_json::Map::new(),
@@ -3037,9 +3399,16 @@ async fn exec_llm_generate_shared(state: &SharedAgentState, call: &ToolCall) -> 
         stream: false,
     };
 
-    match state.llm.complete(&request, state.config.agent.fallback_model.as_deref()).await {
+    match state
+        .llm
+        .complete(&request, state.config.agent.fallback_model.as_deref())
+        .await
+    {
         Ok(response) => {
-            let text = response.message.content.iter()
+            let text = response
+                .message
+                .content
+                .iter()
                 .filter_map(|c| match c {
                     claw_core::MessageContent::Text { text } => Some(text.as_str()),
                     _ => None,
@@ -3087,7 +3456,8 @@ async fn exec_web_search_shared(state: &SharedAgentState, call: &ToolCall) -> To
                 content: "Web search is not configured. To enable it:\n\
                     1. Get a free API key at https://api.search.brave.com/\n\
                     2. Add to your config: claw set services.brave_api_key YOUR_KEY\n\
-                    3. Or run: claw setup".into(),
+                    3. Or run: claw setup"
+                    .into(),
                 is_error: true,
                 data: None,
             };
@@ -3141,12 +3511,21 @@ async fn exec_web_search_shared(state: &SharedAgentState, call: &ToolCall) -> To
 
     // Extract web results
     let mut results = Vec::new();
-    if let Some(web_results) = data["web"].as_object().and_then(|w| w["results"].as_array()) {
+    if let Some(web_results) = data["web"]
+        .as_object()
+        .and_then(|w| w["results"].as_array())
+    {
         for (i, result) in web_results.iter().enumerate() {
             let title = result["title"].as_str().unwrap_or("Untitled");
             let url = result["url"].as_str().unwrap_or("");
             let description = result["description"].as_str().unwrap_or("");
-            results.push(format!("{}. {}\n   {}\n   {}", i + 1, title, url, description));
+            results.push(format!(
+                "{}. {}\n   {}\n   {}",
+                i + 1,
+                title,
+                url,
+                description
+            ));
         }
     }
 
@@ -3161,7 +3540,11 @@ async fn exec_web_search_shared(state: &SharedAgentState, call: &ToolCall) -> To
 
     ToolResult {
         tool_call_id: call.id.clone(),
-        content: format!("Search results for '{}':\n\n{}", query, results.join("\n\n")),
+        content: format!(
+            "Search results for '{}':\n\n{}",
+            query,
+            results.join("\n\n")
+        ),
         is_error: false,
         data: None,
     }
@@ -3177,23 +3560,33 @@ async fn exec_mesh_peers_shared(state: &SharedAgentState, call: &ToolCall) -> To
     if !mesh.is_running() {
         return ToolResult {
             tool_call_id: call.id.clone(),
-            content: "Mesh networking is not running. Enable it in your config: [mesh] enabled = true".into(),
+            content:
+                "Mesh networking is not running. Enable it in your config: [mesh] enabled = true"
+                    .into(),
             is_error: true,
             data: None,
         };
     }
 
-    let peers: Vec<_> = mesh.peer_list().into_iter().filter(|p| {
-        if let Some(cap) = capability_filter {
-            p.capabilities.iter().any(|c| c == cap)
-        } else {
-            true
-        }
-    }).collect();
+    let peers: Vec<_> = mesh
+        .peer_list()
+        .into_iter()
+        .filter(|p| {
+            if let Some(cap) = capability_filter {
+                p.capabilities.iter().any(|c| c == cap)
+            } else {
+                true
+            }
+        })
+        .collect();
 
     if peers.is_empty() {
         let msg = if let Some(cap) = capability_filter {
-            format!("No peers found with capability '{}'. {} total peers connected.", cap, mesh.peer_count())
+            format!(
+                "No peers found with capability '{}'. {} total peers connected.",
+                cap,
+                mesh.peer_count()
+            )
         } else {
             "No peers connected to the mesh.".to_string()
         };
@@ -3216,14 +3609,17 @@ async fn exec_mesh_peers_shared(state: &SharedAgentState, call: &ToolCall) -> To
         ));
     }
 
-    let peer_data: Vec<serde_json::Value> = peers.iter().map(|p| {
-        serde_json::json!({
-            "peer_id": p.peer_id,
-            "hostname": p.hostname,
-            "capabilities": p.capabilities,
-            "os": p.os,
+    let peer_data: Vec<serde_json::Value> = peers
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "peer_id": p.peer_id,
+                "hostname": p.hostname,
+                "capabilities": p.capabilities,
+                "os": p.os,
+            })
         })
-    }).collect();
+        .collect();
 
     ToolResult {
         tool_call_id: call.id.clone(),
@@ -3249,8 +3645,16 @@ async fn exec_mesh_delegate_shared(state: &SharedAgentState, call: &ToolCall) ->
 
     let explicit_peer = call.arguments.get("peer_id").and_then(|v| v.as_str());
     let capability = call.arguments.get("capability").and_then(|v| v.as_str());
-    let priority = call.arguments.get("priority").and_then(|v| v.as_u64()).unwrap_or(5) as u8;
-    let timeout_secs = call.arguments.get("timeout_secs").and_then(|v| v.as_u64()).unwrap_or(120);
+    let priority = call
+        .arguments
+        .get("priority")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5) as u8;
+    let timeout_secs = call
+        .arguments
+        .get("timeout_secs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(120);
 
     // Resolve target peer
     let (target_peer_id, target_hostname) = {
@@ -3271,7 +3675,10 @@ async fn exec_mesh_delegate_shared(state: &SharedAgentState, call: &ToolCall) ->
                 None => {
                     return ToolResult {
                         tool_call_id: call.id.clone(),
-                        content: format!("Peer '{}' not found in mesh. Use mesh_peers to see available peers.", pid),
+                        content: format!(
+                            "Peer '{}' not found in mesh. Use mesh_peers to see available peers.",
+                            pid
+                        ),
                         is_error: true,
                         data: None,
                     };
@@ -3300,7 +3707,9 @@ async fn exec_mesh_delegate_shared(state: &SharedAgentState, call: &ToolCall) ->
         } else {
             return ToolResult {
                 tool_call_id: call.id.clone(),
-                content: "Error: must provide either 'peer_id' or 'capability' to select a target peer.".into(),
+                content:
+                    "Error: must provide either 'peer_id' or 'capability' to select a target peer."
+                        .into(),
                 is_error: true,
                 data: None,
             };
@@ -3313,11 +3722,8 @@ async fn exec_mesh_delegate_shared(state: &SharedAgentState, call: &ToolCall) ->
         mesh.peer_id().to_string()
     };
 
-    let mut task = claw_mesh::TaskAssignment::new(
-        &our_peer_id,
-        &target_peer_id,
-        &task_desc,
-    ).with_priority(priority);
+    let mut task = claw_mesh::TaskAssignment::new(&our_peer_id, &target_peer_id, &task_desc)
+        .with_priority(priority);
 
     if let Some(cap) = capability {
         task = task.with_capability(cap);
@@ -3336,7 +3742,11 @@ async fn exec_mesh_delegate_shared(state: &SharedAgentState, call: &ToolCall) ->
     // Register a oneshot channel to await the result
     let (result_tx, result_rx) = oneshot::channel::<MeshTaskResult>();
     {
-        state.pending_mesh_tasks.lock().await.insert(task_id, result_tx);
+        state
+            .pending_mesh_tasks
+            .lock()
+            .await
+            .insert(task_id, result_tx);
     }
 
     // Send the task via mesh
@@ -3356,10 +3766,7 @@ async fn exec_mesh_delegate_shared(state: &SharedAgentState, call: &ToolCall) ->
     }
 
     // Await the result with timeout
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        result_rx,
-    ).await {
+    match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), result_rx).await {
         Ok(Ok(result)) => {
             info!(
                 task_id = %task_id,
@@ -3389,7 +3796,10 @@ async fn exec_mesh_delegate_shared(state: &SharedAgentState, call: &ToolCall) ->
             state.pending_mesh_tasks.lock().await.remove(&task_id);
             ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("Task {} was cancelled — peer may have disconnected.", task_id),
+                content: format!(
+                    "Task {} was cancelled — peer may have disconnected.",
+                    task_id
+                ),
                 is_error: true,
                 data: None,
             }
@@ -3401,7 +3811,10 @@ async fn exec_mesh_delegate_shared(state: &SharedAgentState, call: &ToolCall) ->
                 tool_call_id: call.id.clone(),
                 content: format!(
                     "Task {} timed out after {}s waiting for response from {} ({}).",
-                    task_id, timeout_secs, target_hostname, &target_peer_id[..8.min(target_peer_id.len())]
+                    task_id,
+                    timeout_secs,
+                    target_hostname,
+                    &target_peer_id[..8.min(target_peer_id.len())]
                 ),
                 is_error: true,
                 data: None,
@@ -3429,7 +3842,11 @@ async fn exec_mesh_status_shared(state: &SharedAgentState, call: &ToolCall) -> T
             &peer_id[..12.min(peer_id.len())],
             peer_count,
             state.config.mesh.listen,
-            if state.config.mesh.mdns { "enabled" } else { "disabled" },
+            if state.config.mesh.mdns {
+                "enabled"
+            } else {
+                "disabled"
+            },
             state.config.mesh.capabilities.join(", "),
         )
     } else {
@@ -3473,7 +3890,10 @@ async fn exec_memory_search_shared(state: &SharedAgentState, call: &ToolCall) ->
                 "[Episode {}] {}{}",
                 ep.created_at.format("%Y-%m-%d"),
                 ep.summary,
-                ep.outcome.as_ref().map(|o| format!(" → {}", o)).unwrap_or_default()
+                ep.outcome
+                    .as_ref()
+                    .map(|o| format!(" → {}", o))
+                    .unwrap_or_default()
             ));
         }
     }
@@ -3489,7 +3909,10 @@ async fn exec_memory_search_shared(state: &SharedAgentState, call: &ToolCall) ->
                 if seen.insert(fk) {
                     results.push(format!(
                         "[Fact: {}/{}] {} (relevance: {:.0}%)",
-                        fact.category, fact.key, fact.value, score * 100.0
+                        fact.category,
+                        fact.key,
+                        fact.value,
+                        score * 100.0
                     ));
                 }
             }
@@ -3501,7 +3924,10 @@ async fn exec_memory_search_shared(state: &SharedAgentState, call: &ToolCall) ->
             if seen.insert(fk) {
                 results.push(format!(
                     "[Fact: {}/{}] {} (confidence: {:.0}%)",
-                    fact.category, fact.key, fact.value, fact.confidence * 100.0
+                    fact.category,
+                    fact.key,
+                    fact.value,
+                    fact.confidence * 100.0
                 ));
             }
         }
@@ -3522,7 +3948,10 @@ async fn exec_memory_search_shared(state: &SharedAgentState, call: &ToolCall) ->
     }
 
     let content = if results.is_empty() {
-        format!("No relevant memories found for query: \"{}\". Try memory_list to see all stored facts.", query)
+        format!(
+            "No relevant memories found for query: \"{}\". Try memory_list to see all stored facts.",
+            query
+        )
     } else {
         results.join("\n")
     };
@@ -3593,7 +4022,11 @@ async fn exec_memory_store_shared(state: &SharedAgentState, call: &ToolCall) -> 
             if let Err(e) = mesh.broadcast(&sync_msg).await {
                 debug!(error = %e, "failed to broadcast fact to mesh peers");
             } else {
-                debug!(category = category, key = key, "broadcast fact to mesh peers");
+                debug!(
+                    category = category,
+                    key = key,
+                    "broadcast fact to mesh peers"
+                );
             }
         }
     }
@@ -3668,7 +4101,8 @@ async fn exec_memory_list_shared(state: &SharedAgentState, call: &ToolCall) -> T
             for fact in facts {
                 lines.push(format!(
                     "  - {}: {} (confidence: {:.0}%, updated: {})",
-                    fact.key, fact.value,
+                    fact.key,
+                    fact.value,
                     fact.confidence * 100.0,
                     fact.updated_at.format("%Y-%m-%d %H:%M")
                 ));
@@ -3682,7 +4116,11 @@ async fn exec_memory_list_shared(state: &SharedAgentState, call: &ToolCall) -> T
             lines.push("Memory is empty — no facts stored.".to_string());
         } else {
             let total = mem.semantic.count();
-            lines.push(format!("Total: {} facts across {} categories\n", total, categories.len()));
+            lines.push(format!(
+                "Total: {} facts across {} categories\n",
+                total,
+                categories.len()
+            ));
             for cat in categories {
                 let facts = mem.semantic.category(cat);
                 lines.push(format!("📁 {} ({}):", cat, facts.len()));
@@ -3715,7 +4153,10 @@ async fn exec_memory_list_shared(state: &SharedAgentState, call: &ToolCall) -> T
 }
 
 async fn exec_goal_create_shared(state: &SharedAgentState, call: &ToolCall) -> ToolResult {
-    let description = call.arguments["description"].as_str().unwrap_or("").to_string();
+    let description = call.arguments["description"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
     let priority = call.arguments["priority"].as_u64().unwrap_or(5) as u8;
     let steps: Vec<String> = call.arguments["steps"]
         .as_array()
@@ -3743,8 +4184,11 @@ async fn exec_goal_create_shared(state: &SharedAgentState, call: &ToolCall) -> T
         if let Some(goal) = planner.get(goal_id) {
             for step in &goal.steps {
                 if let Err(e) = mem.persist_goal_step(
-                    &step.id, &goal_id, &step.description,
-                    &format!("{:?}", step.status).to_lowercase(), None,
+                    &step.id,
+                    &goal_id,
+                    &step.description,
+                    &format!("{:?}", step.status).to_lowercase(),
+                    None,
                 ) {
                     warn!(error = %e, "failed to persist goal step to SQLite");
                 }
@@ -3756,7 +4200,10 @@ async fn exec_goal_create_shared(state: &SharedAgentState, call: &ToolCall) -> T
         tool_call_id: call.id.clone(),
         content: format!(
             "Created goal '{}' (id: {}, priority: {}, {} steps)",
-            description, goal_id, priority, steps.len()
+            description,
+            goal_id,
+            priority,
+            steps.len()
         ),
         is_error: false,
         data: None,
@@ -3779,7 +4226,10 @@ async fn exec_goal_list_shared(state: &SharedAgentState, call: &ToolCall) -> Too
     for goal in &goals {
         lines.push(format!(
             "• [{}] {} (priority: {}, progress: {:.0}%)",
-            goal.id, goal.description, goal.priority, goal.progress * 100.0
+            goal.id,
+            goal.description,
+            goal.priority,
+            goal.progress * 100.0
         ));
         for step in &goal.steps {
             let icon = match step.status {
@@ -3807,28 +4257,33 @@ async fn exec_goal_complete_step_shared(state: &SharedAgentState, call: &ToolCal
 
     let goal_id = match goal_id_str.parse::<Uuid>() {
         Ok(id) => id,
-        Err(_) => return ToolResult {
-            tool_call_id: call.id.clone(),
-            content: format!("Invalid goal_id: {}", goal_id_str),
-            is_error: true,
-            data: None,
-        },
+        Err(_) => {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                content: format!("Invalid goal_id: {}", goal_id_str),
+                is_error: true,
+                data: None,
+            };
+        }
     };
     let step_id = match step_id_str.parse::<Uuid>() {
         Ok(id) => id,
-        Err(_) => return ToolResult {
-            tool_call_id: call.id.clone(),
-            content: format!("Invalid step_id: {}", step_id_str),
-            is_error: true,
-            data: None,
-        },
+        Err(_) => {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                content: format!("Invalid step_id: {}", step_id_str),
+                is_error: true,
+                data: None,
+            };
+        }
     };
 
     let mut planner = state.planner.lock().await;
     planner.complete_step(goal_id, step_id, result.clone());
 
     // Get updated progress
-    let (progress, status) = planner.get(goal_id)
+    let (progress, status) = planner
+        .get(goal_id)
         .map(|g| (g.progress, format!("{:?}", g.status)))
         .unwrap_or((0.0, "unknown".into()));
 
@@ -3843,7 +4298,8 @@ async fn exec_goal_complete_step_shared(state: &SharedAgentState, call: &ToolCal
         tool_call_id: call.id.clone(),
         content: format!(
             "Step completed. Goal progress: {:.0}%, status: {}",
-            progress * 100.0, status
+            progress * 100.0,
+            status
         ),
         is_error: false,
         data: None,
@@ -3857,12 +4313,14 @@ async fn exec_goal_update_status_shared(state: &SharedAgentState, call: &ToolCal
 
     let goal_id = match goal_id_str.parse::<Uuid>() {
         Ok(id) => id,
-        Err(_) => return ToolResult {
-            tool_call_id: call.id.clone(),
-            content: format!("Invalid goal_id: {}", goal_id_str),
-            is_error: true,
-            data: None,
-        },
+        Err(_) => {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                content: format!("Invalid goal_id: {}", goal_id_str),
+                is_error: true,
+                data: None,
+            };
+        }
     };
 
     let mut planner = state.planner.lock().await;
@@ -3875,12 +4333,17 @@ async fn exec_goal_update_status_shared(state: &SharedAgentState, call: &ToolCal
             "paused" => claw_autonomy::planner::GoalStatus::Paused,
             "cancelled" => claw_autonomy::planner::GoalStatus::Cancelled,
             "active" => claw_autonomy::planner::GoalStatus::Active,
-            _ => return ToolResult {
-                tool_call_id: call.id.clone(),
-                content: format!("Invalid status: {}. Use: active, completed, failed, paused, cancelled", status_str),
-                is_error: true,
-                data: None,
-            },
+            _ => {
+                return ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: format!(
+                        "Invalid status: {}. Use: active, completed, failed, paused, cancelled",
+                        status_str
+                    ),
+                    is_error: true,
+                    data: None,
+                };
+            }
         };
         goal.status = new_status;
         if !reason.is_empty() {
@@ -3909,9 +4372,15 @@ async fn exec_goal_update_status_shared(state: &SharedAgentState, call: &ToolCal
 
     ToolResult {
         tool_call_id: call.id.clone(),
-        content: format!("Goal {} status updated to '{}'{}",
-            goal_id, status_str,
-            if reason.is_empty() { String::new() } else { format!(": {}", reason) }
+        content: format!(
+            "Goal {} status updated to '{}'{}",
+            goal_id,
+            status_str,
+            if reason.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", reason)
+            }
         ),
         is_error: false,
         data: None,
@@ -3920,7 +4389,7 @@ async fn exec_goal_update_status_shared(state: &SharedAgentState, call: &ToolCal
 
 /// Execute channel_send_file — send a file through the active chat channel.
 async fn exec_channel_send_file(state: &SharedAgentState, call: &ToolCall) -> ToolResult {
-    use claw_channels::adapter::{OutgoingMessage, Attachment};
+    use claw_channels::adapter::{Attachment, OutgoingMessage};
 
     let file_path_raw = match call.arguments["file_path"].as_str() {
         Some(p) => p,
@@ -3974,32 +4443,59 @@ async fn exec_channel_send_file(state: &SharedAgentState, call: &ToolCall) -> To
     };
 
     // Determine MIME type from extension
-    let filename = file_path.file_name()
-        .unwrap_or_default().to_string_lossy().to_string();
+    let filename = file_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let lower = filename.to_lowercase();
-    let media_type = if lower.ends_with(".png") { "image/png" }
-        else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") { "image/jpeg" }
-        else if lower.ends_with(".gif") { "image/gif" }
-        else if lower.ends_with(".webp") { "image/webp" }
-        else if lower.ends_with(".bmp") { "image/bmp" }
-        else if lower.ends_with(".mp3") { "audio/mpeg" }
-        else if lower.ends_with(".m4a") { "audio/mp4" }
-        else if lower.ends_with(".ogg") { "audio/ogg" }
-        else if lower.ends_with(".wav") { "audio/wav" }
-        else if lower.ends_with(".aac") { "audio/aac" }
-        else if lower.ends_with(".flac") { "audio/flac" }
-        else if lower.ends_with(".aiff") { "audio/aiff" }
-        else if lower.ends_with(".mp4") { "video/mp4" }
-        else if lower.ends_with(".mov") { "video/quicktime" }
-        else if lower.ends_with(".avi") { "video/x-msvideo" }
-        else if lower.ends_with(".mkv") { "video/x-matroska" }
-        else if lower.ends_with(".webm") { "video/webm" }
-        else if lower.ends_with(".pdf") { "application/pdf" }
-        else if lower.ends_with(".zip") { "application/zip" }
-        else if lower.ends_with(".json") { "application/json" }
-        else if lower.ends_with(".csv") { "text/csv" }
-        else if lower.ends_with(".txt") || lower.ends_with(".log") || lower.ends_with(".md") { "text/plain" }
-        else { "application/octet-stream" };
+    let media_type = if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if lower.ends_with(".gif") {
+        "image/gif"
+    } else if lower.ends_with(".webp") {
+        "image/webp"
+    } else if lower.ends_with(".bmp") {
+        "image/bmp"
+    } else if lower.ends_with(".mp3") {
+        "audio/mpeg"
+    } else if lower.ends_with(".m4a") {
+        "audio/mp4"
+    } else if lower.ends_with(".ogg") {
+        "audio/ogg"
+    } else if lower.ends_with(".wav") {
+        "audio/wav"
+    } else if lower.ends_with(".aac") {
+        "audio/aac"
+    } else if lower.ends_with(".flac") {
+        "audio/flac"
+    } else if lower.ends_with(".aiff") {
+        "audio/aiff"
+    } else if lower.ends_with(".mp4") {
+        "video/mp4"
+    } else if lower.ends_with(".mov") {
+        "video/quicktime"
+    } else if lower.ends_with(".avi") {
+        "video/x-msvideo"
+    } else if lower.ends_with(".mkv") {
+        "video/x-matroska"
+    } else if lower.ends_with(".webm") {
+        "video/webm"
+    } else if lower.ends_with(".pdf") {
+        "application/pdf"
+    } else if lower.ends_with(".zip") {
+        "application/zip"
+    } else if lower.ends_with(".json") {
+        "application/json"
+    } else if lower.ends_with(".csv") {
+        "text/csv"
+    } else if lower.ends_with(".txt") || lower.ends_with(".log") || lower.ends_with(".md") {
+        "text/plain"
+    } else {
+        "application/octet-stream"
+    };
 
     let caption = call.arguments["caption"].as_str().unwrap_or("").to_string();
 
@@ -4024,7 +4520,10 @@ async fn exec_channel_send_file(state: &SharedAgentState, call: &ToolCall) -> To
                     info!(file = %file_path_str, channel = %channel_id, "channel_send_file: file sent successfully");
                     return ToolResult {
                         tool_call_id: call.id.clone(),
-                        content: format!("File sent successfully: {} ({}, {})", filename, media_type, channel_id),
+                        content: format!(
+                            "File sent successfully: {} ({}, {})",
+                            filename, media_type, channel_id
+                        ),
                         is_error: false,
                         data: None,
                     };
@@ -4077,11 +4576,7 @@ async fn send_response_shared(
 }
 
 /// Send a typing indicator to a specific channel target.
-async fn send_typing_to_channel(
-    state: &SharedAgentState,
-    channel_id: &str,
-    target: &str,
-) {
+async fn send_typing_to_channel(state: &SharedAgentState, channel_id: &str, target: &str) {
     let channels = state.channels.lock().await;
     for channel in channels.iter() {
         if channel.id() == channel_id {
@@ -4093,8 +4588,12 @@ async fn send_typing_to_channel(
 
 /// Map a tool name to an emoji for channel progress messages.
 fn tool_progress_emoji(name: &str) -> &'static str {
-    if name.starts_with("browser_") { return "🌐"; }
-    if name.starts_with("android_") || name.starts_with("ios_") { return "📱"; }
+    if name.starts_with("browser_") {
+        return "🌐";
+    }
+    if name.starts_with("android_") || name.starts_with("ios_") {
+        return "📱";
+    }
     match name {
         "shell_exec" => "⚡",
         "file_write" | "file_create" | "file_patch" => "📝",
@@ -4123,7 +4622,8 @@ fn describe_tool_call(name: &str, args: &serde_json::Value) -> String {
             }
         }
         "file_write" | "file_create" => {
-            let path = args["path"].as_str()
+            let path = args["path"]
+                .as_str()
                 .or_else(|| args["file_path"].as_str())
                 .unwrap_or("…");
             // Show just the filename or last 2 path components
@@ -4131,19 +4631,22 @@ fn describe_tool_call(name: &str, args: &serde_json::Value) -> String {
             format!("Writing `{}`", short)
         }
         "file_patch" => {
-            let path = args["path"].as_str()
+            let path = args["path"]
+                .as_str()
                 .or_else(|| args["file_path"].as_str())
                 .unwrap_or("…");
             format!("Editing `{}`", short_path(path))
         }
         "file_read" => {
-            let path = args["path"].as_str()
+            let path = args["path"]
+                .as_str()
                 .or_else(|| args["file_path"].as_str())
                 .unwrap_or("…");
             format!("Reading `{}`", short_path(path))
         }
         "file_list" | "directory_list" | "file_find" => {
-            let path = args["path"].as_str()
+            let path = args["path"]
+                .as_str()
                 .or_else(|| args["directory"].as_str())
                 .unwrap_or("…");
             format!("Exploring `{}`", short_path(path))
@@ -4154,7 +4657,8 @@ fn describe_tool_call(name: &str, args: &serde_json::Value) -> String {
             format!("Starting `{}`", short.trim())
         }
         "terminal_view" => {
-            let id = args["terminal_id"].as_str()
+            let id = args["terminal_id"]
+                .as_str()
                 .or_else(|| args["id"].as_str())
                 .unwrap_or("terminal");
             format!("Checking {}", id)
@@ -4225,13 +4729,17 @@ async fn send_channel_message_returning_id(
     let channels = state.channels.lock().await;
     for channel in channels.iter() {
         if channel.id() == channel_id {
-            return channel.send_returning_id(OutgoingMessage {
-                channel: channel_id.to_string(),
-                target: target.to_string(),
-                text: text.to_string(),
-                attachments: vec![],
-                reply_to: None,
-            }).await.ok().flatten();
+            return channel
+                .send_returning_id(OutgoingMessage {
+                    channel: channel_id.to_string(),
+                    target: target.to_string(),
+                    text: text.to_string(),
+                    attachments: vec![],
+                    reply_to: None,
+                })
+                .await
+                .ok()
+                .flatten();
         }
     }
     None
@@ -4260,7 +4768,10 @@ async fn resolve_approval(
     id: Uuid,
     approve: bool,
 ) -> Result<(), String> {
-    let tx = pending.lock().await.remove(&id)
+    let tx = pending
+        .lock()
+        .await
+        .remove(&id)
         .ok_or_else(|| "Approval not found or already resolved.".to_string())?;
     let response = if approve {
         ApprovalResponse::Approved
@@ -4303,7 +4814,10 @@ async fn send_approval_prompt_shared(
     }
 
     // If the channel isn't found (e.g. "api"), the approval will still work via the API endpoint
-    debug!(channel = channel_id, "no channel found for approval prompt (API-only approval)");
+    debug!(
+        channel = channel_id,
+        "no channel found for approval prompt (API-only approval)"
+    );
 }
 
 // ── Test helpers ──────────────────────────────────────────────
@@ -4316,7 +4830,10 @@ pub fn build_test_state(config: ClawConfig) -> claw_core::Result<SharedAgentStat
 }
 
 /// Build a `SharedAgentState` with a pre-configured `ModelRouter` (for registering mock providers).
-pub fn build_test_state_with_router(config: ClawConfig, llm: ModelRouter) -> claw_core::Result<SharedAgentState> {
+pub fn build_test_state_with_router(
+    config: ClawConfig,
+    llm: ModelRouter,
+) -> claw_core::Result<SharedAgentState> {
     let memory = MemoryStore::open_in_memory()?;
     let mut guardrails = GuardrailEngine::new();
     guardrails.set_allowlist(config.autonomy.tool_allowlist.clone());
@@ -4355,7 +4872,8 @@ pub fn build_test_state_with_router(config: ClawConfig, llm: ModelRouter) -> cla
 /// Build a brief episodic summary from the conversation messages.
 fn build_episode_summary(messages: &[Message], user_text: &str, final_response: &str) -> String {
     // Count tool calls across all messages
-    let tool_names: Vec<String> = messages.iter()
+    let tool_names: Vec<String> = messages
+        .iter()
         .flat_map(|m| m.tool_calls.iter().map(|tc| tc.tool_name.clone()))
         .collect();
     let tool_count = tool_names.len();
@@ -4367,9 +4885,16 @@ fn build_episode_summary(messages: &[Message], user_text: &str, final_response: 
     if tool_count > 0 {
         let unique_tools: Vec<String> = {
             let mut seen = std::collections::HashSet::new();
-            tool_names.into_iter().filter(|t| seen.insert(t.clone())).collect()
+            tool_names
+                .into_iter()
+                .filter(|t| seen.insert(t.clone()))
+                .collect()
         };
-        summary.push_str(&format!(" | Tools used ({}): {}", tool_count, unique_tools.join(", ")));
+        summary.push_str(&format!(
+            " | Tools used ({}): {}",
+            tool_count,
+            unique_tools.join(", ")
+        ));
     }
     if !response_preview.is_empty() {
         summary.push_str(&format!(" | Response: {}", response_preview));
@@ -4384,11 +4909,43 @@ fn extract_episode_tags(user_text: &str) -> Vec<String> {
 
     // Detect broad task categories
     let categories = [
-        ("code", &["code", "program", "function", "bug", "fix", "implement", "build", "compile"][..]),
-        ("file", &["file", "create", "write", "read", "edit", "delete"][..]),
-        ("web", &["website", "web", "html", "css", "javascript", "react", "next"][..]),
-        ("research", &["research", "search", "find", "look up", "explain"][..]),
-        ("deploy", &["deploy", "docker", "server", "host", "production"][..]),
+        (
+            "code",
+            &[
+                "code",
+                "program",
+                "function",
+                "bug",
+                "fix",
+                "implement",
+                "build",
+                "compile",
+            ][..],
+        ),
+        (
+            "file",
+            &["file", "create", "write", "read", "edit", "delete"][..],
+        ),
+        (
+            "web",
+            &[
+                "website",
+                "web",
+                "html",
+                "css",
+                "javascript",
+                "react",
+                "next",
+            ][..],
+        ),
+        (
+            "research",
+            &["research", "search", "find", "look up", "explain"][..],
+        ),
+        (
+            "deploy",
+            &["deploy", "docker", "server", "host", "production"][..],
+        ),
         ("config", &["config", "setup", "install", "configure"][..]),
         ("goal", &["goal", "plan", "task", "project"][..]),
     ];
@@ -4409,26 +4966,21 @@ fn extract_episode_tags(user_text: &str) -> Vec<String> {
 fn extract_search_keywords(user_text: &str) -> String {
     // Common stop words to filter out
     const STOP_WORDS: &[&str] = &[
-        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-        "have", "has", "had", "do", "does", "did", "will", "would", "shall",
-        "should", "may", "might", "must", "can", "could",
-        "i", "me", "my", "myself", "we", "our", "ours", "you", "your", "yours",
-        "he", "him", "his", "she", "her", "hers", "it", "its", "they", "them",
-        "their", "what", "which", "who", "whom", "this", "that", "these", "those",
-        "am", "and", "but", "or", "nor", "not", "no", "so", "if", "then",
-        "than", "too", "very", "just", "don", "now", "here", "there",
-        "how", "all", "each", "every", "both", "few", "more", "most", "some",
-        "any", "such", "only", "own", "same", "also", "into", "from", "with",
-        "for", "on", "at", "to", "of", "in", "by", "up", "about", "out",
-        "off", "over", "under", "again", "further", "once", "where", "when",
-        "why", "after", "before", "above", "below", "between",
-        "please", "want", "need", "help", "like", "make", "let", "get",
-        "know", "think", "tell", "show", "give", "use",
+        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+        "do", "does", "did", "will", "would", "shall", "should", "may", "might", "must", "can",
+        "could", "i", "me", "my", "myself", "we", "our", "ours", "you", "your", "yours", "he",
+        "him", "his", "she", "her", "hers", "it", "its", "they", "them", "their", "what", "which",
+        "who", "whom", "this", "that", "these", "those", "am", "and", "but", "or", "nor", "not",
+        "no", "so", "if", "then", "than", "too", "very", "just", "don", "now", "here", "there",
+        "how", "all", "each", "every", "both", "few", "more", "most", "some", "any", "such",
+        "only", "own", "same", "also", "into", "from", "with", "for", "on", "at", "to", "of", "in",
+        "by", "up", "about", "out", "off", "over", "under", "again", "further", "once", "where",
+        "when", "why", "after", "before", "above", "below", "between", "please", "want", "need",
+        "help", "like", "make", "let", "get", "know", "think", "tell", "show", "give", "use",
         // Dutch stop words (since user communicates in Dutch)
-        "de", "het", "een", "en", "van", "ik", "te", "dat", "die", "er",
-        "zijn", "op", "aan", "met", "als", "voor", "nog", "maar", "om",
-        "ook", "dan", "wel", "niet", "wat", "kun", "je", "kan", "naar",
-        "hoe", "dit", "bij", "uit", "zo", "mijn", "jij", "wij", "zij",
+        "de", "het", "een", "en", "van", "ik", "te", "dat", "die", "er", "zijn", "op", "aan", "met",
+        "als", "voor", "nog", "maar", "om", "ook", "dan", "wel", "niet", "wat", "kun", "je", "kan",
+        "naar", "hoe", "dit", "bij", "uit", "zo", "mijn", "jij", "wij", "zij",
     ];
 
     let lower = user_text.to_lowercase();
@@ -4492,10 +5044,14 @@ fn detect_lesson_patterns(messages: &[Message]) -> bool {
             Role::Assistant => {
                 let text = msg.text_content().to_lowercase();
                 // Detect refusal patterns
-                if text.contains("kan niet") || text.contains("cannot")
-                    || text.contains("can't") || text.contains("mag niet")
-                    || text.contains("unable to") || text.contains("not able")
-                    || text.contains("not allowed") || text.contains("weiger")
+                if text.contains("kan niet")
+                    || text.contains("cannot")
+                    || text.contains("can't")
+                    || text.contains("mag niet")
+                    || text.contains("unable to")
+                    || text.contains("not able")
+                    || text.contains("not allowed")
+                    || text.contains("weiger")
                 {
                     saw_error_or_refusal = true;
                     saw_user_correction_after = false;
@@ -4534,20 +5090,23 @@ fn build_lesson_excerpt(messages: &[Message]) -> String {
         };
 
         let text = msg.text_content();
-        let is_error_result = msg.content.iter().any(|c| {
-            matches!(c, claw_core::MessageContent::ToolResult { is_error, .. } if *is_error)
-        });
+        let is_error_result = msg.content.iter().any(
+            |c| matches!(c, claw_core::MessageContent::ToolResult { is_error, .. } if *is_error),
+        );
 
         // Start including messages when we hit an error
         if is_error_result {
             interesting_range = true;
         }
         let text_lower = text.to_lowercase();
-        if msg.role == Role::Assistant && (
-            text_lower.contains("kan niet") || text_lower.contains("cannot")
-            || text_lower.contains("can't") || text_lower.contains("unable")
-            || text_lower.contains("not allowed") || text_lower.contains("weiger")
-        ) {
+        if msg.role == Role::Assistant
+            && (text_lower.contains("kan niet")
+                || text_lower.contains("cannot")
+                || text_lower.contains("can't")
+                || text_lower.contains("unable")
+                || text_lower.contains("not allowed")
+                || text_lower.contains("weiger"))
+        {
             interesting_range = true;
         }
 
@@ -4558,7 +5117,10 @@ fn build_lesson_excerpt(messages: &[Message]) -> String {
             }
             for tc in &msg.tool_calls {
                 let args_preview: String = tc.arguments.to_string().chars().take(200).collect();
-                excerpt.push_str(&format!("[Tool Call]: {}({})\n", tc.tool_name, args_preview));
+                excerpt.push_str(&format!(
+                    "[Tool Call]: {}({})\n",
+                    tc.tool_name, args_preview
+                ));
             }
         }
     }
@@ -4596,7 +5158,11 @@ async fn extract_lessons_via_llm(
     );
 
     // Use fast model if available to keep costs low
-    let model = state.config.agent.fast_model.as_deref()
+    let model = state
+        .config
+        .agent
+        .fast_model
+        .as_deref()
         .unwrap_or(&state.config.agent.model);
 
     let request = LlmRequest {
@@ -4614,20 +5180,22 @@ async fn extract_lessons_via_llm(
         Ok(response) => {
             let text = response.message.text_content();
             // Parse JSON from the response (handle markdown code fences)
-            let json_text = text.trim()
+            let json_text = text
+                .trim()
                 .trim_start_matches("```json")
                 .trim_start_matches("```")
                 .trim_end_matches("```")
                 .trim();
 
             match serde_json::from_str::<Vec<serde_json::Value>>(json_text) {
-                Ok(items) => {
-                    items.iter().filter_map(|item| {
+                Ok(items) => items
+                    .iter()
+                    .filter_map(|item| {
                         let key = item["key"].as_str()?.to_string();
                         let lesson = item["lesson"].as_str()?.to_string();
                         Some((key, lesson))
-                    }).collect()
-                }
+                    })
+                    .collect(),
                 Err(e) => {
                     debug!(error = %e, "failed to parse lesson extraction JSON");
                     vec![]
@@ -4642,10 +5210,7 @@ async fn extract_lessons_via_llm(
 }
 
 /// Run the full self-learning pipeline: detect patterns, extract lessons, persist them.
-async fn maybe_extract_lessons(
-    state: &SharedAgentState,
-    session_id: Uuid,
-) {
+async fn maybe_extract_lessons(state: &SharedAgentState, session_id: Uuid) {
     // Read messages — brief lock
     let messages = {
         let mem = state.memory.lock().await;
@@ -4689,7 +5254,8 @@ async fn maybe_extract_lessons(
 
     // Generate embeddings for the lessons if embedder is available
     if let Some(ref embedder) = state.embedder {
-        let texts: Vec<String> = lessons.iter()
+        let texts: Vec<String> = lessons
+            .iter()
             .map(|(key, lesson)| format!("learned_lessons {} {}", key, lesson))
             .collect();
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
@@ -4700,7 +5266,10 @@ async fn maybe_extract_lessons(
                     // Re-persist with embedding
                     if let Some(fact) = mem.semantic.get("learned_lessons", key) {
                         let _ = mem.persist_fact_with_embedding(
-                            "learned_lessons", key, &fact.value, Some(emb),
+                            "learned_lessons",
+                            key,
+                            &fact.value,
+                            Some(emb),
                         );
                     }
                 }
@@ -4751,8 +5320,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_simple_chat_response() {
-        let mock = MockProvider::new("mock")
-            .with_response("Hello from the mock LLM!");
+        let mock = MockProvider::new("mock").with_response("Hello from the mock LLM!");
         let state = test_state_with_mock(mock);
 
         let resp = process_api_message(state, "Hi there".into(), None).await;
@@ -4777,7 +5345,12 @@ mod tests {
         assert!(!resp.session_id.is_empty(), "should have a session ID");
 
         // Second message with session hint creates a deterministic session
-        let resp2 = process_api_message(state.clone(), "Hello again".into(), Some(resp.session_id.clone())).await;
+        let resp2 = process_api_message(
+            state.clone(),
+            "Hello again".into(),
+            Some(resp.session_id.clone()),
+        )
+        .await;
         assert!(resp2.error.is_none());
         // Both should be valid UUID session IDs
         assert!(resp2.session_id.parse::<Uuid>().is_ok());
@@ -4797,7 +5370,8 @@ mod tests {
             .with_response("I stored the fact for you.");
         let state = test_state_with_mock(mock);
 
-        let resp = process_api_message(state, "Remember that test_fact is hello world".into(), None).await;
+        let resp =
+            process_api_message(state, "Remember that test_fact is hello world".into(), None).await;
         assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
         assert!(
             resp.text.contains("stored the fact"),
@@ -4808,8 +5382,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_budget_tracking() {
-        let mock = MockProvider::new("mock")
-            .with_response("Budget test");
+        let mock = MockProvider::new("mock").with_response("Budget test");
         let state = test_state_with_mock(mock);
 
         let snap_before = state.budget.snapshot();
@@ -4885,8 +5458,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_llm_error_propagation() {
-        let mock = MockProvider::new("mock")
-            .with_error("rate limited");
+        let mock = MockProvider::new("mock").with_error("rate limited");
         let state = test_state_with_mock(mock);
 
         let resp = process_api_message(state, "Hi".into(), None).await;
@@ -4896,8 +5468,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_streaming_response() {
-        let mock = MockProvider::new("mock")
-            .with_response("Streaming test response");
+        let mock = MockProvider::new("mock").with_response("Streaming test response");
         let state = test_state_with_mock(mock);
 
         let (chunk_tx, mut chunk_rx) = mpsc::channel::<StreamEvent>(256);
@@ -4915,7 +5486,10 @@ mod tests {
             match event {
                 StreamEvent::Session { .. } => got_session = true,
                 StreamEvent::TextDelta { .. } => got_text = true,
-                StreamEvent::Done => { got_done = true; break; }
+                StreamEvent::Done => {
+                    got_done = true;
+                    break;
+                }
                 StreamEvent::Error { message } => panic!("unexpected error: {}", message),
                 _ => {}
             }
@@ -4926,8 +5500,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_skill_system_prompt_injection() {
-        let mock = MockProvider::new("mock")
-            .with_response("Mock LLM response");
+        let mock = MockProvider::new("mock").with_response("Mock LLM response");
         let state = test_state_with_mock(mock);
 
         // Register a SKILL.md-style skill
@@ -4954,8 +5527,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_skills_not_exposed_as_tools() {
-        let mock = MockProvider::new("mock")
-            .with_response("Mock LLM response");
+        let mock = MockProvider::new("mock").with_response("Mock LLM response");
         let state = test_state_with_mock(mock);
 
         // Register a skill
@@ -4988,8 +5560,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_plugin_tool_dispatch_format() {
-        let mock = MockProvider::new("mock")
-            .with_response("unused");
+        let mock = MockProvider::new("mock").with_response("unused");
         let state = test_state_with_mock(mock);
 
         // Non-existent plugin should error

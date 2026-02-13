@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
-use uuid::Uuid;
 use tracing::info;
+use uuid::Uuid;
 
 /// A request for human approval of an action.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,8 +31,7 @@ pub struct ApprovalGate {
     /// Sender for new approval requests that need to be shown to the user.
     request_tx: mpsc::Sender<(ApprovalRequest, oneshot::Sender<ApprovalResponse>)>,
     /// Receiver side — consumed by the server/channel layer.
-    request_rx:
-        Option<mpsc::Receiver<(ApprovalRequest, oneshot::Sender<ApprovalResponse>)>>,
+    request_rx: Option<mpsc::Receiver<(ApprovalRequest, oneshot::Sender<ApprovalResponse>)>>,
 }
 
 impl ApprovalGate {
@@ -61,7 +60,8 @@ impl ApprovalGate {
         timeout_secs: u64,
     ) -> ApprovalResponse {
         let id = Uuid::new_v4();
-        self.request_approval_with_id(id, tool_name, tool_args, reason, risk_level, timeout_secs).await
+        self.request_approval_with_id(id, tool_name, tool_args, reason, risk_level, timeout_secs)
+            .await
     }
 
     /// Request approval with a specific pre-generated ID (so callers can emit the ID beforehand).
@@ -101,11 +101,7 @@ impl ApprovalGate {
         }
 
         // Wait for response with timeout
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(timeout_secs),
-            response_rx,
-        )
-        .await
+        match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), response_rx).await
         {
             Ok(Ok(response)) => response,
             Ok(Err(_)) => ApprovalResponse::Denied, // channel closed

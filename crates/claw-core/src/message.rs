@@ -94,7 +94,11 @@ impl Message {
         for block in &self.content {
             match block {
                 MessageContent::Text { text } => chars += text.len(),
-                MessageContent::ToolResult { content, tool_call_id, .. } => {
+                MessageContent::ToolResult {
+                    content,
+                    tool_call_id,
+                    ..
+                } => {
                     chars += content.len();
                     chars += tool_call_id.len();
                 }

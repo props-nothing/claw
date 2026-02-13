@@ -19,7 +19,9 @@ mod tests {
     fn test_message_text_joins_blocks() {
         let sid = Uuid::new_v4();
         let mut msg = Message::text(sid, Role::Assistant, "Hello ");
-        msg.content.push(MessageContent::Text { text: "world".to_string() });
+        msg.content.push(MessageContent::Text {
+            text: "world".to_string(),
+        });
         assert_eq!(msg.text_content(), "Hello \nworld");
     }
 
@@ -60,13 +62,18 @@ mod tests {
 
     #[test]
     fn test_error_rate_limited() {
-        let err = ClawError::RateLimited { retry_after_secs: 30 };
+        let err = ClawError::RateLimited {
+            retry_after_secs: 30,
+        };
         assert!(err.to_string().contains("30"));
     }
 
     #[test]
     fn test_error_context_overflow() {
-        let err = ClawError::ContextOverflow { used: 200000, max: 128000 };
+        let err = ClawError::ContextOverflow {
+            used: 200000,
+            max: 128000,
+        };
         assert!(err.to_string().contains("200000"));
         assert!(err.to_string().contains("128000"));
     }
@@ -172,7 +179,12 @@ mod tests {
         };
         let json = serde_json::to_string(&event).unwrap();
         let restored: Event = serde_json::from_str(&json).unwrap();
-        if let Event::AgentToolCall { tool_name, tool_call_id, .. } = restored {
+        if let Event::AgentToolCall {
+            tool_name,
+            tool_call_id,
+            ..
+        } = restored
+        {
             assert_eq!(tool_name, "shell_exec");
             assert_eq!(tool_call_id, "call_123");
         } else {
@@ -205,7 +217,9 @@ mod tests {
     #[test]
     fn test_message_content_variants_serde() {
         let blocks = vec![
-            MessageContent::Text { text: "hello".into() },
+            MessageContent::Text {
+                text: "hello".into(),
+            },
             MessageContent::Image {
                 media_type: "image/png".into(),
                 data: "base64data".into(),

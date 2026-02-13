@@ -1,9 +1,9 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use rusqlite::Connection;
 use parking_lot::Mutex;
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// An episode is a summarized record of a past conversation or task.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,7 +27,10 @@ pub struct EpisodicMemory {
 
 impl EpisodicMemory {
     pub fn new() -> Self {
-        Self { recent: Vec::new(), db: None }
+        Self {
+            recent: Vec::new(),
+            db: None,
+        }
     }
 
     /// Set the shared database connection for persistence.
@@ -40,7 +43,8 @@ impl EpisodicMemory {
         // Persist to SQLite
         if let Some(ref db) = self.db {
             let db = db.lock();
-            let tags_json = serde_json::to_string(&episode.tags).unwrap_or_else(|_| "[]".to_string());
+            let tags_json =
+                serde_json::to_string(&episode.tags).unwrap_or_else(|_| "[]".to_string());
             let _ = db.execute(
                 "INSERT OR REPLACE INTO episodes (id, session_id, summary, outcome, tags, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -83,13 +87,23 @@ impl EpisodicMemory {
                 let created_str: String = row.get(5)?;
                 let updated_str: String = row.get(6)?;
 
-                Ok((id_str, session_str, summary, outcome, tags_str, created_str, updated_str))
+                Ok((
+                    id_str,
+                    session_str,
+                    summary,
+                    outcome,
+                    tags_str,
+                    created_str,
+                    updated_str,
+                ))
             })
             .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
 
         let mut count = 0;
         for row in rows {
-            if let Ok((id_str, session_str, summary, outcome, tags_str, created_str, updated_str)) = row {
+            if let Ok((id_str, session_str, summary, outcome, tags_str, created_str, updated_str)) =
+                row
+            {
                 let id = id_str.parse::<Uuid>().unwrap_or_else(|_| Uuid::new_v4());
                 let session_id = session_str.parse::<Uuid>().unwrap_or_else(|_| Uuid::nil());
                 let tags: Vec<String> = serde_json::from_str(&tags_str).unwrap_or_default();
@@ -124,7 +138,9 @@ impl EpisodicMemory {
             .iter()
             .filter(|e| {
                 e.summary.to_lowercase().contains(&query_lower)
-                    || e.tags.iter().any(|t| t.to_lowercase().contains(&query_lower))
+                    || e.tags
+                        .iter()
+                        .any(|t| t.to_lowercase().contains(&query_lower))
             })
             .collect()
     }

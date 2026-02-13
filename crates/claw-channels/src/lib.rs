@@ -31,11 +31,11 @@
 //! ```
 
 pub mod adapter;
-pub mod telegram;
 pub mod discord;
-pub mod webchat;
-pub mod whatsapp;
 pub mod signal;
 pub mod slack;
+pub mod telegram;
+pub mod webchat;
+pub mod whatsapp;
 
-pub use adapter::{Channel, IncomingMessage, OutgoingMessage, ChannelEvent};
+pub use adapter::{Channel, ChannelEvent, IncomingMessage, OutgoingMessage};

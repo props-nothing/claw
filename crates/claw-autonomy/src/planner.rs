@@ -161,13 +161,19 @@ impl GoalPlanner {
             }
             // Update progress
             let total = goal.steps.len() as f32;
-            let done = goal.steps.iter().filter(|s| s.status == StepStatus::Completed).count() as f32;
+            let done = goal
+                .steps
+                .iter()
+                .filter(|s| s.status == StepStatus::Completed)
+                .count() as f32;
             goal.progress = if total > 0.0 { done / total } else { 0.0 };
 
             // Check if all steps are done
-            if goal.steps.iter().all(|s| {
-                s.status == StepStatus::Completed || s.status == StepStatus::Skipped
-            }) {
+            if goal
+                .steps
+                .iter()
+                .all(|s| s.status == StepStatus::Completed || s.status == StepStatus::Skipped)
+            {
                 goal.status = GoalStatus::Completed;
             }
             goal.updated_at = Utc::now();
@@ -280,13 +286,7 @@ impl GoalPlanner {
     }
 
     /// Mark a step as delegated to a mesh peer.
-    pub fn delegate_step(
-        &mut self,
-        goal_id: Uuid,
-        step_id: Uuid,
-        peer_id: String,
-        task_id: Uuid,
-    ) {
+    pub fn delegate_step(&mut self, goal_id: Uuid, step_id: Uuid, peer_id: String, task_id: Uuid) {
         if let Some(goal) = self.goals.iter_mut().find(|g| g.id == goal_id) {
             if let Some(step) = goal.steps.iter_mut().find(|s| s.id == step_id) {
                 step.status = StepStatus::InProgress;
@@ -309,13 +309,19 @@ impl GoalPlanner {
 
                 // Update goal progress
                 let total = goal.steps.len() as f32;
-                let done = goal.steps.iter().filter(|s| s.status == StepStatus::Completed).count() as f32;
+                let done = goal
+                    .steps
+                    .iter()
+                    .filter(|s| s.status == StepStatus::Completed)
+                    .count() as f32;
                 goal.progress = if total > 0.0 { done / total } else { 0.0 };
 
                 // Check if all steps are done
-                if goal.steps.iter().all(|s| {
-                    s.status == StepStatus::Completed || s.status == StepStatus::Skipped
-                }) {
+                if goal
+                    .steps
+                    .iter()
+                    .all(|s| s.status == StepStatus::Completed || s.status == StepStatus::Skipped)
+                {
                     goal.status = GoalStatus::Completed;
                 }
                 goal.updated_at = Utc::now();

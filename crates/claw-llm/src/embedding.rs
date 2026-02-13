@@ -71,7 +71,9 @@ impl EmbeddingProvider for OpenAiEmbedding {
             .json(&body)
             .send()
             .await
-            .map_err(|e| claw_core::ClawError::LlmProvider(format!("embedding request failed: {}", e)))?;
+            .map_err(|e| {
+                claw_core::ClawError::LlmProvider(format!("embedding request failed: {}", e))
+            })?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -82,10 +84,9 @@ impl EmbeddingProvider for OpenAiEmbedding {
             )));
         }
 
-        let data: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| claw_core::ClawError::LlmProvider(format!("embedding parse error: {}", e)))?;
+        let data: serde_json::Value = resp.json().await.map_err(|e| {
+            claw_core::ClawError::LlmProvider(format!("embedding parse error: {}", e))
+        })?;
 
         let embeddings: Vec<Vec<f32>> = data["data"]
             .as_array()
@@ -93,13 +94,11 @@ impl EmbeddingProvider for OpenAiEmbedding {
                 items
                     .iter()
                     .filter_map(|item| {
-                        item["embedding"]
-                            .as_array()
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|v| v.as_f64().map(|f| f as f32))
-                                    .collect()
-                            })
+                        item["embedding"].as_array().map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_f64().map(|f| f as f32))
+                                .collect()
+                        })
                     })
                     .collect()
             })
@@ -158,7 +157,9 @@ impl EmbeddingProvider for OllamaEmbedding {
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| claw_core::ClawError::LlmProvider(format!("ollama embedding: {}", e)))?;
+                .map_err(|e| {
+                    claw_core::ClawError::LlmProvider(format!("ollama embedding: {}", e))
+                })?;
 
             if !resp.status().is_success() {
                 let text = resp.text().await.unwrap_or_default();
@@ -175,7 +176,11 @@ impl EmbeddingProvider for OllamaEmbedding {
 
             let embedding: Vec<f32> = data["embedding"]
                 .as_array()
-                .map(|arr| arr.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_f64().map(|f| f as f32))
+                        .collect()
+                })
                 .unwrap_or_default();
 
             if !embedding.is_empty() {

@@ -1,8 +1,8 @@
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -18,7 +18,9 @@ fn extract_screenshot_filenames(text: &str) -> Vec<String> {
     let mut search_from = 0;
     while let Some(pos) = text[search_from..].find(prefix) {
         let start = search_from + pos + prefix.len();
-        if let Some(end) = text[start..].find(|c: char| !c.is_alphanumeric() && c != '_' && c != '.' && c != '-') {
+        if let Some(end) =
+            text[start..].find(|c: char| !c.is_alphanumeric() && c != '_' && c != '.' && c != '-')
+        {
             let candidate = &text[start..start + end];
             if IMAGE_EXTENSIONS.iter().any(|ext| candidate.ends_with(ext)) {
                 filenames.push(candidate.to_string());
@@ -48,11 +50,10 @@ fn expand_home(path: &str) -> String {
 /// All known file extensions (images + documents) as a combined list.
 #[allow(dead_code)]
 const ALL_EXTENSIONS: &[&str] = &[
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".txt", ".zip",
-    ".tar", ".gz", ".json", ".xml", ".html", ".md", ".py", ".rs", ".js",
-    ".ts", ".sh", ".log", ".mp4", ".mp3", ".wav", ".ogg", ".m4a", ".aac",
-    ".flac", ".aiff", ".mov", ".avi", ".mkv", ".webm",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".pdf", ".doc", ".docx", ".xls", ".xlsx",
+    ".csv", ".txt", ".zip", ".tar", ".gz", ".json", ".xml", ".html", ".md", ".py", ".rs", ".js",
+    ".ts", ".sh", ".log", ".mp4", ".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac", ".aiff", ".mov",
+    ".avi", ".mkv", ".webm",
 ];
 
 /// Extract file paths from text — handles paths with spaces.
@@ -89,7 +90,10 @@ fn extract_all_paths(text: &str) -> (Vec<String>, Vec<String>) {
                 let expanded = expand_home(raw_path);
 
                 if !image_paths.contains(&expanded) && !doc_paths.contains(&expanded) {
-                    if IMAGE_EXTENSIONS.iter().any(|e| expanded.to_lowercase().ends_with(e)) {
+                    if IMAGE_EXTENSIONS
+                        .iter()
+                        .any(|e| expanded.to_lowercase().ends_with(e))
+                    {
                         image_paths.push(expanded);
                     } else {
                         doc_paths.push(expanded);
@@ -138,8 +142,23 @@ fn find_path_start(text_before_ext: &str) -> Option<usize> {
 /// Check if a byte is a path delimiter.
 #[allow(dead_code)]
 fn is_path_delimiter(b: u8) -> bool {
-    matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'"' | b'\'' | b'`' | b'(' | b'[' | b'{'
-        | b',' | b';' | b':' | b'>' | b'|')
+    matches!(
+        b,
+        b' ' | b'\t'
+            | b'\n'
+            | b'\r'
+            | b'"'
+            | b'\''
+            | b'`'
+            | b'('
+            | b'['
+            | b'{'
+            | b','
+            | b';'
+            | b':'
+            | b'>'
+            | b'|'
+    )
 }
 
 /// Extract absolute image file paths from text.
@@ -173,7 +192,8 @@ fn strip_file_references(text: &str, screenshot_files: &[String], disk_paths: &[
         } else {
             pos
         };
-        let url_end = result[pos..].find(|c: char| c.is_whitespace())
+        let url_end = result[pos..]
+            .find(|c: char| c.is_whitespace())
             .map(|e| pos + e)
             .unwrap_or(result.len());
         result = format!("{}{}", &result[..start], &result[url_end..]);
@@ -182,16 +202,25 @@ fn strip_file_references(text: &str, screenshot_files: &[String], disk_paths: &[
     // Remove absolute disk paths
     for path in disk_paths {
         while let Some(pos) = result.find(path.as_str()) {
-            let start = ["Saved at: ", "saved at: ", "saved to ", "Saved to ", "Path: ", "path: ", "File: ", "file: "]
-                .iter()
-                .find_map(|prefix| {
-                    if pos >= prefix.len() && &result[pos - prefix.len()..pos] == *prefix {
-                        Some(pos - prefix.len())
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or(pos);
+            let start = [
+                "Saved at: ",
+                "saved at: ",
+                "saved to ",
+                "Saved to ",
+                "Path: ",
+                "path: ",
+                "File: ",
+                "file: ",
+            ]
+            .iter()
+            .find_map(|prefix| {
+                if pos >= prefix.len() && &result[pos - prefix.len()..pos] == *prefix {
+                    Some(pos - prefix.len())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(pos);
             let end = pos + path.len();
             result = format!("{}{}", &result[..start], &result[end..]);
         }
@@ -377,18 +406,14 @@ impl WhatsAppChannel {
     }
 
     /// Save pairing requests to disk.
-    fn save_pairing_requests(
-        &self,
-        requests: &[PairingRequest],
-    ) -> claw_core::Result<()> {
+    fn save_pairing_requests(&self, requests: &[PairingRequest]) -> claw_core::Result<()> {
         let _ = std::fs::create_dir_all(&self.auth_dir);
         let path = self.auth_dir.join("pairing.json");
-        let data = serde_json::to_string_pretty(requests).map_err(|e| {
-            claw_core::ClawError::Channel {
+        let data =
+            serde_json::to_string_pretty(requests).map_err(|e| claw_core::ClawError::Channel {
                 channel: "whatsapp".into(),
                 reason: format!("failed to serialize pairing requests: {}", e),
-            }
-        })?;
+            })?;
         std::fs::write(&path, data)?;
         Ok(())
     }
@@ -459,7 +484,12 @@ impl WhatsAppChannel {
 
     /// Check if a sender is allowed under the current DM policy.
     pub fn is_sender_allowed(&self, sender: &str) -> bool {
-        is_sender_allowed(sender, &self.dm_policy, &self.allow_from, &self.load_allowlist())
+        is_sender_allowed(
+            sender,
+            &self.dm_policy,
+            &self.allow_from,
+            &self.load_allowlist(),
+        )
     }
 
     /// Logout: clear auth state so QR re-linking is required.
@@ -668,12 +698,20 @@ impl Channel for WhatsAppChannel {
         for photo_path in &photo_paths {
             if let Ok(bytes) = tokio::fs::read(photo_path).await {
                 let b64 = base64_encode(&bytes);
-                let filename = photo_path.file_name()
-                    .unwrap_or_default().to_string_lossy().to_string();
-                let mimetype = if filename.ends_with(".png") { "image/png" }
-                    else if filename.ends_with(".gif") { "image/gif" }
-                    else if filename.ends_with(".webp") { "image/webp" }
-                    else { "image/jpeg" };
+                let filename = photo_path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                let mimetype = if filename.ends_with(".png") {
+                    "image/png"
+                } else if filename.ends_with(".gif") {
+                    "image/gif"
+                } else if filename.ends_with(".webp") {
+                    "image/webp"
+                } else {
+                    "image/jpeg"
+                };
 
                 let body = json!({
                     "type": "image",
@@ -703,32 +741,61 @@ impl Channel for WhatsAppChannel {
         for doc_path in &doc_paths {
             if let Ok(bytes) = tokio::fs::read(doc_path).await {
                 let b64 = base64_encode(&bytes);
-                let filename = doc_path.file_name()
-                    .unwrap_or_default().to_string_lossy().to_string();
+                let filename = doc_path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 let lower = filename.to_lowercase();
-                let mimetype = if lower.ends_with(".pdf") { "application/pdf" }
-                    else if lower.ends_with(".mp3") { "audio/mpeg" }
-                    else if lower.ends_with(".m4a") { "audio/mp4" }
-                    else if lower.ends_with(".aac") { "audio/aac" }
-                    else if lower.ends_with(".ogg") { "audio/ogg" }
-                    else if lower.ends_with(".wav") { "audio/wav" }
-                    else if lower.ends_with(".flac") { "audio/flac" }
-                    else if lower.ends_with(".aiff") { "audio/aiff" }
-                    else if lower.ends_with(".mp4") { "video/mp4" }
-                    else if lower.ends_with(".mov") { "video/quicktime" }
-                    else if lower.ends_with(".avi") { "video/x-msvideo" }
-                    else if lower.ends_with(".mkv") { "video/x-matroska" }
-                    else if lower.ends_with(".webm") { "video/webm" }
-                    else if lower.ends_with(".zip") { "application/zip" }
-                    else if lower.ends_with(".json") { "application/json" }
-                    else if lower.ends_with(".csv") { "text/csv" }
-                    else if lower.ends_with(".txt") || lower.ends_with(".log") || lower.ends_with(".md") { "text/plain" }
-                    else { "application/octet-stream" };
+                let mimetype = if lower.ends_with(".pdf") {
+                    "application/pdf"
+                } else if lower.ends_with(".mp3") {
+                    "audio/mpeg"
+                } else if lower.ends_with(".m4a") {
+                    "audio/mp4"
+                } else if lower.ends_with(".aac") {
+                    "audio/aac"
+                } else if lower.ends_with(".ogg") {
+                    "audio/ogg"
+                } else if lower.ends_with(".wav") {
+                    "audio/wav"
+                } else if lower.ends_with(".flac") {
+                    "audio/flac"
+                } else if lower.ends_with(".aiff") {
+                    "audio/aiff"
+                } else if lower.ends_with(".mp4") {
+                    "video/mp4"
+                } else if lower.ends_with(".mov") {
+                    "video/quicktime"
+                } else if lower.ends_with(".avi") {
+                    "video/x-msvideo"
+                } else if lower.ends_with(".mkv") {
+                    "video/x-matroska"
+                } else if lower.ends_with(".webm") {
+                    "video/webm"
+                } else if lower.ends_with(".zip") {
+                    "application/zip"
+                } else if lower.ends_with(".json") {
+                    "application/json"
+                } else if lower.ends_with(".csv") {
+                    "text/csv"
+                } else if lower.ends_with(".txt")
+                    || lower.ends_with(".log")
+                    || lower.ends_with(".md")
+                {
+                    "text/plain"
+                } else {
+                    "application/octet-stream"
+                };
 
                 // Use appropriate WhatsApp message type
-                let wa_type = if mimetype.starts_with("audio/") { "audio" }
-                    else if mimetype.starts_with("video/") { "video" }
-                    else { "document" };
+                let wa_type = if mimetype.starts_with("audio/") {
+                    "audio"
+                } else if mimetype.starts_with("video/") {
+                    "video"
+                } else {
+                    "document"
+                };
 
                 let body = json!({
                     "type": wa_type,
@@ -758,19 +825,26 @@ impl Channel for WhatsAppChannel {
         };
 
         // If we uploaded images and text is empty, skip text send
-        if uploaded > 0 && (clean_text.is_empty() || clean_text.chars().all(|c| c.is_whitespace())) {
+        if uploaded > 0 && (clean_text.is_empty() || clean_text.chars().all(|c| c.is_whitespace()))
+        {
             return Ok(());
         }
 
         // Suppress "I can't attach/send" text if we already sent the file
         if uploaded > 0 {
             let lower = clean_text.to_lowercase();
-            if lower.contains("can't attach") || lower.contains("cannot attach")
-                || lower.contains("can't upload") || lower.contains("cannot upload")
-                || lower.contains("can't send the image") || lower.contains("unable to attach")
-                || lower.contains("can't send the file") || lower.contains("cannot send the file")
-                || lower.contains("can't send file") || lower.contains("unable to send file")
-                || lower.contains("don't have a direct way to send") || lower.contains("cannot directly send")
+            if lower.contains("can't attach")
+                || lower.contains("cannot attach")
+                || lower.contains("can't upload")
+                || lower.contains("cannot upload")
+                || lower.contains("can't send the image")
+                || lower.contains("unable to attach")
+                || lower.contains("can't send the file")
+                || lower.contains("cannot send the file")
+                || lower.contains("can't send file")
+                || lower.contains("unable to send file")
+                || lower.contains("don't have a direct way to send")
+                || lower.contains("cannot directly send")
             {
                 return Ok(());
             }
@@ -887,7 +961,10 @@ async fn whatsapp_bridge_loop(
     let bridge_script = bridge_dir.join("bridge.js");
 
     if !bridge_script.exists() {
-        error!("WhatsApp bridge script not found at {}", bridge_script.display());
+        error!(
+            "WhatsApp bridge script not found at {}",
+            bridge_script.display()
+        );
         let _ = event_tx
             .send(ChannelEvent::Disconnected(Some(
                 "Bridge not installed — run: claw channels login whatsapp".into(),

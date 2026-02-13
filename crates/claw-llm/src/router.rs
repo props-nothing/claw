@@ -1,11 +1,11 @@
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use parking_lot::Mutex;
 use tracing::{info, warn};
 
-use claw_core::Result;
 use crate::provider::{LlmProvider, LlmRequest, LlmResponse, StreamChunk};
+use claw_core::Result;
 
 /// Maximum retry attempts for transient errors (429, 500, 502, 503).
 const MAX_RETRIES: u32 = 3;
@@ -83,7 +83,9 @@ impl CircuitBreaker {
         self.last_failure_time = Some(Instant::now());
 
         if self.consecutive_failures >= CIRCUIT_FAILURE_THRESHOLD {
-            self.state = CircuitState::Open { since: Instant::now() };
+            self.state = CircuitState::Open {
+                since: Instant::now(),
+            };
         }
     }
 
@@ -141,7 +143,10 @@ impl ModelRouter {
     pub fn add_provider(&mut self, provider: Arc<dyn LlmProvider>) {
         let name = provider.name().to_string();
         info!(provider = %name, "registered LLM provider");
-        self.breakers.lock().entry(name).or_insert_with(CircuitBreaker::new);
+        self.breakers
+            .lock()
+            .entry(name)
+            .or_insert_with(CircuitBreaker::new);
         self.providers.push(provider);
     }
 

@@ -52,30 +52,50 @@ pub enum Arch {
 impl Os {
     pub fn current() -> Self {
         #[cfg(target_os = "linux")]
-        { Os::Linux }
+        {
+            Os::Linux
+        }
         #[cfg(target_os = "macos")]
-        { Os::MacOS }
+        {
+            Os::MacOS
+        }
         #[cfg(target_os = "windows")]
-        { Os::Windows }
+        {
+            Os::Windows
+        }
         #[cfg(target_os = "android")]
-        { Os::Android }
+        {
+            Os::Android
+        }
         #[cfg(target_os = "ios")]
-        { Os::IOS }
+        {
+            Os::IOS
+        }
     }
 }
 
 impl Arch {
     pub fn current() -> Self {
         #[cfg(target_arch = "x86_64")]
-        { Arch::X86_64 }
+        {
+            Arch::X86_64
+        }
         #[cfg(target_arch = "x86")]
-        { Arch::X86 }
+        {
+            Arch::X86
+        }
         #[cfg(target_arch = "aarch64")]
-        { Arch::Aarch64 }
+        {
+            Arch::Aarch64
+        }
         #[cfg(target_arch = "arm")]
-        { Arch::Arm }
+        {
+            Arch::Arm
+        }
         #[cfg(target_arch = "wasm32")]
-        { Arch::Wasm32 }
+        {
+            Arch::Wasm32
+        }
     }
 }
 

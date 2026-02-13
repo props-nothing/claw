@@ -16,7 +16,7 @@
 
 use claw_core::ClawError;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{info, warn};
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -61,9 +61,7 @@ impl IosBridge {
     async fn run_cmd(program: &str, args: &[&str]) -> claw_core::Result<String> {
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(30),
-            tokio::process::Command::new(program)
-                .args(args)
-                .output(),
+            tokio::process::Command::new(program).args(args).output(),
         )
         .await
         .map_err(|_| ClawError::ToolExecution {
@@ -96,19 +94,27 @@ impl IosBridge {
         if let Ok(output) = Self::run_cmd("idevice_id", &["-l"]).await {
             for udid in output.lines() {
                 let udid = udid.trim();
-                if udid.is_empty() { continue; }
+                if udid.is_empty() {
+                    continue;
+                }
 
-                let name = Self::run_cmd("idevicename", &["-u", udid]).await
+                let name = Self::run_cmd("idevicename", &["-u", udid])
+                    .await
                     .unwrap_or_else(|_| "Unknown".into())
-                    .trim().to_string();
+                    .trim()
+                    .to_string();
 
-                let info = Self::run_cmd("ideviceinfo", &["-u", udid, "-k", "ProductType"]).await
+                let info = Self::run_cmd("ideviceinfo", &["-u", udid, "-k", "ProductType"])
+                    .await
                     .unwrap_or_else(|_| "Unknown".into())
-                    .trim().to_string();
+                    .trim()
+                    .to_string();
 
-                let version = Self::run_cmd("ideviceinfo", &["-u", udid, "-k", "ProductVersion"]).await
+                let version = Self::run_cmd("ideviceinfo", &["-u", udid, "-k", "ProductVersion"])
+                    .await
                     .unwrap_or_else(|_| "Unknown".into())
-                    .trim().to_string();
+                    .trim()
+                    .to_string();
 
                 devices.push(IosDevice {
                     udid: udid.to_string(),
@@ -173,11 +179,17 @@ impl IosBridge {
         if let Some(dev) = devices.iter().find(|d| d.device_type == "physical") {
             self.active_device = Some(dev.udid.clone());
             self.is_simulator = false;
-            return Ok(format!("selected physical device: {} ({})", dev.name, dev.udid));
+            return Ok(format!(
+                "selected physical device: {} ({})",
+                dev.name, dev.udid
+            ));
         }
 
         // Then booted simulators
-        if let Some(dev) = devices.iter().find(|d| d.device_type == "simulator" && d.state == "Booted") {
+        if let Some(dev) = devices
+            .iter()
+            .find(|d| d.device_type == "simulator" && d.state == "Booted")
+        {
             self.active_device = Some(dev.udid.clone());
             self.is_simulator = true;
             return Ok(format!("selected simulator: {} ({})", dev.name, dev.udid));
@@ -190,10 +202,12 @@ impl IosBridge {
     }
 
     fn require_device(&self) -> claw_core::Result<&str> {
-        self.active_device.as_deref().ok_or_else(|| ClawError::ToolExecution {
-            tool: "ios".into(),
-            reason: "no device selected. Use ios_devices to list and select one.".into(),
-        })
+        self.active_device
+            .as_deref()
+            .ok_or_else(|| ClawError::ToolExecution {
+                tool: "ios".into(),
+                reason: "no device selected. Use ios_devices to list and select one.".into(),
+            })
     }
 
     // ── Screenshots ──────────────────────────────────────────
@@ -209,7 +223,8 @@ impl IosBridge {
             Self::run_cmd("idevicescreenshot", &["-u", udid, &tmp]).await?;
         }
 
-        let bytes = tokio::fs::read(&tmp).await
+        let bytes = tokio::fs::read(&tmp)
+            .await
             .map_err(|e| ClawError::ToolExecution {
                 tool: "ios".into(),
                 reason: format!("failed to read screenshot: {e}"),
@@ -271,10 +286,13 @@ impl IosBridge {
         if self.is_simulator {
             let output = Self::run_cmd("xcrun", &["simctl", "listapps", udid]).await?;
             // Parse the plist output (simplified)
-            Ok(vec![json!({ "note": "app list available", "raw_length": output.len() })])
+            Ok(vec![
+                json!({ "note": "app list available", "raw_length": output.len() }),
+            ])
         } else {
             let output = Self::run_cmd("ideviceinstaller", &["-u", udid, "-l"]).await?;
-            let apps: Vec<Value> = output.lines()
+            let apps: Vec<Value> = output
+                .lines()
                 .skip(1) // header
                 .map(|line| {
                     let parts: Vec<&str> = line.splitn(3, ',').collect();
@@ -301,7 +319,11 @@ impl IosBridge {
 
         // 1. Try idb (works for both physical and simulators)
         if check_idb_available().await {
-            Self::run_cmd("idb", &["ui", "tap", &x.to_string(), &y.to_string(), "--udid", udid]).await?;
+            Self::run_cmd(
+                "idb",
+                &["ui", "tap", &x.to_string(), &y.to_string(), "--udid", udid],
+            )
+            .await?;
             return Ok(format!("tapped ({}, {}) via idb", x, y));
         }
 
@@ -331,13 +353,16 @@ tell application "System Events"
     end tell
 end tell"#;
 
-        let bounds_output = Self::run_cmd("osascript", &["-e", bounds_script]).await
+        let bounds_output = Self::run_cmd("osascript", &["-e", bounds_script])
+            .await
             .map_err(|_| ClawError::ToolExecution {
                 tool: "ios".into(),
                 reason: "failed to get Simulator window bounds. Is Simulator.app open?".into(),
             })?;
 
-        let parts: Vec<f64> = bounds_output.trim().split(',')
+        let parts: Vec<f64> = bounds_output
+            .trim()
+            .split(',')
             .filter_map(|s| s.trim().parse().ok())
             .collect();
 
@@ -351,7 +376,10 @@ end tell"#;
         let (win_x, win_y, win_w, win_h) = (parts[0], parts[1], parts[2], parts[3]);
 
         // Step 2: Get device screen dimensions from the screenshot size
-        let (dev_w, dev_h) = self.get_device_screen_size().await.unwrap_or((393.0, 852.0));
+        let (dev_w, dev_h) = self
+            .get_device_screen_size()
+            .await
+            .unwrap_or((393.0, 852.0));
 
         // Step 3: Map device coordinates to screen coordinates
         // The Simulator window has a title bar (~28px) and renders the device screen in the content area
@@ -360,7 +388,10 @@ end tell"#;
         let screen_x = win_x + (x as f64 / dev_w * win_w);
         let screen_y = win_y + title_bar + (y as f64 / dev_h * content_h);
 
-        info!(x, y, screen_x, screen_y, "applescript tap: device → screen coords");
+        info!(
+            x,
+            y, screen_x, screen_y, "applescript tap: device → screen coords"
+        );
 
         // Step 4: Click at the computed screen coordinates
         let click_script = format!(
@@ -368,13 +399,17 @@ end tell"#;
             screen_x as i32, screen_y as i32
         );
 
-        Self::run_cmd("osascript", &["-e", &click_script]).await
+        Self::run_cmd("osascript", &["-e", &click_script])
+            .await
             .map_err(|e| ClawError::ToolExecution {
                 tool: "ios".into(),
                 reason: format!("AppleScript click failed: {e}"),
             })?;
 
-        Ok(format!("tapped ({}, {}) via AppleScript (screen: {}, {})", x, y, screen_x as i32, screen_y as i32))
+        Ok(format!(
+            "tapped ({}, {}) via AppleScript (screen: {}, {})",
+            x, y, screen_x as i32, screen_y as i32
+        ))
     }
 
     /// Get the device's logical screen dimensions by taking a quick screenshot
@@ -384,12 +419,17 @@ end tell"#;
         let tmp = format!("/tmp/claw_ios_size_probe_{}.png", udid);
 
         // Take a screenshot to get pixel dimensions
-        if Self::run_cmd("xcrun", &["simctl", "io", udid, "screenshot", &tmp]).await.is_err() {
+        if Self::run_cmd("xcrun", &["simctl", "io", udid, "screenshot", &tmp])
+            .await
+            .is_err()
+        {
             return None;
         }
 
         // Read PNG dimensions from the file header using `sips`
-        let output = Self::run_cmd("sips", &["-g", "pixelWidth", "-g", "pixelHeight", &tmp]).await.ok()?;
+        let output = Self::run_cmd("sips", &["-g", "pixelWidth", "-g", "pixelHeight", &tmp])
+            .await
+            .ok()?;
         let _ = tokio::fs::remove_file(&tmp).await;
 
         let mut pw: Option<f64> = None;
@@ -408,7 +448,13 @@ end tell"#;
         // A rough heuristic: if width > 1000, it's 3x; if > 600, it's 2x
         let pixel_w = pw?;
         let pixel_h = ph?;
-        let scale = if pixel_w > 1000.0 { 3.0 } else if pixel_w > 600.0 { 2.0 } else { 1.0 };
+        let scale = if pixel_w > 1000.0 {
+            3.0
+        } else if pixel_w > 600.0 {
+            2.0
+        } else {
+            1.0
+        };
 
         Some((pixel_w / scale, pixel_h / scale))
     }
@@ -416,18 +462,34 @@ end tell"#;
     /// Swipe on the device.
     ///
     /// Strategy: idb → AppleScript mouse-drag → error
-    pub async fn swipe(&self, x1: u32, y1: u32, x2: u32, y2: u32, duration_ms: u32) -> claw_core::Result<String> {
+    pub async fn swipe(
+        &self,
+        x1: u32,
+        y1: u32,
+        x2: u32,
+        y2: u32,
+        duration_ms: u32,
+    ) -> claw_core::Result<String> {
         let udid = self.require_device()?;
 
         // 1. Try idb
         if check_idb_available().await {
-            Self::run_cmd("idb", &[
-                "ui", "swipe",
-                &x1.to_string(), &y1.to_string(),
-                &x2.to_string(), &y2.to_string(),
-                "--duration", &(duration_ms as f64 / 1000.0).to_string(),
-                "--udid", udid,
-            ]).await?;
+            Self::run_cmd(
+                "idb",
+                &[
+                    "ui",
+                    "swipe",
+                    &x1.to_string(),
+                    &y1.to_string(),
+                    &x2.to_string(),
+                    &y2.to_string(),
+                    "--duration",
+                    &(duration_ms as f64 / 1000.0).to_string(),
+                    "--udid",
+                    udid,
+                ],
+            )
+            .await?;
             return Ok(format!("swiped ({},{}) → ({},{}) via idb", x1, y1, x2, y2));
         }
 
@@ -443,7 +505,14 @@ end tell"#;
     }
 
     /// Swipe using a Python3 CGEvent script (built-in on macOS with CoreGraphics).
-    async fn applescript_swipe(&self, x1: u32, y1: u32, x2: u32, y2: u32, duration_ms: u32) -> claw_core::Result<String> {
+    async fn applescript_swipe(
+        &self,
+        x1: u32,
+        y1: u32,
+        x2: u32,
+        y2: u32,
+        duration_ms: u32,
+    ) -> claw_core::Result<String> {
         // Get window bounds and device dimensions (same as tap)
         let bounds_script = r#"
 tell application "Simulator" to activate
@@ -456,13 +525,16 @@ tell application "System Events"
     end tell
 end tell"#;
 
-        let bounds_output = Self::run_cmd("osascript", &["-e", bounds_script]).await
+        let bounds_output = Self::run_cmd("osascript", &["-e", bounds_script])
+            .await
             .map_err(|_| ClawError::ToolExecution {
                 tool: "ios".into(),
                 reason: "failed to get Simulator window bounds".into(),
             })?;
 
-        let parts: Vec<f64> = bounds_output.trim().split(',')
+        let parts: Vec<f64> = bounds_output
+            .trim()
+            .split(',')
             .filter_map(|s| s.trim().parse().ok())
             .collect();
 
@@ -474,7 +546,10 @@ end tell"#;
         }
 
         let (win_x, win_y, win_w, win_h) = (parts[0], parts[1], parts[2], parts[3]);
-        let (dev_w, dev_h) = self.get_device_screen_size().await.unwrap_or((393.0, 852.0));
+        let (dev_w, dev_h) = self
+            .get_device_screen_size()
+            .await
+            .unwrap_or((393.0, 852.0));
         let title_bar = 28.0;
         let content_h = win_h - title_bar;
 
@@ -517,8 +592,12 @@ try:
 except ImportError:
     print("no_quartz")
 "#,
-            sx1 = sx1, sy1 = sy1, sx2 = sx2, sy2 = sy2,
-            steps = steps, step_delay = step_delay,
+            sx1 = sx1,
+            sy1 = sy1,
+            sx2 = sx2,
+            sy2 = sy2,
+            steps = steps,
+            step_delay = step_delay,
         );
 
         let output = tokio::process::Command::new("python3")
@@ -533,15 +612,24 @@ except ImportError:
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         if stdout.trim() == "ok" {
-            return Ok(format!("swiped ({},{}) → ({},{}) via CGEvent", x1, y1, x2, y2));
+            return Ok(format!(
+                "swiped ({},{}) → ({},{}) via CGEvent",
+                x1, y1, x2, y2
+            ));
         }
 
         // Fallback: try cliclick
         if check_cmd_available("cliclick").await {
             // cliclick: dd = mouse down + drag, du = mouse up
-            let cmd = format!("dd:{},{} du:{},{}", sx1 as i32, sy1 as i32, sx2 as i32, sy2 as i32);
+            let cmd = format!(
+                "dd:{},{} du:{},{}",
+                sx1 as i32, sy1 as i32, sx2 as i32, sy2 as i32
+            );
             Self::run_cmd("cliclick", &[&cmd]).await?;
-            return Ok(format!("swiped ({},{}) → ({},{}) via cliclick", x1, y1, x2, y2));
+            return Ok(format!(
+                "swiped ({},{}) → ({},{}) via cliclick",
+                x1, y1, x2, y2
+            ));
         }
 
         Err(ClawError::ToolExecution {
@@ -647,18 +735,25 @@ except ImportError:
                 }
             };
 
-            Self::run_cmd("osascript", &["-e", keystroke_script]).await
+            Self::run_cmd("osascript", &["-e", keystroke_script])
+                .await
                 .map_err(|e| ClawError::ToolExecution {
                     tool: "ios".into(),
                     reason: format!("AppleScript button press failed: {e}"),
                 })?;
 
-            return Ok(format!("pressed {} via Simulator keyboard shortcut", button));
+            return Ok(format!(
+                "pressed {} via Simulator keyboard shortcut",
+                button
+            ));
         }
 
         Err(ClawError::ToolExecution {
             tool: "ios".into(),
-            reason: format!("button '{}' on physical device requires idb. Install: brew install idb-companion && pip3 install fb-idb", button),
+            reason: format!(
+                "button '{}' on physical device requires idb. Install: brew install idb-companion && pip3 install fb-idb",
+                button
+            ),
         })
     }
 
@@ -700,8 +795,12 @@ except ImportError:
 
         if self.is_simulator {
             // simctl doesn't have direct file push, use data container
-            Self::run_cmd("xcrun", &["simctl", "push", udid, "data", local, remote_path]).await
-                .unwrap_or_else(|_| format!("simulator file push may require app container context"));
+            Self::run_cmd(
+                "xcrun",
+                &["simctl", "push", udid, "data", local, remote_path],
+            )
+            .await
+            .unwrap_or_else(|_| format!("simulator file push may require app container context"));
         } else {
             // Use AFC via idevice tools or idb
             if check_idb_available().await {
@@ -720,8 +819,14 @@ except ImportError:
     /// Get device status.
     pub async fn status(&self) -> claw_core::Result<Value> {
         let devices = self.list_devices().await.unwrap_or_default();
-        let physical: Vec<_> = devices.iter().filter(|d| d.device_type == "physical").collect();
-        let booted_sims: Vec<_> = devices.iter().filter(|d| d.device_type == "simulator" && d.state == "Booted").collect();
+        let physical: Vec<_> = devices
+            .iter()
+            .filter(|d| d.device_type == "physical")
+            .collect();
+        let booted_sims: Vec<_> = devices
+            .iter()
+            .filter(|d| d.device_type == "simulator" && d.state == "Booted")
+            .collect();
 
         Ok(json!({
             "libimobiledevice_available": check_libimobiledevice_available().await,

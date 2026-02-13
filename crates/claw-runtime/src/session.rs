@@ -1,9 +1,8 @@
+use chrono;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{RwLock, Mutex as TokioMutex};
+use tokio::sync::{Mutex as TokioMutex, RwLock};
 use uuid::Uuid;
-use chrono;
-
 
 /// A conversation session.
 #[derive(Debug, Clone)]
@@ -85,7 +84,12 @@ impl SessionManager {
 
     /// Get the number of active sessions.
     pub async fn active_count(&self) -> usize {
-        self.sessions.read().await.values().filter(|s| s.active).count()
+        self.sessions
+            .read()
+            .await
+            .values()
+            .filter(|s| s.active)
+            .count()
     }
 
     /// List all sessions (cloned).
@@ -156,7 +160,14 @@ impl SessionManager {
     }
 
     /// Restore a session from persistent storage.
-    pub async fn restore(&self, id: Uuid, name: Option<String>, channel: Option<String>, target: Option<String>, message_count: usize) {
+    pub async fn restore(
+        &self,
+        id: Uuid,
+        name: Option<String>,
+        channel: Option<String>,
+        target: Option<String>,
+        message_count: usize,
+    ) {
         let session = Session {
             id,
             name,
@@ -186,6 +197,10 @@ impl SessionManager {
         }
         // Slow path: create a new lock
         let mut locks = self.run_locks.write().await;
-        Arc::clone(locks.entry(session_id).or_insert_with(|| Arc::new(TokioMutex::new(()))))
+        Arc::clone(
+            locks
+                .entry(session_id)
+                .or_insert_with(|| Arc::new(TokioMutex::new(()))),
+        )
     }
 }

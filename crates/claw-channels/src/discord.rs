@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
-use serde_json::{json, Value};
-use std::sync::atomic::{AtomicBool, Ordering};
+use serde_json::{Value, json};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -74,8 +74,15 @@ impl Channel for DiscordChannel {
         let bot_user_id = self.bot_user_id.clone();
 
         tokio::spawn(async move {
-            discord_gateway_loop(token, channel_id, event_tx, shutdown_rx, connected, bot_user_id)
-                .await;
+            discord_gateway_loop(
+                token,
+                channel_id,
+                event_tx,
+                shutdown_rx,
+                connected,
+                bot_user_id,
+            )
+            .await;
         });
 
         Ok(event_rx)
@@ -131,10 +138,7 @@ impl Channel for DiscordChannel {
         &self,
         message: OutgoingMessage,
     ) -> claw_core::Result<Option<String>> {
-        let url = format!(
-            "{}/channels/{}/messages",
-            DISCORD_API_BASE, message.target
-        );
+        let url = format!("{}/channels/{}/messages", DISCORD_API_BASE, message.target);
 
         let body = json!({ "content": message.text });
 
@@ -220,8 +224,7 @@ async fn discord_gateway_loop(
 
         info!("Discord: connecting to Gateway...");
 
-        let ws_result =
-            tokio_tungstenite::connect_async(DISCORD_GATEWAY_URL).await;
+        let ws_result = tokio_tungstenite::connect_async(DISCORD_GATEWAY_URL).await;
 
         let ws_stream = match ws_result {
             Ok((stream, _)) => stream,
@@ -280,7 +283,10 @@ async fn discord_gateway_loop(
 
         connected.store(true, Ordering::SeqCst);
         let _ = event_tx.send(ChannelEvent::Connected).await;
-        info!(heartbeat_ms = heartbeat_interval, "Discord Gateway connected");
+        info!(
+            heartbeat_ms = heartbeat_interval,
+            "Discord Gateway connected"
+        );
 
         let mut sequence: Option<u64> = None;
         let mut heartbeat_timer =
@@ -365,7 +371,9 @@ async fn discord_gateway_loop(
 
         connected.store(false, Ordering::SeqCst);
         let _ = event_tx
-            .send(ChannelEvent::Disconnected(Some("Gateway connection lost".into())))
+            .send(ChannelEvent::Disconnected(Some(
+                "Gateway connection lost".into(),
+            )))
             .await;
 
         if *shutdown_rx.borrow() {
@@ -459,7 +467,11 @@ async fn handle_discord_dispatch(
 
             debug!(sender = %author_name, channel = %channel_ref, dm = is_dm, "Discord message received");
 
-            if event_tx.send(ChannelEvent::Message(incoming)).await.is_err() {
+            if event_tx
+                .send(ChannelEvent::Message(incoming))
+                .await
+                .is_err()
+            {
                 warn!("Discord: event channel closed");
             }
         }

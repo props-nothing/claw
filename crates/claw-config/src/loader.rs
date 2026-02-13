@@ -1,8 +1,8 @@
+use notify::{Event as NotifyEvent, EventKind, RecursiveMode, Watcher};
+use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use parking_lot::RwLock;
 use tracing::{info, warn};
-use notify::{Watcher, RecursiveMode, Event as NotifyEvent, EventKind};
 
 use crate::schema::ClawConfig;
 
@@ -41,10 +41,7 @@ impl ConfigLoader {
                 ))
             })?
         } else {
-            warn!(
-                ?config_path,
-                "config file not found, using defaults"
-            );
+            warn!(?config_path, "config file not found, using defaults");
             ClawConfig::default()
         };
 
@@ -209,11 +206,12 @@ impl ConfigLoader {
         })?;
 
         // Watch the parent directory (some editors create temp files + rename)
-        let watch_path = self.config_path.parent()
-            .unwrap_or(Path::new("."));
-        watcher.watch(watch_path, RecursiveMode::NonRecursive).map_err(|e| {
-            claw_core::ClawError::Config(format!("failed to watch config directory: {}", e))
-        })?;
+        let watch_path = self.config_path.parent().unwrap_or(Path::new("."));
+        watcher
+            .watch(watch_path, RecursiveMode::NonRecursive)
+            .map_err(|e| {
+                claw_core::ClawError::Config(format!("failed to watch config directory: {}", e))
+            })?;
 
         Ok(watcher)
     }

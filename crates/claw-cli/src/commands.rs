@@ -135,7 +135,10 @@ enum PluginAction {
     /// List installed plugins
     List,
     /// Install a plugin from ClawHub
-    Install { name: String, version: Option<String> },
+    Install {
+        name: String,
+        version: Option<String>,
+    },
     /// Uninstall a plugin
     Uninstall { name: String },
     /// Search ClawHub for plugins
@@ -277,9 +280,7 @@ impl Cli {
             tracing_subscriber::fmt()
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| {
-                            tracing_subscriber::EnvFilter::new(log_level)
-                        }),
+                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level)),
                 )
                 .json()
                 .with_target(true)
@@ -288,9 +289,7 @@ impl Cli {
             tracing_subscriber::fmt()
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| {
-                            tracing_subscriber::EnvFilter::new(log_level)
-                        }),
+                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level)),
                 )
                 .with_target(false)
                 .init();
@@ -300,55 +299,41 @@ impl Cli {
             Commands::Start { no_server } => {
                 Self::cmd_start(config, no_server, config_loader).await
             }
-            Commands::Chat { session } => {
-                Self::cmd_chat(config, session).await
-            }
-            Commands::Status => {
-                Self::cmd_status(config).await
-            }
-            Commands::Version => {
-                Self::cmd_version()
-            }
-            Commands::Config { json } => {
-                Self::cmd_config(config, json)
-            }
-            Commands::Plugin { action } => {
-                Self::cmd_plugin(config, action).await
-            }
-            Commands::Logs { limit, event_type, json } => {
-                Self::cmd_logs(config, limit, event_type, json).await
-            }
+            Commands::Chat { session } => Self::cmd_chat(config, session).await,
+            Commands::Status => Self::cmd_status(config).await,
+            Commands::Version => Self::cmd_version(),
+            Commands::Config { json } => Self::cmd_config(config, json),
+            Commands::Plugin { action } => Self::cmd_plugin(config, action).await,
+            Commands::Logs {
+                limit,
+                event_type,
+                json,
+            } => Self::cmd_logs(config, limit, event_type, json).await,
             Commands::Set { key, value } => {
                 Self::cmd_config_set(Some(config_loader.path().to_path_buf()), key, value)
             }
-            Commands::Doctor => {
-                Self::cmd_doctor(config)
-            }
-            Commands::Init { local } => {
-                Self::cmd_init(local)
-            }
-            Commands::Setup { local, reset, section } => {
-                Self::cmd_setup(local, reset, section)
-            }
-            Commands::Completions { shell } => {
-                Self::cmd_completions(shell)
-            }
+            Commands::Doctor => Self::cmd_doctor(config),
+            Commands::Init { local } => Self::cmd_init(local),
+            Commands::Setup {
+                local,
+                reset,
+                section,
+            } => Self::cmd_setup(local, reset, section),
+            Commands::Completions { shell } => Self::cmd_completions(shell),
             Commands::Skill { action } => {
                 Self::cmd_skill(config, action, config_loader.path()).await
             }
-            Commands::Hub { action } => {
-                Self::cmd_hub(action).await
-            }
-            Commands::Mesh { action } => {
-                Self::cmd_mesh(config, action).await
-            }
-            Commands::Channels { action } => {
-                Self::cmd_channels(config, action).await
-            }
+            Commands::Hub { action } => Self::cmd_hub(action).await,
+            Commands::Mesh { action } => Self::cmd_mesh(config, action).await,
+            Commands::Channels { action } => Self::cmd_channels(config, action).await,
         }
     }
 
-    async fn cmd_start(config: claw_config::ClawConfig, no_server: bool, config_loader: ConfigLoader) -> claw_core::Result<()> {
+    async fn cmd_start(
+        config: claw_config::ClawConfig,
+        no_server: bool,
+        config_loader: ConfigLoader,
+    ) -> claw_core::Result<()> {
         println!("🦞 Claw v{}", env!("CARGO_PKG_VERSION"));
         println!("   Model: {}", config.agent.model);
         println!("   Autonomy: L{}", config.autonomy.level);
@@ -410,7 +395,11 @@ impl Cli {
         for (id, channel_config) in &config.channels {
             match channel_config.channel_type.as_str() {
                 "telegram" => {
-                    if let Some(token) = channel_config.settings.get("token").and_then(|v| v.as_str()) {
+                    if let Some(token) = channel_config
+                        .settings
+                        .get("token")
+                        .and_then(|v| v.as_str())
+                    {
                         let channel = claw_channels::telegram::TelegramChannel::new(
                             id.clone(),
                             token.to_string(),
@@ -423,7 +412,9 @@ impl Cli {
                     runtime.add_channel(Box::new(channel));
                 }
                 "whatsapp" | "wa" => {
-                    let dm_policy_str = channel_config.settings.get("dm_policy")
+                    let dm_policy_str = channel_config
+                        .settings
+                        .get("dm_policy")
                         .and_then(|v| v.as_str())
                         .unwrap_or("pairing");
                     let dm_policy = match dm_policy_str {
@@ -432,23 +423,30 @@ impl Cli {
                         "disabled" => claw_channels::whatsapp::DmPolicy::Disabled,
                         _ => claw_channels::whatsapp::DmPolicy::Pairing,
                     };
-                    let allow_from: Vec<String> = channel_config.settings.get("allow_from")
+                    let allow_from: Vec<String> = channel_config
+                        .settings
+                        .get("allow_from")
                         .and_then(|v| v.as_array())
-                        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
                         .unwrap_or_default();
 
-                    let channel = claw_channels::whatsapp::WhatsAppChannel::new(
-                        id.clone(),
-                        None,
-                    )
-                    .with_dm_policy(dm_policy)
-                    .with_allow_from(allow_from);
+                    let channel = claw_channels::whatsapp::WhatsAppChannel::new(id.clone(), None)
+                        .with_dm_policy(dm_policy)
+                        .with_allow_from(allow_from);
                     runtime.add_channel(Box::new(channel));
                     println!("   📱 WhatsApp: enabled (dm_policy={})", dm_policy_str);
                     println!("      Link your phone: claw channels login whatsapp");
                 }
                 "discord" => {
-                    if let Some(token) = channel_config.settings.get("token").and_then(|v| v.as_str()) {
+                    if let Some(token) = channel_config
+                        .settings
+                        .get("token")
+                        .and_then(|v| v.as_str())
+                    {
                         let channel = claw_channels::discord::DiscordChannel::new(
                             id.clone(),
                             token.to_string(),
@@ -459,8 +457,14 @@ impl Cli {
                     }
                 }
                 "slack" => {
-                    if let Some(token) = channel_config.settings.get("token").and_then(|v| v.as_str()) {
-                        let app_token = channel_config.settings.get("app_token")
+                    if let Some(token) = channel_config
+                        .settings
+                        .get("token")
+                        .and_then(|v| v.as_str())
+                    {
+                        let app_token = channel_config
+                            .settings
+                            .get("app_token")
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string());
                         let channel = claw_channels::slack::SlackChannel::new(
@@ -474,7 +478,9 @@ impl Cli {
                     }
                 }
                 "signal" => {
-                    let phone = channel_config.settings.get("token")
+                    let phone = channel_config
+                        .settings
+                        .get("token")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
                     if !phone.is_empty() {
@@ -523,15 +529,13 @@ impl Cli {
         // Register LLM providers — config file keys take priority, env vars are fallback
         let mut providers_registered = 0u32;
         if let Some(ref key) = config.services.anthropic_api_key {
-            runtime.add_provider(Arc::new(
-                claw_llm::anthropic::AnthropicProvider::new(key.clone()),
-            ));
+            runtime.add_provider(Arc::new(claw_llm::anthropic::AnthropicProvider::new(
+                key.clone(),
+            )));
             providers_registered += 1;
         }
         if let Some(ref key) = config.services.openai_api_key {
-            runtime.add_provider(Arc::new(
-                claw_llm::openai::OpenAiProvider::new(key.clone()),
-            ));
+            runtime.add_provider(Arc::new(claw_llm::openai::OpenAiProvider::new(key.clone())));
             providers_registered += 1;
         }
 
@@ -541,13 +545,17 @@ impl Cli {
             if !is_local {
                 eprintln!("⚠️  No LLM API keys found.");
                 if model.starts_with("anthropic/") {
-                    eprintln!("   Add to [services] in claw.toml:  anthropic_api_key = \"sk-ant-...\"");
+                    eprintln!(
+                        "   Add to [services] in claw.toml:  anthropic_api_key = \"sk-ant-...\""
+                    );
                     eprintln!("   Or set env var: export ANTHROPIC_API_KEY=sk-ant-...");
                 } else if model.starts_with("openai/") {
                     eprintln!("   Add to [services] in claw.toml:  openai_api_key = \"sk-...\"");
                     eprintln!("   Or set env var: export OPENAI_API_KEY=sk-...");
                 } else {
-                    eprintln!("   Add API keys to [services] in claw.toml or set ANTHROPIC_API_KEY / OPENAI_API_KEY.");
+                    eprintln!(
+                        "   Add API keys to [services] in claw.toml or set ANTHROPIC_API_KEY / OPENAI_API_KEY."
+                    );
                 }
                 eprintln!();
             }
@@ -602,7 +610,10 @@ impl Cli {
             }
 
             // Send message to agent via streaming so we can handle approval prompts
-            match handle.chat_stream(trimmed.to_string(), session_id.clone()).await {
+            match handle
+                .chat_stream(trimmed.to_string(), session_id.clone())
+                .await
+            {
                 Ok(mut rx) => {
                     let mut got_text = false;
                     while let Some(event) = rx.recv().await {
@@ -622,14 +633,31 @@ impl Cli {
                             StreamEvent::ToolCall { name, id: _, .. } => {
                                 eprintln!("\x1b[33m🔧 Calling tool: {}\x1b[0m", name);
                             }
-                            StreamEvent::ToolResult { id: _, content, is_error, .. } => {
+                            StreamEvent::ToolResult {
+                                id: _,
+                                content,
+                                is_error,
+                                ..
+                            } => {
                                 if is_error {
-                                    eprintln!("\x1b[31m   ❌ {}\x1b[0m", truncate_output(&content, 200));
+                                    eprintln!(
+                                        "\x1b[31m   ❌ {}\x1b[0m",
+                                        truncate_output(&content, 200)
+                                    );
                                 } else {
-                                    eprintln!("\x1b[90m   ✓ {}\x1b[0m", truncate_output(&content, 200));
+                                    eprintln!(
+                                        "\x1b[90m   ✓ {}\x1b[0m",
+                                        truncate_output(&content, 200)
+                                    );
                                 }
                             }
-                            StreamEvent::ApprovalRequired { id, tool_name, tool_args, reason, risk_level } => {
+                            StreamEvent::ApprovalRequired {
+                                id,
+                                tool_name,
+                                tool_args,
+                                reason,
+                                risk_level,
+                            } => {
                                 println!();
                                 println!("\x1b[33m⚠️  APPROVAL REQUIRED\x1b[0m");
                                 println!("   🔧 Tool: \x1b[1m{}\x1b[0m", tool_name);
@@ -651,13 +679,21 @@ impl Cli {
                                         if let Ok(uuid) = id.parse::<uuid::Uuid>() {
                                             if ans == "y" || ans == "yes" || ans == "approve" {
                                                 match handle.approve(uuid).await {
-                                                    Ok(()) => eprintln!("\x1b[32m   ✅ Approved\x1b[0m"),
-                                                    Err(e) => eprintln!("\x1b[31m   ❌ {}\x1b[0m", e),
+                                                    Ok(()) => {
+                                                        eprintln!("\x1b[32m   ✅ Approved\x1b[0m")
+                                                    }
+                                                    Err(e) => {
+                                                        eprintln!("\x1b[31m   ❌ {}\x1b[0m", e)
+                                                    }
                                                 }
                                             } else {
                                                 match handle.deny(uuid).await {
-                                                    Ok(()) => eprintln!("\x1b[31m   ❌ Denied\x1b[0m"),
-                                                    Err(e) => eprintln!("\x1b[31m   ❌ {}\x1b[0m", e),
+                                                    Ok(()) => {
+                                                        eprintln!("\x1b[31m   ❌ Denied\x1b[0m")
+                                                    }
+                                                    Err(e) => {
+                                                        eprintln!("\x1b[31m   ❌ {}\x1b[0m", e)
+                                                    }
                                                 }
                                             }
                                         }
@@ -671,9 +707,15 @@ impl Cli {
                                     }
                                 }
                             }
-                            StreamEvent::Usage { input_tokens, output_tokens, cost_usd } => {
-                                eprintln!("\n\x1b[90m   [{} in / {} out, ${:.4}]\x1b[0m",
-                                    input_tokens, output_tokens, cost_usd);
+                            StreamEvent::Usage {
+                                input_tokens,
+                                output_tokens,
+                                cost_usd,
+                            } => {
+                                eprintln!(
+                                    "\n\x1b[90m   [{} in / {} out, ${:.4}]\x1b[0m",
+                                    input_tokens, output_tokens, cost_usd
+                                );
                             }
                             StreamEvent::Error { message } => {
                                 println!("\x1b[31m❌ Error: {}\x1b[0m", message);
@@ -701,16 +743,20 @@ impl Cli {
         let listen = &config.server.listen;
         println!("Checking status at http://{}...", listen);
 
-        let client = reqwest::Client::builder().tcp_keepalive(None).build().unwrap_or_default();
+        let client = reqwest::Client::builder()
+            .tcp_keepalive(None)
+            .build()
+            .unwrap_or_default();
         match client
             .get(format!("http://{}/api/v1/status", listen))
             .send()
             .await
         {
             Ok(resp) => {
-                let data: serde_json::Value = resp.json().await.map_err(|e| {
-                    claw_core::ClawError::Agent(e.to_string())
-                })?;
+                let data: serde_json::Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| claw_core::ClawError::Agent(e.to_string()))?;
                 println!("{}", serde_json::to_string_pretty(&data).unwrap());
             }
             Err(_) => {
@@ -751,7 +797,10 @@ impl Cli {
                     println!("No plugins installed.");
                 } else {
                     for p in plugins {
-                        println!("  {} v{} — {}", p.plugin.name, p.plugin.version, p.plugin.description);
+                        println!(
+                            "  {} v{} — {}",
+                            p.plugin.name, p.plugin.version, p.plugin.description
+                        );
                     }
                 }
             }
@@ -766,24 +815,28 @@ impl Cli {
                 host.uninstall(&name)?;
                 println!("✅ Uninstalled {}", name);
             }
-            PluginAction::Search { query } => {
-                match registry.search(&query).await {
-                    Ok(results) => {
-                        for r in results {
-                            println!("  {} v{} — {} ({} downloads)", r.name, r.version, r.description, r.downloads);
-                        }
-                    }
-                    Err(e) => {
-                        println!("Search failed: {}", e);
+            PluginAction::Search { query } => match registry.search(&query).await {
+                Ok(results) => {
+                    for r in results {
+                        println!(
+                            "  {} v{} — {} ({} downloads)",
+                            r.name, r.version, r.description, r.downloads
+                        );
                     }
                 }
-            }
+                Err(e) => {
+                    println!("Search failed: {}", e);
+                }
+            },
             PluginAction::Info { name } => {
                 let mut host = claw_plugin::PluginHost::new(&config.plugins.plugin_dir)?;
                 let _ = host.discover();
                 match host.get_manifest(&name) {
                     Some(manifest) => {
-                        println!("\x1b[1m{}\x1b[0m v{}", manifest.plugin.name, manifest.plugin.version);
+                        println!(
+                            "\x1b[1m{}\x1b[0m v{}",
+                            manifest.plugin.name, manifest.plugin.version
+                        );
                         println!("  {}", manifest.plugin.description);
                         if !manifest.plugin.authors.is_empty() {
                             println!("  Authors: {}", manifest.plugin.authors.join(", "));
@@ -821,7 +874,10 @@ impl Cli {
                                     String::new()
                                 };
                                 let mutating = if tool.is_mutating { " ✏️" } else { "" };
-                                println!("    {}{}{} — {}", tool.name, mutating, risk, tool.description);
+                                println!(
+                                    "    {}{}{} — {}",
+                                    tool.name, mutating, risk, tool.description
+                                );
                             }
                         }
                     }
@@ -942,7 +998,10 @@ fn write_response(json: &str) -> u64 {
         std::fs::write(project_dir.join("src").join("lib.rs"), lib_rs)?;
 
         println!("✅ Created plugin scaffold at {}", project_dir.display());
-        println!("   Build: cd {} && cargo build --target wasm32-unknown-unknown --release", project_dir.display());
+        println!(
+            "   Build: cd {} && cargo build --target wasm32-unknown-unknown --release",
+            project_dir.display()
+        );
         println!("   Then copy the .wasm file alongside plugin.toml");
 
         Ok(())
@@ -956,7 +1015,10 @@ fn write_response(json: &str) -> u64 {
         // Resolve skills_dir relative to config directory (e.g. ~/.claw/skills)
         let config_dir = config_path.parent().unwrap_or(Path::new("."));
         let skills_dir = if config.plugins.plugin_dir.is_absolute() {
-            config.plugins.plugin_dir.parent()
+            config
+                .plugins
+                .plugin_dir
+                .parent()
                 .unwrap_or(Path::new("."))
                 .join("skills")
         } else {
@@ -987,49 +1049,49 @@ fn write_response(json: &str) -> u64 {
                     }
                 }
             }
-            SkillAction::Show { name } => {
-                match registry.get(&name) {
-                    Some(skill) => {
-                        println!("\x1b[1m{}\x1b[0m v{}", skill.name, skill.version);
-                        println!("  {}", skill.description);
-                        if let Some(ref author) = skill.author {
-                            println!("  Author: {}", author);
-                        }
-                        if !skill.tags.is_empty() {
-                            println!("  Tags: {}", skill.tags.join(", "));
-                        }
-                        println!("  File: {}", skill.file_path.display());
+            SkillAction::Show { name } => match registry.get(&name) {
+                Some(skill) => {
+                    println!("\x1b[1m{}\x1b[0m v{}", skill.name, skill.version);
+                    println!("  {}", skill.description);
+                    if let Some(ref author) = skill.author {
+                        println!("  Author: {}", author);
+                    }
+                    if !skill.tags.is_empty() {
+                        println!("  Tags: {}", skill.tags.join(", "));
+                    }
+                    println!("  File: {}", skill.file_path.display());
 
-                        println!("\n  \x1b[1mInstructions:\x1b[0m");
-                        for line in skill.body.lines() {
-                            println!("    {}", line);
-                        }
-                    }
-                    None => {
-                        println!("Skill '{}' not found.", name);
+                    println!("\n  \x1b[1mInstructions:\x1b[0m");
+                    for line in skill.body.lines() {
+                        println!("    {}", line);
                     }
                 }
-            }
-            SkillAction::Run { name, param: _ } => {
-                match registry.get(&name) {
-                    Some(skill) => {
-                        println!("📖 Skill '{}' — SKILL.md instructions:\n", name);
-                        println!("{}", skill.body);
-                        println!("\n\x1b[33mNote:\x1b[0m Skills are now prompt-injected instructions.");
-                        println!("The LLM reads these instructions and uses built-in tools to execute them.");
-                        println!("Start the agent with 'claw start' and ask it to use this skill.");
-                    }
-                    None => {
-                        println!("Skill '{}' not found.", name);
-                    }
+                None => {
+                    println!("Skill '{}' not found.", name);
                 }
-            }
+            },
+            SkillAction::Run { name, param: _ } => match registry.get(&name) {
+                Some(skill) => {
+                    println!("📖 Skill '{}' — SKILL.md instructions:\n", name);
+                    println!("{}", skill.body);
+                    println!("\n\x1b[33mNote:\x1b[0m Skills are now prompt-injected instructions.");
+                    println!(
+                        "The LLM reads these instructions and uses built-in tools to execute them."
+                    );
+                    println!("Start the agent with 'claw start' and ask it to use this skill.");
+                }
+                None => {
+                    println!("Skill '{}' not found.", name);
+                }
+            },
             SkillAction::Create { name } => {
                 let skill_dir = skills_dir.join(&name);
                 if skill_dir.exists() {
-                    return Err(claw_core::ClawError::Agent(
-                        format!("Skill '{}' already exists at {}", name, skill_dir.display()),
-                    ));
+                    return Err(claw_core::ClawError::Agent(format!(
+                        "Skill '{}' already exists at {}",
+                        name,
+                        skill_dir.display()
+                    )));
                 }
 
                 std::fs::create_dir_all(&skill_dir)?;
@@ -1065,7 +1127,9 @@ Describe when this skill should be activated.
 
                 std::fs::write(&skill_path, template)?;
                 println!("✅ Created skill template at {}", skill_path.display());
-                println!("   Edit the SKILL.md, then start the agent — it will discover the skill automatically.");
+                println!(
+                    "   Edit the SKILL.md, then start the agent — it will discover the skill automatically."
+                );
             }
             SkillAction::Delete { name } => {
                 let skill_dir = skills_dir.join(&name);
@@ -1100,32 +1164,43 @@ Describe when this skill should be activated.
                 // Read the raw SKILL.md file
                 let skill_content = std::fs::read_to_string(&skill.file_path)?;
 
-                let client = reqwest::Client::builder().tcp_keepalive(None).build().unwrap_or_default();
+                let client = reqwest::Client::builder()
+                    .tcp_keepalive(None)
+                    .build()
+                    .unwrap_or_default();
                 let url = format!("{}/api/v1/hub/skills", hub_url);
 
-                let resp = client.post(&url)
+                let resp = client
+                    .post(&url)
                     .header("Content-Type", "application/json")
                     .json(&serde_json::json!({ "skill_content": skill_content }))
-                    .send().await.map_err(|e| {
-                    claw_core::ClawError::Agent(format!(
-                        "Cannot reach hub at {} — is it running? ({})", hub_url, e
-                    ))
-                })?;
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        claw_core::ClawError::Agent(format!(
+                            "Cannot reach hub at {} — is it running? ({})",
+                            hub_url, e
+                        ))
+                    })?;
 
                 if resp.status().is_success() {
-                    let data: serde_json::Value = resp.json().await.map_err(|e| {
-                        claw_core::ClawError::Agent(e.to_string())
-                    })?;
-                    println!("✅ Published '{}' v{} to Skills Hub at {}",
+                    let data: serde_json::Value = resp
+                        .json()
+                        .await
+                        .map_err(|e| claw_core::ClawError::Agent(e.to_string()))?;
+                    println!(
+                        "✅ Published '{}' v{} to Skills Hub at {}",
                         data["name"].as_str().unwrap_or(&name),
                         data["version"].as_str().unwrap_or("?"),
-                        hub_url);
+                        hub_url
+                    );
                 } else {
                     let status = resp.status();
                     let body = resp.text().await.unwrap_or_default();
-                    return Err(claw_core::ClawError::Agent(
-                        format!("Hub returned {}: {}", status, body),
-                    ));
+                    return Err(claw_core::ClawError::Agent(format!(
+                        "Hub returned {}: {}",
+                        status, body
+                    )));
                 }
             }
             SkillAction::Pull { name } => {
@@ -1136,26 +1211,32 @@ Describe when this skill should be activated.
                 })?;
                 let hub_url = hub_url.trim_end_matches('/');
 
-                let client = reqwest::Client::builder().tcp_keepalive(None).build().unwrap_or_default();
+                let client = reqwest::Client::builder()
+                    .tcp_keepalive(None)
+                    .build()
+                    .unwrap_or_default();
                 let url = format!("{}/api/v1/hub/skills/{}/pull", hub_url, name);
 
                 let resp = client.post(&url).send().await.map_err(|e| {
                     claw_core::ClawError::Agent(format!(
-                        "Cannot reach hub at {} — is it running? ({})", hub_url, e
+                        "Cannot reach hub at {} — is it running? ({})",
+                        hub_url, e
                     ))
                 })?;
 
                 if !resp.status().is_success() {
                     let status = resp.status();
                     let body = resp.text().await.unwrap_or_default();
-                    return Err(claw_core::ClawError::Agent(
-                        format!("Hub returned {}: {}", status, body),
-                    ));
+                    return Err(claw_core::ClawError::Agent(format!(
+                        "Hub returned {}: {}",
+                        status, body
+                    )));
                 }
 
-                let data: serde_json::Value = resp.json().await.map_err(|e| {
-                    claw_core::ClawError::Agent(e.to_string())
-                })?;
+                let data: serde_json::Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| claw_core::ClawError::Agent(e.to_string()))?;
 
                 let skill_content = data["skill_content"].as_str().unwrap_or("");
                 let version = data["version"].as_str().unwrap_or("?");
@@ -1166,7 +1247,13 @@ Describe when this skill should be activated.
                 std::fs::create_dir_all(&skill_dir)?;
                 let path = skill_dir.join("SKILL.md");
                 std::fs::write(&path, skill_content)?;
-                println!("✅ Pulled '{}' v{} from {} → {}", skill_name, version, hub_url, path.display());
+                println!(
+                    "✅ Pulled '{}' v{} from {} → {}",
+                    skill_name,
+                    version,
+                    hub_url,
+                    path.display()
+                );
             }
             SkillAction::Search { query, tag } => {
                 let hub_url = config.services.hub_url.as_deref().ok_or_else(|| {
@@ -1176,7 +1263,10 @@ Describe when this skill should be activated.
                 })?;
                 let hub_url = hub_url.trim_end_matches('/');
 
-                let client = reqwest::Client::builder().tcp_keepalive(None).build().unwrap_or_default();
+                let client = reqwest::Client::builder()
+                    .tcp_keepalive(None)
+                    .build()
+                    .unwrap_or_default();
                 let mut url = format!("{}/api/v1/hub/skills/search?q={}", hub_url, query);
                 if let Some(ref t) = tag {
                     url.push_str(&format!("&tag={}", t));
@@ -1184,31 +1274,40 @@ Describe when this skill should be activated.
 
                 let resp = client.get(&url).send().await.map_err(|e| {
                     claw_core::ClawError::Agent(format!(
-                        "Cannot reach hub at {} — is it running? ({})", hub_url, e
+                        "Cannot reach hub at {} — is it running? ({})",
+                        hub_url, e
                     ))
                 })?;
 
                 if !resp.status().is_success() {
                     let status = resp.status();
-                    return Err(claw_core::ClawError::Agent(
-                        format!("Hub returned {}", status),
-                    ));
+                    return Err(claw_core::ClawError::Agent(format!(
+                        "Hub returned {}",
+                        status
+                    )));
                 }
 
-                let data: serde_json::Value = resp.json().await.map_err(|e| {
-                    claw_core::ClawError::Agent(e.to_string())
-                })?;
+                let data: serde_json::Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| claw_core::ClawError::Agent(e.to_string()))?;
 
                 let skills = data["skills"].as_array();
                 match skills {
                     Some(skills) if !skills.is_empty() => {
-                        println!("🔍 Found {} skill(s) matching '{}' on {}:\n", skills.len(), query, hub_url);
+                        println!(
+                            "🔍 Found {} skill(s) matching '{}' on {}:\n",
+                            skills.len(),
+                            query,
+                            hub_url
+                        );
                         for s in skills {
                             let name = s["name"].as_str().unwrap_or("?");
                             let desc = s["description"].as_str().unwrap_or("");
                             let ver = s["version"].as_str().unwrap_or("?");
                             let dl = s["downloads"].as_u64().unwrap_or(0);
-                            let tags: Vec<&str> = s["tags"].as_array()
+                            let tags: Vec<&str> = s["tags"]
+                                .as_array()
                                 .map(|t| t.iter().filter_map(|v| v.as_str()).collect())
                                 .unwrap_or_default();
 
@@ -1265,17 +1364,23 @@ Describe when this skill should be activated.
 
                 println!("✅ Hub server started — press Ctrl+C to stop\n");
 
-                axum::serve(listener, router).await.map_err(|e| {
-                    claw_core::ClawError::Agent(format!("Hub server error: {}", e))
-                })?;
+                axum::serve(listener, router)
+                    .await
+                    .map_err(|e| claw_core::ClawError::Agent(format!("Hub server error: {}", e)))?;
             }
         }
         Ok(())
     }
 
-    async fn cmd_mesh(config: claw_config::ClawConfig, action: MeshAction) -> claw_core::Result<()> {
+    async fn cmd_mesh(
+        config: claw_config::ClawConfig,
+        action: MeshAction,
+    ) -> claw_core::Result<()> {
         let listen = &config.server.listen;
-        let client = reqwest::Client::builder().tcp_keepalive(None).build().unwrap_or_default();
+        let client = reqwest::Client::builder()
+            .tcp_keepalive(None)
+            .build()
+            .unwrap_or_default();
 
         let build_req = |url: &str| -> reqwest::RequestBuilder {
             let mut req = client.get(url);
@@ -1290,49 +1395,80 @@ Describe when this skill should be activated.
                 let url = format!("http://{}/api/v1/mesh/status", listen);
                 let resp = build_req(&url).send().await.map_err(|e| {
                     claw_core::ClawError::Agent(format!(
-                        "Cannot reach agent at {} — is it running? ({})", listen, e
+                        "Cannot reach agent at {} — is it running? ({})",
+                        listen, e
                     ))
                 })?;
 
                 if !resp.status().is_success() {
                     return Err(claw_core::ClawError::Agent(format!(
-                        "Server returned {}", resp.status()
+                        "Server returned {}",
+                        resp.status()
                     )));
                 }
 
-                let data: serde_json::Value = resp.json().await.map_err(|e| {
-                    claw_core::ClawError::Agent(e.to_string())
-                })?;
+                let data: serde_json::Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| claw_core::ClawError::Agent(e.to_string()))?;
 
                 println!("🕸️  Mesh Status\n");
-                println!("   Enabled:      {}", data["enabled"].as_bool().unwrap_or(false));
-                println!("   Running:      {}", data["running"].as_bool().unwrap_or(false));
-                println!("   Peer ID:      {}", data["peer_id"].as_str().unwrap_or("—"));
-                println!("   Peers:        {}", data["peer_count"].as_u64().unwrap_or(0));
-                println!("   Listen:       {}", data["listen"].as_str().unwrap_or("—"));
-                println!("   mDNS:         {}", data["mdns"].as_bool().unwrap_or(false));
+                println!(
+                    "   Enabled:      {}",
+                    data["enabled"].as_bool().unwrap_or(false)
+                );
+                println!(
+                    "   Running:      {}",
+                    data["running"].as_bool().unwrap_or(false)
+                );
+                println!(
+                    "   Peer ID:      {}",
+                    data["peer_id"].as_str().unwrap_or("—")
+                );
+                println!(
+                    "   Peers:        {}",
+                    data["peer_count"].as_u64().unwrap_or(0)
+                );
+                println!(
+                    "   Listen:       {}",
+                    data["listen"].as_str().unwrap_or("—")
+                );
+                println!(
+                    "   mDNS:         {}",
+                    data["mdns"].as_bool().unwrap_or(false)
+                );
                 if let Some(caps) = data["capabilities"].as_array() {
                     let cap_strs: Vec<&str> = caps.iter().filter_map(|c| c.as_str()).collect();
-                    println!("   Capabilities: {}", if cap_strs.is_empty() { "none".to_string() } else { cap_strs.join(", ") });
+                    println!(
+                        "   Capabilities: {}",
+                        if cap_strs.is_empty() {
+                            "none".to_string()
+                        } else {
+                            cap_strs.join(", ")
+                        }
+                    );
                 }
             }
             MeshAction::Peers => {
                 let url = format!("http://{}/api/v1/mesh/peers", listen);
                 let resp = build_req(&url).send().await.map_err(|e| {
                     claw_core::ClawError::Agent(format!(
-                        "Cannot reach agent at {} — is it running? ({})", listen, e
+                        "Cannot reach agent at {} — is it running? ({})",
+                        listen, e
                     ))
                 })?;
 
                 if !resp.status().is_success() {
                     return Err(claw_core::ClawError::Agent(format!(
-                        "Server returned {}", resp.status()
+                        "Server returned {}",
+                        resp.status()
                     )));
                 }
 
-                let data: serde_json::Value = resp.json().await.map_err(|e| {
-                    claw_core::ClawError::Agent(e.to_string())
-                })?;
+                let data: serde_json::Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| claw_core::ClawError::Agent(e.to_string()))?;
 
                 let peers = data["peers"].as_array();
                 let count = data["count"].as_u64().unwrap_or(0);
@@ -1357,7 +1493,14 @@ Describe when this skill should be activated.
                                 .unwrap_or_default();
                             println!("   📡 {}", id);
                             println!("      Host: {} ({})", host, os);
-                            println!("      Capabilities: {}", if caps.is_empty() { "none".to_string() } else { caps.join(", ") });
+                            println!(
+                                "      Capabilities: {}",
+                                if caps.is_empty() {
+                                    "none".to_string()
+                                } else {
+                                    caps.join(", ")
+                                }
+                            );
                             println!();
                         }
                     }
@@ -1377,7 +1520,8 @@ Describe when this skill should be activated.
 
                 let resp = req.send().await.map_err(|e| {
                     claw_core::ClawError::Agent(format!(
-                        "Cannot reach agent at {} — is it running? ({})", listen, e
+                        "Cannot reach agent at {} — is it running? ({})",
+                        listen, e
                     ))
                 })?;
 
@@ -1387,7 +1531,8 @@ Describe when this skill should be activated.
                     let status = resp.status();
                     let body = resp.text().await.unwrap_or_default();
                     return Err(claw_core::ClawError::Agent(format!(
-                        "Failed to send message: {} — {}", status, body
+                        "Failed to send message: {} — {}",
+                        status, body
                     )));
                 }
             }
@@ -1395,7 +1540,10 @@ Describe when this skill should be activated.
         Ok(())
     }
 
-    async fn cmd_channels(config: claw_config::ClawConfig, action: ChannelAction) -> claw_core::Result<()> {
+    async fn cmd_channels(
+        config: claw_config::ClawConfig,
+        action: ChannelAction,
+    ) -> claw_core::Result<()> {
         match action {
             ChannelAction::Status => {
                 println!("\x1b[1m📡 Channel Status\x1b[0m\n");
@@ -1407,10 +1555,19 @@ Describe when this skill should be activated.
 
                 // Check WhatsApp
                 let wa_linked = cred_dir.join("whatsapp").join("creds.json").exists();
-                let wa_configured = config.channels.iter().any(|(_, c)| c.channel_type == "whatsapp");
+                let wa_configured = config
+                    .channels
+                    .iter()
+                    .any(|(_, c)| c.channel_type == "whatsapp");
                 if wa_configured || wa_linked {
-                    let status = if wa_linked { "\x1b[32m● linked\x1b[0m" } else { "\x1b[31m○ not linked\x1b[0m" };
-                    let dm_policy = config.channels.iter()
+                    let status = if wa_linked {
+                        "\x1b[32m● linked\x1b[0m"
+                    } else {
+                        "\x1b[31m○ not linked\x1b[0m"
+                    };
+                    let dm_policy = config
+                        .channels
+                        .iter()
                         .find(|(_, c)| c.channel_type == "whatsapp")
                         .map(|(_, c)| c.dm_policy.as_str())
                         .unwrap_or("pairing");
@@ -1421,45 +1578,79 @@ Describe when this skill should be activated.
                 }
 
                 // Check Telegram
-                let tg_configured = config.channels.iter().any(|(_, c)| c.channel_type == "telegram");
+                let tg_configured = config
+                    .channels
+                    .iter()
+                    .any(|(_, c)| c.channel_type == "telegram");
                 if tg_configured {
-                    let has_token = config.channels.iter()
+                    let has_token = config
+                        .channels
+                        .iter()
                         .find(|(_, c)| c.channel_type == "telegram")
                         .and_then(|(_, c)| c.settings.get("token"))
                         .is_some();
-                    let status = if has_token { "\x1b[32m● configured\x1b[0m" } else { "\x1b[33m○ no token\x1b[0m" };
+                    let status = if has_token {
+                        "\x1b[32m● configured\x1b[0m"
+                    } else {
+                        "\x1b[33m○ no token\x1b[0m"
+                    };
                     println!("   🤖 Telegram:  {}", status);
                 }
 
                 // Check Discord
-                let dc_configured = config.channels.iter().any(|(_, c)| c.channel_type == "discord");
+                let dc_configured = config
+                    .channels
+                    .iter()
+                    .any(|(_, c)| c.channel_type == "discord");
                 if dc_configured {
-                    let has_token = config.channels.iter()
+                    let has_token = config
+                        .channels
+                        .iter()
                         .find(|(_, c)| c.channel_type == "discord")
                         .and_then(|(_, c)| c.settings.get("token"))
                         .is_some();
-                    let status = if has_token { "\x1b[32m● configured\x1b[0m" } else { "\x1b[33m○ no token\x1b[0m" };
+                    let status = if has_token {
+                        "\x1b[32m● configured\x1b[0m"
+                    } else {
+                        "\x1b[33m○ no token\x1b[0m"
+                    };
                     println!("   💬 Discord:   {}", status);
                 }
 
                 // Check Signal
-                let sig_configured = config.channels.iter().any(|(_, c)| c.channel_type == "signal");
+                let sig_configured = config
+                    .channels
+                    .iter()
+                    .any(|(_, c)| c.channel_type == "signal");
                 if sig_configured {
                     let cli_ok = claw_channels::signal::SignalChannel::is_signal_cli_available();
-                    let status = if cli_ok { "\x1b[32m● signal-cli found\x1b[0m" } else { "\x1b[31m○ signal-cli not found\x1b[0m" };
+                    let status = if cli_ok {
+                        "\x1b[32m● signal-cli found\x1b[0m"
+                    } else {
+                        "\x1b[31m○ signal-cli not found\x1b[0m"
+                    };
                     println!("   🔒 Signal:    {}", status);
                 }
 
                 // Check Slack
-                let sl_configured = config.channels.iter().any(|(_, c)| c.channel_type == "slack");
+                let sl_configured = config
+                    .channels
+                    .iter()
+                    .any(|(_, c)| c.channel_type == "slack");
                 if sl_configured {
                     println!("   📎 Slack:     \x1b[32m● configured\x1b[0m");
                 }
 
                 // WebChat is always available
-                let wc_configured = config.channels.iter().any(|(_, c)| c.channel_type == "webchat");
+                let wc_configured = config
+                    .channels
+                    .iter()
+                    .any(|(_, c)| c.channel_type == "webchat");
                 if wc_configured {
-                    println!("   🌐 WebChat:   \x1b[32m● enabled\x1b[0m (http://{})", config.server.listen);
+                    println!(
+                        "   🌐 WebChat:   \x1b[32m● enabled\x1b[0m (http://{})",
+                        config.server.listen
+                    );
                 }
 
                 let total = config.channels.len();
@@ -1472,7 +1663,11 @@ Describe when this skill should be activated.
 
                 println!();
             }
-            ChannelAction::Login { channel, account: _, force } => {
+            ChannelAction::Login {
+                channel,
+                account: _,
+                force,
+            } => {
                 match channel.to_lowercase().as_str() {
                     "whatsapp" | "wa" => {
                         println!("\x1b[1m📱 WhatsApp — Link Device\x1b[0m\n");
@@ -1548,7 +1743,9 @@ Describe when this skill should be activated.
                                 Err(_) => break,
                             };
                             let trimmed = line.trim();
-                            if trimmed.is_empty() { continue; }
+                            if trimmed.is_empty() {
+                                continue;
+                            }
 
                             let event: serde_json::Value = match serde_json::from_str(trimmed) {
                                 Ok(v) => v,
@@ -1561,16 +1758,28 @@ Describe when this skill should be activated.
                                     match qrcode::QrCode::new(qr_data.as_bytes()) {
                                         Ok(code) => {
                                             let width = code.width();
-                                            let colors: Vec<bool> = code.into_colors().into_iter()
-                                                .map(|c| c == qrcode::Color::Dark).collect();
+                                            let colors: Vec<bool> = code
+                                                .into_colors()
+                                                .into_iter()
+                                                .map(|c| c == qrcode::Color::Dark)
+                                                .collect();
                                             let quiet = 1i32;
                                             let at = |x: i32, y: i32| -> bool {
-                                                if x < 0 || y < 0 || x >= width as i32 || y >= width as i32 { false }
-                                                else { colors[(y as usize) * width + (x as usize)] }
+                                                if x < 0
+                                                    || y < 0
+                                                    || x >= width as i32
+                                                    || y >= width as i32
+                                                {
+                                                    false
+                                                } else {
+                                                    colors[(y as usize) * width + (x as usize)]
+                                                }
                                             };
                                             let total = width as i32 + quiet * 2;
 
-                                            println!("   \x1b[1m📱 Scan this QR code with WhatsApp:\x1b[0m\n");
+                                            println!(
+                                                "   \x1b[1m📱 Scan this QR code with WhatsApp:\x1b[0m\n"
+                                            );
                                             let mut y = -quiet;
                                             while y < total - quiet {
                                                 let mut row = String::from("   ");
@@ -1591,7 +1800,10 @@ Describe when this skill should be activated.
                                             println!("   \x1b[33m⏳ Waiting for scan...\x1b[0m");
                                         }
                                         Err(e) => {
-                                            eprintln!("   ⚠️  QR render failed: {}. Raw data: {}", e, qr_data);
+                                            eprintln!(
+                                                "   ⚠️  QR render failed: {}. Raw data: {}",
+                                                e, qr_data
+                                            );
                                         }
                                     }
                                 }
@@ -1650,9 +1862,10 @@ Describe when this skill should be activated.
                             let config_path = claw_config::ConfigLoader::resolve_path(None);
                             if config_path.exists() {
                                 let content = std::fs::read_to_string(&config_path)?;
-                                let mut doc = content.parse::<toml_edit::DocumentMut>().map_err(|e| {
-                                    claw_core::ClawError::Config(format!("Invalid TOML: {}", e))
-                                })?;
+                                let mut doc =
+                                    content.parse::<toml_edit::DocumentMut>().map_err(|e| {
+                                        claw_core::ClawError::Config(format!("Invalid TOML: {}", e))
+                                    })?;
 
                                 doc["channels"]["telegram"]["type"] = toml_edit::value("telegram");
                                 doc["channels"]["telegram"]["token"] = toml_edit::value(&token);
@@ -1681,9 +1894,10 @@ Describe when this skill should be activated.
                             let config_path = claw_config::ConfigLoader::resolve_path(None);
                             if config_path.exists() {
                                 let content = std::fs::read_to_string(&config_path)?;
-                                let mut doc = content.parse::<toml_edit::DocumentMut>().map_err(|e| {
-                                    claw_core::ClawError::Config(format!("Invalid TOML: {}", e))
-                                })?;
+                                let mut doc =
+                                    content.parse::<toml_edit::DocumentMut>().map_err(|e| {
+                                        claw_core::ClawError::Config(format!("Invalid TOML: {}", e))
+                                    })?;
 
                                 doc["channels"]["discord"]["type"] = toml_edit::value("discord");
                                 doc["channels"]["discord"]["token"] = toml_edit::value(&token);
@@ -1730,12 +1944,14 @@ Describe when this skill should be activated.
                             let config_path = claw_config::ConfigLoader::resolve_path(None);
                             if config_path.exists() {
                                 let content = std::fs::read_to_string(&config_path)?;
-                                let mut doc = content.parse::<toml_edit::DocumentMut>().map_err(|e| {
-                                    claw_core::ClawError::Config(format!("Invalid TOML: {}", e))
-                                })?;
+                                let mut doc =
+                                    content.parse::<toml_edit::DocumentMut>().map_err(|e| {
+                                        claw_core::ClawError::Config(format!("Invalid TOML: {}", e))
+                                    })?;
 
                                 doc["channels"]["slack"]["type"] = toml_edit::value("slack");
-                                doc["channels"]["slack"]["bot_token"] = toml_edit::value(&bot_token);
+                                doc["channels"]["slack"]["bot_token"] =
+                                    toml_edit::value(&bot_token);
 
                                 std::fs::write(&config_path, doc.to_string())?;
                                 println!("\n   ✅ Slack bot configured!");
@@ -1748,95 +1964,90 @@ Describe when this skill should be activated.
                     }
                 }
             }
-            ChannelAction::Logout { channel, account: _ } => {
-                match channel.to_lowercase().as_str() {
-                    "whatsapp" | "wa" => {
-                        let wa = claw_channels::whatsapp::WhatsAppChannel::new(
-                            "whatsapp".into(), None,
-                        );
-                        wa.logout()?;
-                        println!("✅ WhatsApp session cleared. Re-link with: claw channels login whatsapp");
-                    }
-                    other => {
-                        println!("Channel '{}' logout: removing config entry.", other);
-                        println!("Edit claw.toml to fully remove the channel configuration.");
+            ChannelAction::Logout {
+                channel,
+                account: _,
+            } => match channel.to_lowercase().as_str() {
+                "whatsapp" | "wa" => {
+                    let wa = claw_channels::whatsapp::WhatsAppChannel::new("whatsapp".into(), None);
+                    wa.logout()?;
+                    println!(
+                        "✅ WhatsApp session cleared. Re-link with: claw channels login whatsapp"
+                    );
+                }
+                other => {
+                    println!("Channel '{}' logout: removing config entry.", other);
+                    println!("Edit claw.toml to fully remove the channel configuration.");
+                }
+            },
+            ChannelAction::Pairing { channel } => match channel.to_lowercase().as_str() {
+                "whatsapp" | "wa" => {
+                    let wa = claw_channels::whatsapp::WhatsAppChannel::new("whatsapp".into(), None);
+                    let requests = wa.load_pairing_requests();
+                    if requests.is_empty() {
+                        println!("No pending WhatsApp pairing requests.");
+                    } else {
+                        println!("\x1b[1mPending WhatsApp Pairing Requests:\x1b[0m\n");
+                        for req in &requests {
+                            println!("   Code: \x1b[1m{}\x1b[0m", req.code);
+                            println!(
+                                "   From: {} {}",
+                                req.sender,
+                                req.sender_name.as_deref().unwrap_or("")
+                            );
+                            println!("   Time: {}", req.created_at);
+                            println!("   Expires: {}", req.expires_at);
+                            println!();
+                        }
+                        println!("   Approve: claw channels approve whatsapp <CODE>");
+                        println!("   Deny:    claw channels deny whatsapp <CODE>");
                     }
                 }
-            }
-            ChannelAction::Pairing { channel } => {
-                match channel.to_lowercase().as_str() {
-                    "whatsapp" | "wa" => {
-                        let wa = claw_channels::whatsapp::WhatsAppChannel::new(
-                            "whatsapp".into(), None,
-                        );
-                        let requests = wa.load_pairing_requests();
-                        if requests.is_empty() {
-                            println!("No pending WhatsApp pairing requests.");
-                        } else {
-                            println!("\x1b[1mPending WhatsApp Pairing Requests:\x1b[0m\n");
-                            for req in &requests {
-                                println!("   Code: \x1b[1m{}\x1b[0m", req.code);
-                                println!("   From: {} {}", req.sender,
-                                    req.sender_name.as_deref().unwrap_or(""));
-                                println!("   Time: {}", req.created_at);
-                                println!("   Expires: {}", req.expires_at);
-                                println!();
-                            }
-                            println!("   Approve: claw channels approve whatsapp <CODE>");
-                            println!("   Deny:    claw channels deny whatsapp <CODE>");
+                other => {
+                    println!("Pairing for '{}' — checking credential store...", other);
+                    let cred_dir = dirs::home_dir()
+                        .unwrap_or_else(|| PathBuf::from("."))
+                        .join(".claw")
+                        .join("credentials")
+                        .join(other);
+                    let pairing_file = cred_dir.join("pairing.json");
+                    if pairing_file.exists() {
+                        let data = std::fs::read_to_string(&pairing_file)?;
+                        println!("{}", data);
+                    } else {
+                        println!("No pending pairing requests for '{}'.", other);
+                    }
+                }
+            },
+            ChannelAction::Approve { channel, code } => match channel.to_lowercase().as_str() {
+                "whatsapp" | "wa" => {
+                    let wa = claw_channels::whatsapp::WhatsAppChannel::new("whatsapp".into(), None);
+                    match wa.approve_pairing(&code) {
+                        Ok(sender) => {
+                            println!("✅ Approved pairing for {} on WhatsApp", sender);
+                        }
+                        Err(e) => {
+                            eprintln!("❌ {}", e);
                         }
                     }
-                    other => {
-                        println!("Pairing for '{}' — checking credential store...", other);
-                        let cred_dir = dirs::home_dir()
-                            .unwrap_or_else(|| PathBuf::from("."))
-                            .join(".claw")
-                            .join("credentials")
-                            .join(other);
-                        let pairing_file = cred_dir.join("pairing.json");
-                        if pairing_file.exists() {
-                            let data = std::fs::read_to_string(&pairing_file)?;
-                            println!("{}", data);
-                        } else {
-                            println!("No pending pairing requests for '{}'.", other);
-                        }
-                    }
                 }
-            }
-            ChannelAction::Approve { channel, code } => {
-                match channel.to_lowercase().as_str() {
-                    "whatsapp" | "wa" => {
-                        let wa = claw_channels::whatsapp::WhatsAppChannel::new(
-                            "whatsapp".into(), None,
-                        );
-                        match wa.approve_pairing(&code) {
-                            Ok(sender) => {
-                                println!("✅ Approved pairing for {} on WhatsApp", sender);
-                            }
-                            Err(e) => {
-                                eprintln!("❌ {}", e);
-                            }
-                        }
-                    }
-                    other => {
-                        println!("Pairing approval for '{}' with code '{}' — not yet implemented.", other, code);
-                    }
+                other => {
+                    println!(
+                        "Pairing approval for '{}' with code '{}' — not yet implemented.",
+                        other, code
+                    );
                 }
-            }
-            ChannelAction::Deny { channel, code } => {
-                match channel.to_lowercase().as_str() {
-                    "whatsapp" | "wa" => {
-                        let wa = claw_channels::whatsapp::WhatsAppChannel::new(
-                            "whatsapp".into(), None,
-                        );
-                        wa.deny_pairing(&code)?;
-                        println!("❌ Denied pairing code {}", code);
-                    }
-                    _ => {
-                        println!("Denied pairing code {} for {}", code, channel);
-                    }
+            },
+            ChannelAction::Deny { channel, code } => match channel.to_lowercase().as_str() {
+                "whatsapp" | "wa" => {
+                    let wa = claw_channels::whatsapp::WhatsAppChannel::new("whatsapp".into(), None);
+                    wa.deny_pairing(&code)?;
+                    println!("❌ Denied pairing code {}", code);
                 }
-            }
+                _ => {
+                    println!("Denied pairing code {} for {}", code, channel);
+                }
+            },
         }
         Ok(())
     }
@@ -1848,7 +2059,10 @@ Describe when this skill should be activated.
         json: bool,
     ) -> claw_core::Result<()> {
         let listen = &config.server.listen;
-        let client = reqwest::Client::builder().tcp_keepalive(None).build().unwrap_or_default();
+        let client = reqwest::Client::builder()
+            .tcp_keepalive(None)
+            .build()
+            .unwrap_or_default();
         let url = format!("http://{}/api/v1/audit?limit={}", listen, limit);
 
         let mut req = client.get(&url);
@@ -1870,9 +2084,10 @@ Describe when this skill should be activated.
             )));
         }
 
-        let data: serde_json::Value = resp.json().await.map_err(|e| {
-            claw_core::ClawError::Agent(e.to_string())
-        })?;
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| claw_core::ClawError::Agent(e.to_string()))?;
 
         if json {
             println!("{}", serde_json::to_string_pretty(&data).unwrap());
@@ -1890,16 +2105,27 @@ Describe when this skill should be activated.
 
         // Filter by event_type if provided
         let filtered: Vec<&serde_json::Value> = if let Some(ref et) = event_type {
-            entries.iter().filter(|e| {
-                e["event_type"].as_str().map(|t| t.contains(et.as_str())).unwrap_or(false)
-            }).collect()
+            entries
+                .iter()
+                .filter(|e| {
+                    e["event_type"]
+                        .as_str()
+                        .map(|t| t.contains(et.as_str()))
+                        .unwrap_or(false)
+                })
+                .collect()
         } else {
             entries.iter().collect()
         };
 
         if filtered.is_empty() {
-            println!("No audit log entries{}",
-                event_type.as_ref().map(|t| format!(" matching '{}'", t)).unwrap_or_default());
+            println!(
+                "No audit log entries{}",
+                event_type
+                    .as_ref()
+                    .map(|t| format!(" matching '{}'", t))
+                    .unwrap_or_default()
+            );
             return Ok(());
         }
 
@@ -1915,13 +2141,16 @@ Describe when this skill should be activated.
             // Color-code by event type
             let color = match etype {
                 t if t.contains("denied") || t.contains("injection") => "\x1b[31m", // red
-                t if t.contains("approval") => "\x1b[33m",   // yellow
-                t if t.contains("tool") => "\x1b[36m",       // cyan
-                t if t.contains("budget") => "\x1b[35m",     // magenta
-                _ => "\x1b[37m",                              // default
+                t if t.contains("approval") => "\x1b[33m",                          // yellow
+                t if t.contains("tool") => "\x1b[36m",                              // cyan
+                t if t.contains("budget") => "\x1b[35m",                            // magenta
+                _ => "\x1b[37m",                                                    // default
             };
 
-            println!("\x1b[90m{}\x1b[0m  {}{}\x1b[0m  {}", ts, color, etype, action);
+            println!(
+                "\x1b[90m{}\x1b[0m  {}{}\x1b[0m  {}",
+                ts, color, etype, action
+            );
             if !details.is_empty() {
                 println!("   \x1b[90m{}\x1b[0m", truncate_output(details, 120));
             }
@@ -2024,7 +2253,9 @@ Describe when this skill should be activated.
 
         // Check denylist
         if config.autonomy.tool_denylist.is_empty() {
-            println!("  💡 autonomy.tool_denylist: no tools on denylist — consider blocking dangerous tools");
+            println!(
+                "  💡 autonomy.tool_denylist: no tools on denylist — consider blocking dangerous tools"
+            );
             info_count += 1;
         } else {
             extra_ok += 1;
@@ -2036,7 +2267,12 @@ Describe when this skill should be activated.
         }
 
         println!();
-        let ok_total = extra_ok + (if warnings.is_empty() { 5 } else { 5 - warn_count - info_count });
+        let ok_total = extra_ok
+            + (if warnings.is_empty() {
+                5
+            } else {
+                5 - warn_count - info_count
+            });
         println!(
             "  ✅ {} checks passed, ⚠️  {} warnings, 💡 {} suggestions",
             ok_total, warn_count, info_count
@@ -2166,16 +2402,24 @@ level = "info"
                 0 => {
                     // If no --section given, ask which section to edit
                     if section.is_none() {
-                        let sections = &["model", "channels", "autonomy", "services", "mesh", "server"];
+                        let sections = &[
+                            "model", "channels", "autonomy", "services", "mesh", "server",
+                        ];
                         let idx = Select::with_theme(&theme)
                             .with_prompt("Which section to configure?")
                             .items(sections)
                             .default(1) // default to channels
                             .interact()
                             .unwrap_or(1);
-                        println!("\n   Tip: You can also run: claw setup --section {}", sections[idx]);
+                        println!(
+                            "\n   Tip: You can also run: claw setup --section {}",
+                            sections[idx]
+                        );
                         // TODO: edit individual section in existing config
-                        println!("   Section editing for '{}' coming soon. For now use: claw config set KEY VALUE", sections[idx]);
+                        println!(
+                            "   Section editing for '{}' coming soon. For now use: claw config set KEY VALUE",
+                            sections[idx]
+                        );
                         return Ok(());
                     }
                 }
@@ -2236,7 +2480,11 @@ level = "info"
             println!("\n\x1b[1m📡 Step 1/6 — LLM Provider\x1b[0m");
             println!("   Choose which AI model powers your agent.\n");
 
-            let providers = &["Anthropic (Claude) — recommended", "OpenAI (GPT-4o, o3, etc.)", "Ollama (local, free, private)"];
+            let providers = &[
+                "Anthropic (Claude) — recommended",
+                "OpenAI (GPT-4o, o3, etc.)",
+                "Ollama (local, free, private)",
+            ];
             let provider_idx = Select::with_theme(&theme)
                 .with_prompt("Which LLM provider?")
                 .items(providers)
@@ -2245,10 +2493,20 @@ level = "info"
                 .unwrap_or(0);
 
             let info = match provider_idx {
-                0 => ("anthropic", "anthropic/claude-sonnet-4-20250514", "ANTHROPIC_API_KEY", "sk-ant-..."),
+                0 => (
+                    "anthropic",
+                    "anthropic/claude-sonnet-4-20250514",
+                    "ANTHROPIC_API_KEY",
+                    "sk-ant-...",
+                ),
                 1 => ("openai", "openai/gpt-4o", "OPENAI_API_KEY", "sk-..."),
                 2 => ("ollama", "ollama/llama3", "", ""),
-                _ => ("anthropic", "anthropic/claude-sonnet-4-20250514", "ANTHROPIC_API_KEY", "sk-ant-..."),
+                _ => (
+                    "anthropic",
+                    "anthropic/claude-sonnet-4-20250514",
+                    "ANTHROPIC_API_KEY",
+                    "sk-ant-...",
+                ),
             };
             provider_prefix = info.0;
             env_var_name = info.2;
@@ -2272,7 +2530,10 @@ level = "info"
                         println!("   Get one at: https://platform.openai.com/api-keys");
                     }
                     let key: String = Input::with_theme(&theme)
-                        .with_prompt(format!("{} API key (or press Enter to skip)", provider_prefix))
+                        .with_prompt(format!(
+                            "{} API key (or press Enter to skip)",
+                            provider_prefix
+                        ))
                         .allow_empty(true)
                         .interact_text()
                         .unwrap_or_default();
@@ -2280,7 +2541,10 @@ level = "info"
                         api_key_value = key;
                         println!("   ✅ API key saved to config");
                     } else {
-                        println!("   ⚠️  Skipped — set later: claw config set {}_api_key YOUR_KEY", provider_prefix);
+                        println!(
+                            "   ⚠️  Skipped — set later: claw config set {}_api_key YOUR_KEY",
+                            provider_prefix
+                        );
                     }
                 }
             }
@@ -2300,7 +2564,9 @@ level = "info"
                 "Signal    — connect via signal-cli (privacy-focused)",
                 "Web Chat  — built-in browser UI (always recommended)",
             ];
-            let channel_types = &["whatsapp", "telegram", "discord", "slack", "signal", "webchat"];
+            let channel_types = &[
+                "whatsapp", "telegram", "discord", "slack", "signal", "webchat",
+            ];
 
             let defaults = vec![false, false, false, false, false, true]; // webchat on by default
             let selected = MultiSelect::with_theme(&theme)
@@ -2345,10 +2611,13 @@ level = "info"
                             0 => "pairing".into(),
                             1 => {
                                 let nums: String = Input::with_theme(&theme)
-                                    .with_prompt("Allowed phone numbers (comma-separated, e.g. +1234567890)")
+                                    .with_prompt(
+                                        "Allowed phone numbers (comma-separated, e.g. +1234567890)",
+                                    )
                                     .interact_text()
                                     .unwrap_or_default();
-                                setup.allow_from = nums.split(',')
+                                setup.allow_from = nums
+                                    .split(',')
                                     .map(|s| s.trim().to_string())
                                     .filter(|s| !s.is_empty())
                                     .collect();
@@ -2410,7 +2679,9 @@ level = "info"
                     "slack" => {
                         println!("\n   \x1b[1m💼 Slack Setup\x1b[0m");
                         println!("   1. Go to https://api.slack.com/apps → Create New App");
-                        println!("   2. Add Bot Token Scopes: chat:write, channels:history, im:history");
+                        println!(
+                            "   2. Add Bot Token Scopes: chat:write, channels:history, im:history"
+                        );
                         println!("   3. Install to workspace and copy the Bot User OAuth Token\n");
 
                         setup.token = Input::with_theme(&theme)
@@ -2434,7 +2705,9 @@ level = "info"
                         if claw_channels::signal::SignalChannel::is_signal_cli_available() {
                             println!("   ✅ signal-cli found!");
                         } else {
-                            println!("   ⚠️  signal-cli not found. Install it before using Signal.");
+                            println!(
+                                "   ⚠️  signal-cli not found. Install it before using Signal."
+                            );
                         }
 
                         let phone: String = Input::with_theme(&theme)
@@ -2445,7 +2718,9 @@ level = "info"
 
                         if !phone.is_empty() {
                             setup.token = phone;
-                            println!("   📌 You'll need to verify this number with signal-cli register/verify.");
+                            println!(
+                                "   📌 You'll need to verify this number with signal-cli register/verify."
+                            );
                         } else {
                             println!("   ⚠️  Skipped — set up later: claw channels login signal");
                             setup.enabled = false;
@@ -2453,7 +2728,9 @@ level = "info"
                     }
                     "webchat" => {
                         println!("\n   \x1b[1m🌐 Web Chat\x1b[0m");
-                        println!("   The built-in web UI will be available when you run 'claw start'.");
+                        println!(
+                            "   The built-in web UI will be available when you run 'claw start'."
+                        );
                         println!("   Access it at http://localhost:3700 in your browser.\n");
                     }
                     _ => {}
@@ -2463,7 +2740,9 @@ level = "info"
             }
 
             if selected.is_empty() {
-                println!("\n   No channels selected. You can add them later: claw channels login <channel>");
+                println!(
+                    "\n   No channels selected. You can add them later: claw channels login <channel>"
+                );
                 // Add webchat by default
                 channels.push(ChannelSetup {
                     name: "webchat".into(),
@@ -2508,7 +2787,9 @@ level = "info"
             println!("   Optional API keys for extra capabilities.\n");
 
             let brave_enabled = Confirm::with_theme(&theme)
-                .with_prompt("Enable web search? (Brave Search — free at https://api.search.brave.com/)")
+                .with_prompt(
+                    "Enable web search? (Brave Search — free at https://api.search.brave.com/)",
+                )
                 .default(false)
                 .interact()
                 .unwrap_or(false);
@@ -2540,7 +2821,8 @@ level = "info"
                     .default("shell,browser".into())
                     .interact_text()
                     .unwrap_or_else(|_| "shell,browser".into());
-                mesh_capabilities = caps.split(',')
+                mesh_capabilities = caps
+                    .split(',')
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
                     .collect();
@@ -2604,7 +2886,9 @@ level = "info"
             if !api_key_value.is_empty() {
                 config.push_str(&format!("anthropic_api_key = \"{}\"\n", api_key_value));
             } else {
-                config.push_str("# anthropic_api_key = \"sk-ant-...\"   # or env: ANTHROPIC_API_KEY\n");
+                config.push_str(
+                    "# anthropic_api_key = \"sk-ant-...\"   # or env: ANTHROPIC_API_KEY\n",
+                );
             }
             config.push_str("# openai_api_key = \"sk-...\"          # or env: OPENAI_API_KEY\n");
         } else if provider_prefix == "openai" {
@@ -2612,7 +2896,8 @@ level = "info"
             if !api_key_value.is_empty() {
                 config.push_str(&format!("openai_api_key = \"{}\"\n", api_key_value));
             } else {
-                config.push_str("# openai_api_key = \"sk-...\"          # or env: OPENAI_API_KEY\n");
+                config
+                    .push_str("# openai_api_key = \"sk-...\"          # or env: OPENAI_API_KEY\n");
             }
         } else {
             config.push_str("# anthropic_api_key = \"sk-ant-...\"   # or env: ANTHROPIC_API_KEY\n");
@@ -2621,9 +2906,13 @@ level = "info"
         if !brave_key.is_empty() {
             config.push_str(&format!("brave_api_key = \"{}\"\n", brave_key));
         } else {
-            config.push_str("# brave_api_key = \"\"    # Get one free: https://api.search.brave.com/\n");
+            config.push_str(
+                "# brave_api_key = \"\"    # Get one free: https://api.search.brave.com/\n",
+            );
         }
-        config.push_str("# hub_url = \"\"          # Skills Hub URL — run 'claw hub serve' to host one\n");
+        config.push_str(
+            "# hub_url = \"\"          # Skills Hub URL — run 'claw hub serve' to host one\n",
+        );
         config.push('\n');
 
         // ── Channels section ─────────────────────────────────
@@ -2635,7 +2924,10 @@ level = "info"
 
         for ch in &channels {
             if !ch.enabled && ch.token.is_empty() {
-                config.push_str(&format!("# [channels.{}]    # run: claw channels login {}\n", ch.name, ch.name));
+                config.push_str(&format!(
+                    "# [channels.{}]    # run: claw channels login {}\n",
+                    ch.name, ch.name
+                ));
                 config.push_str(&format!("# type = \"{}\"\n\n", ch.channel_type));
                 continue;
             }
@@ -2650,7 +2942,8 @@ level = "info"
             if ch.channel_type == "whatsapp" || ch.channel_type == "signal" {
                 config.push_str(&format!("dm_policy = \"{}\"\n", ch.dm_policy));
                 if !ch.allow_from.is_empty() {
-                    let nums: Vec<String> = ch.allow_from.iter().map(|n| format!("\"{}\"", n)).collect();
+                    let nums: Vec<String> =
+                        ch.allow_from.iter().map(|n| format!("\"{}\"", n)).collect();
                     config.push_str(&format!("allow_from = [{}]\n", nums.join(", ")));
                 }
             }
@@ -2664,7 +2957,10 @@ level = "info"
         config.push_str(&format!("enabled = {}\n", mesh_enabled));
         config.push_str(&format!("listen = \"{}\"\n", mesh_listen));
         config.push_str("mdns = true\n");
-        let caps_toml: Vec<String> = mesh_capabilities.iter().map(|c| format!("\"{}\"", c)).collect();
+        let caps_toml: Vec<String> = mesh_capabilities
+            .iter()
+            .map(|c| format!("\"{}\"", c))
+            .collect();
         config.push_str(&format!("capabilities = [{}]\n", caps_toml.join(", ")));
         config.push_str("# bootstrap_peers = [\"/ip4/192.168.1.100/tcp/4001/p2p/PEER_ID\"]\n");
         config.push_str("# psk = \"shared-secret-for-mesh-encryption\"\n\n");
@@ -2682,14 +2978,29 @@ level = "info"
 
         // Copy bundled skills if they don't exist (SKILL.md format)
         let bundled_skills: &[(&str, &str)] = &[
-            ("plesk-server", include_str!("../../../skills/plesk-server/SKILL.md")),
+            (
+                "plesk-server",
+                include_str!("../../../skills/plesk-server/SKILL.md"),
+            ),
             ("github", include_str!("../../../skills/github/SKILL.md")),
             ("docker", include_str!("../../../skills/docker/SKILL.md")),
-            ("server-management", include_str!("../../../skills/server-management/SKILL.md")),
+            (
+                "server-management",
+                include_str!("../../../skills/server-management/SKILL.md"),
+            ),
             ("coding", include_str!("../../../skills/coding/SKILL.md")),
-            ("web-research", include_str!("../../../skills/web-research/SKILL.md")),
-            ("system-admin", include_str!("../../../skills/system-admin/SKILL.md")),
-            ("1password", include_str!("../../../skills/1password/SKILL.md")),
+            (
+                "web-research",
+                include_str!("../../../skills/web-research/SKILL.md"),
+            ),
+            (
+                "system-admin",
+                include_str!("../../../skills/system-admin/SKILL.md"),
+            ),
+            (
+                "1password",
+                include_str!("../../../skills/1password/SKILL.md"),
+            ),
         ];
         for (name, content) in bundled_skills {
             let skill_dir = skills_dir.join(name);
@@ -2760,9 +3071,14 @@ level = "info"
                         use std::io::BufRead;
 
                         for line in reader.lines() {
-                            let line = match line { Ok(l) => l, Err(_) => break };
+                            let line = match line {
+                                Ok(l) => l,
+                                Err(_) => break,
+                            };
                             let trimmed = line.trim();
-                            if trimmed.is_empty() { continue; }
+                            if trimmed.is_empty() {
+                                continue;
+                            }
 
                             let event: serde_json::Value = match serde_json::from_str(trimmed) {
                                 Ok(v) => v,
@@ -2774,16 +3090,28 @@ level = "info"
                                     let qr_data = event["data"].as_str().unwrap_or("");
                                     if let Ok(code) = qrcode::QrCode::new(qr_data.as_bytes()) {
                                         let width = code.width();
-                                        let colors: Vec<bool> = code.into_colors().into_iter()
-                                            .map(|c| c == qrcode::Color::Dark).collect();
+                                        let colors: Vec<bool> = code
+                                            .into_colors()
+                                            .into_iter()
+                                            .map(|c| c == qrcode::Color::Dark)
+                                            .collect();
                                         let quiet = 1i32;
                                         let at = |x: i32, y: i32| -> bool {
-                                            if x < 0 || y < 0 || x >= width as i32 || y >= width as i32 { false }
-                                            else { colors[(y as usize) * width + (x as usize)] }
+                                            if x < 0
+                                                || y < 0
+                                                || x >= width as i32
+                                                || y >= width as i32
+                                            {
+                                                false
+                                            } else {
+                                                colors[(y as usize) * width + (x as usize)]
+                                            }
                                         };
                                         let total = width as i32 + quiet * 2;
 
-                                        println!("   \x1b[1m📱 Scan this QR code with WhatsApp:\x1b[0m\n");
+                                        println!(
+                                            "   \x1b[1m📱 Scan this QR code with WhatsApp:\x1b[0m\n"
+                                        );
                                         let mut y = -quiet;
                                         while y < total - quiet {
                                             let mut row = String::from("   ");
@@ -2806,7 +3134,10 @@ level = "info"
                                 }
                                 "connected" => {
                                     let phone = event["phone"].as_str().unwrap_or("unknown");
-                                    println!("\n   \x1b[32m✅ WhatsApp linked! Phone: {}\x1b[0m\n", phone);
+                                    println!(
+                                        "\n   \x1b[32m✅ WhatsApp linked! Phone: {}\x1b[0m\n",
+                                        phone
+                                    );
                                     break;
                                 }
                                 "error" => {
@@ -2838,7 +3169,8 @@ level = "info"
         println!("   │  Model:    {:<35}│", model);
         println!("   │  Autonomy: L{:<34}│", autonomy);
 
-        let enabled_channels: Vec<&str> = channels.iter()
+        let enabled_channels: Vec<&str> = channels
+            .iter()
             .filter(|c| c.enabled)
             .map(|c| c.name.as_str())
             .collect();
@@ -2850,15 +3182,19 @@ level = "info"
         }
 
         // WhatsApp needs QR linking
-        let has_whatsapp = channels.iter().any(|c| c.channel_type == "whatsapp" && c.enabled);
+        let has_whatsapp = channels
+            .iter()
+            .any(|c| c.channel_type == "whatsapp" && c.enabled);
 
         if !brave_key.is_empty() {
             println!("   │  Search:   Brave Search ✅                    │");
         }
         if mesh_enabled {
-            println!("   │  Mesh:     enabled ({}){}│",
+            println!(
+                "   │  Mesh:     enabled ({}){}│",
                 mesh_capabilities.join(", "),
-                " ".repeat(26_usize.saturating_sub(mesh_capabilities.join(", ").len())));
+                " ".repeat(26_usize.saturating_sub(mesh_capabilities.join(", ").len()))
+            );
         }
         println!("   └──────────────────────────────────────────────┘");
 
@@ -2878,7 +3214,8 @@ level = "info"
             step += 1;
         }
 
-        let pending_channels: Vec<&str> = channels.iter()
+        let pending_channels: Vec<&str> = channels
+            .iter()
             .filter(|c| !c.enabled && c.channel_type != "whatsapp")
             .map(|c| c.name.as_str())
             .collect();

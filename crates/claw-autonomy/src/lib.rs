@@ -4,14 +4,14 @@
 //! budget tracking, risk assessment, human-in-the-loop approval flows,
 //! and a goal planning engine.
 
-pub mod level;
-pub mod guardrail;
-pub mod budget;
-pub mod planner;
 pub mod approval;
+pub mod budget;
+pub mod guardrail;
+pub mod level;
+pub mod planner;
 
-pub use level::AutonomyLevel;
-pub use guardrail::{Guardrail, GuardrailEngine, GuardrailVerdict};
+pub use approval::{ApprovalGate, ApprovalRequest, ApprovalResponse};
 pub use budget::BudgetTracker;
+pub use guardrail::{Guardrail, GuardrailEngine, GuardrailVerdict};
+pub use level::AutonomyLevel;
 pub use planner::{Goal, GoalPlanner, GoalStatus, Step};
-pub use approval::{ApprovalRequest, ApprovalResponse, ApprovalGate};

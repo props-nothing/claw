@@ -2,8 +2,8 @@
 //!
 //! Tracks request counts, latencies, token usage, and cost.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 /// Global metrics registry.
@@ -73,7 +73,9 @@ impl Metrics {
     }
 
     pub fn inc_http_requests(&self) {
-        self.inner.http_requests_total.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .http_requests_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn inc_http_errors(&self) {
@@ -81,11 +83,15 @@ impl Metrics {
     }
 
     pub fn inc_chat_messages(&self) {
-        self.inner.chat_messages_total.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .chat_messages_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn inc_chat_stream_messages(&self) {
-        self.inner.chat_stream_messages_total.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .chat_stream_messages_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn inc_llm_calls(&self) {
@@ -93,13 +99,19 @@ impl Metrics {
     }
 
     pub fn add_llm_tokens(&self, input: u32, output: u32) {
-        self.inner.llm_input_tokens_total.fetch_add(input as u64, Ordering::Relaxed);
-        self.inner.llm_output_tokens_total.fetch_add(output as u64, Ordering::Relaxed);
+        self.inner
+            .llm_input_tokens_total
+            .fetch_add(input as u64, Ordering::Relaxed);
+        self.inner
+            .llm_output_tokens_total
+            .fetch_add(output as u64, Ordering::Relaxed);
     }
 
     pub fn add_cost_usd(&self, cost: f64) {
         let microdollars = (cost * 1_000_000.0) as u64;
-        self.inner.cost_microdollars_total.fetch_add(microdollars, Ordering::Relaxed);
+        self.inner
+            .cost_microdollars_total
+            .fetch_add(microdollars, Ordering::Relaxed);
     }
 
     pub fn inc_tool_calls(&self) {
@@ -111,23 +123,33 @@ impl Metrics {
     }
 
     pub fn inc_approvals_requested(&self) {
-        self.inner.approvals_requested_total.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .approvals_requested_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn inc_approvals_approved(&self) {
-        self.inner.approvals_approved_total.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .approvals_approved_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn inc_approvals_denied(&self) {
-        self.inner.approvals_denied_total.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .approvals_denied_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn inc_injection_detections(&self) {
-        self.inner.injection_detections_total.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .injection_detections_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn inc_rate_limit_rejections(&self) {
-        self.inner.rate_limit_rejections_total.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .rate_limit_rejections_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Render metrics in Prometheus text exposition format.

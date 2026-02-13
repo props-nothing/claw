@@ -23,7 +23,7 @@
 use claw_core::ClawError;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tracing::info;
 
@@ -96,39 +96,52 @@ impl CdpClient {
     /// List all open tabs.
     async fn list_tabs(&self) -> claw_core::Result<Vec<TabInfo>> {
         let url = format!("{}/json/list", self.base_url);
-        let resp: Vec<Value> = self.http.get(&url).send().await
+        let resp: Vec<Value> = self
+            .http
+            .get(&url)
+            .send()
+            .await
             .map_err(|e| ClawError::ToolExecution {
                 tool: "browser".into(),
                 reason: format!("CDP list tabs failed: {e}"),
             })?
-            .json().await
+            .json()
+            .await
             .map_err(|e| ClawError::ToolExecution {
                 tool: "browser".into(),
                 reason: format!("CDP parse tabs failed: {e}"),
             })?;
 
-        Ok(resp.iter().filter_map(|t| {
-            if t["type"].as_str() == Some("page") {
-                Some(TabInfo {
-                    id: t["id"].as_str().unwrap_or("").to_string(),
-                    url: t["url"].as_str().unwrap_or("").to_string(),
-                    title: t["title"].as_str().unwrap_or("").to_string(),
-                })
-            } else {
-                None
-            }
-        }).collect())
+        Ok(resp
+            .iter()
+            .filter_map(|t| {
+                if t["type"].as_str() == Some("page") {
+                    Some(TabInfo {
+                        id: t["id"].as_str().unwrap_or("").to_string(),
+                        url: t["url"].as_str().unwrap_or("").to_string(),
+                        title: t["title"].as_str().unwrap_or("").to_string(),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect())
     }
 
     /// Open a new tab and return its info.
     async fn new_tab(&self, url: &str) -> claw_core::Result<TabInfo> {
         let api_url = format!("{}/json/new?{}", self.base_url, url);
-        let resp: Value = self.http.get(&api_url).send().await
+        let resp: Value = self
+            .http
+            .get(&api_url)
+            .send()
+            .await
             .map_err(|e| ClawError::ToolExecution {
                 tool: "browser".into(),
                 reason: format!("CDP new tab failed: {e}"),
             })?
-            .json().await
+            .json()
+            .await
             .map_err(|e| ClawError::ToolExecution {
                 tool: "browser".into(),
                 reason: format!("CDP parse new tab failed: {e}"),
@@ -144,7 +157,10 @@ impl CdpClient {
     /// Close a tab by its ID.
     async fn close_tab(&self, tab_id: &str) -> claw_core::Result<()> {
         let url = format!("{}/json/close/{}", self.base_url, tab_id);
-        self.http.get(&url).send().await
+        self.http
+            .get(&url)
+            .send()
+            .await
             .map_err(|e| ClawError::ToolExecution {
                 tool: "browser".into(),
                 reason: format!("CDP close tab failed: {e}"),
@@ -181,12 +197,17 @@ impl CdpClient {
     /// Get the WebSocket debugger URL for a tab.
     async fn get_ws_url(&self, tab_id: &str) -> claw_core::Result<String> {
         let url = format!("{}/json/list", self.base_url);
-        let tabs: Vec<Value> = self.http.get(&url).send().await
+        let tabs: Vec<Value> = self
+            .http
+            .get(&url)
+            .send()
+            .await
             .map_err(|e| ClawError::ToolExecution {
                 tool: "browser".into(),
                 reason: format!("CDP get WS URL failed: {e}"),
             })?
-            .json().await
+            .json()
+            .await
             .map_err(|e| ClawError::ToolExecution {
                 tool: "browser".into(),
                 reason: format!("CDP parse WS URL failed: {e}"),
@@ -212,14 +233,16 @@ impl CdpClient {
         let expected_id = message["id"].as_i64().unwrap_or(1);
 
         // Connect to the Chrome DevTools WebSocket
-        let (mut ws, _) = connect_async(ws_url).await
+        let (mut ws, _) = connect_async(ws_url)
+            .await
             .map_err(|e| ClawError::ToolExecution {
                 tool: "browser".into(),
                 reason: format!("WebSocket connect failed: {e}"),
             })?;
 
         // Send the CDP command
-        ws.send(Message::Text(msg_str.into())).await
+        ws.send(Message::Text(msg_str.into()))
+            .await
             .map_err(|e| ClawError::ToolExecution {
                 tool: "browser".into(),
                 reason: format!("WebSocket send failed: {e}"),
@@ -227,34 +250,32 @@ impl CdpClient {
 
         // Read responses until we get one matching our command ID.
         // Chrome may send event notifications before our response.
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            async {
-                while let Some(msg) = ws.next().await {
-                    match msg {
-                        Ok(Message::Text(text)) => {
-                            if let Ok(resp) = serde_json::from_str::<Value>(&text) {
-                                if resp.get("id").and_then(|v| v.as_i64()) == Some(expected_id) {
-                                    return Ok(resp);
-                                }
-                                // else: this is an event notification, skip it
+        let result = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while let Some(msg) = ws.next().await {
+                match msg {
+                    Ok(Message::Text(text)) => {
+                        if let Ok(resp) = serde_json::from_str::<Value>(&text) {
+                            if resp.get("id").and_then(|v| v.as_i64()) == Some(expected_id) {
+                                return Ok(resp);
                             }
-                        }
-                        Ok(_) => continue,
-                        Err(e) => {
-                            return Err(ClawError::ToolExecution {
-                                tool: "browser".into(),
-                                reason: format!("WebSocket read error: {e}"),
-                            });
+                            // else: this is an event notification, skip it
                         }
                     }
+                    Ok(_) => continue,
+                    Err(e) => {
+                        return Err(ClawError::ToolExecution {
+                            tool: "browser".into(),
+                            reason: format!("WebSocket read error: {e}"),
+                        });
+                    }
                 }
-                Err(ClawError::ToolExecution {
-                    tool: "browser".into(),
-                    reason: "WebSocket closed before response received".into(),
-                })
             }
-        ).await;
+            Err(ClawError::ToolExecution {
+                tool: "browser".into(),
+                reason: "WebSocket closed before response received".into(),
+            })
+        })
+        .await;
 
         // Close the connection gracefully
         let _ = ws.close(None).await;
@@ -363,9 +384,15 @@ impl BrowserInstance {
 
     /// Navigate a tab to a URL and wait for the page to load.
     async fn navigate(&self, tab_id: &str, url: &str) -> claw_core::Result<()> {
-        self.cdp.send_command(tab_id, "Page.navigate", json!({
-            "url": url,
-        })).await?;
+        self.cdp
+            .send_command(
+                tab_id,
+                "Page.navigate",
+                json!({
+                    "url": url,
+                }),
+            )
+            .await?;
 
         // Wait for load event
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -374,14 +401,18 @@ impl BrowserInstance {
 
     /// Take a screenshot of a tab (returns base64 PNG).
     async fn screenshot(&self, tab_id: &str) -> claw_core::Result<Screenshot> {
-        let result = self.cdp.send_command(tab_id, "Page.captureScreenshot", json!({
-            "format": "png",
-        })).await?;
+        let result = self
+            .cdp
+            .send_command(
+                tab_id,
+                "Page.captureScreenshot",
+                json!({
+                    "format": "png",
+                }),
+            )
+            .await?;
 
-        let data = result["result"]["data"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
+        let data = result["result"]["data"].as_str().unwrap_or("").to_string();
 
         if data.is_empty() {
             return Err(ClawError::ToolExecution {
@@ -391,11 +422,20 @@ impl BrowserInstance {
         }
 
         // Get viewport dimensions from the browser
-        let metrics = self.cdp.send_command(tab_id, "Page.getLayoutMetrics", json!({})).await.ok();
-        let (width, height) = metrics.as_ref()
+        let metrics = self
+            .cdp
+            .send_command(tab_id, "Page.getLayoutMetrics", json!({}))
+            .await
+            .ok();
+        let (width, height) = metrics
+            .as_ref()
             .map(|m| {
-                let w = m["result"]["cssVisualViewport"]["clientWidth"].as_f64().unwrap_or(1920.0) as u32;
-                let h = m["result"]["cssVisualViewport"]["clientHeight"].as_f64().unwrap_or(1080.0) as u32;
+                let w = m["result"]["cssVisualViewport"]["clientWidth"]
+                    .as_f64()
+                    .unwrap_or(1920.0) as u32;
+                let h = m["result"]["cssVisualViewport"]["clientHeight"]
+                    .as_f64()
+                    .unwrap_or(1080.0) as u32;
                 (w, h)
             })
             .unwrap_or((1920, 1080));
@@ -409,11 +449,18 @@ impl BrowserInstance {
 
     /// Evaluate JavaScript in a tab.
     async fn evaluate(&self, tab_id: &str, expression: &str) -> claw_core::Result<EvalResult> {
-        let result = self.cdp.send_command(tab_id, "Runtime.evaluate", json!({
-            "expression": expression,
-            "returnByValue": true,
-            "awaitPromise": true,
-        })).await?;
+        let result = self
+            .cdp
+            .send_command(
+                tab_id,
+                "Runtime.evaluate",
+                json!({
+                    "expression": expression,
+                    "returnByValue": true,
+                    "awaitPromise": true,
+                }),
+            )
+            .await?;
 
         let value = result["result"]["result"]["value"].clone();
         let is_error = result["result"]["exceptionDetails"].is_object();
@@ -491,14 +538,26 @@ impl BrowserInstance {
 
         // Then dispatch keyboard events character by character
         for ch in text.chars() {
-            self.cdp.send_command(tab_id, "Input.dispatchKeyEvent", json!({
-                "type": "keyDown",
-                "text": ch.to_string(),
-            })).await?;
-            self.cdp.send_command(tab_id, "Input.dispatchKeyEvent", json!({
-                "type": "keyUp",
-                "text": ch.to_string(),
-            })).await?;
+            self.cdp
+                .send_command(
+                    tab_id,
+                    "Input.dispatchKeyEvent",
+                    json!({
+                        "type": "keyDown",
+                        "text": ch.to_string(),
+                    }),
+                )
+                .await?;
+            self.cdp
+                .send_command(
+                    tab_id,
+                    "Input.dispatchKeyEvent",
+                    json!({
+                        "type": "keyUp",
+                        "text": ch.to_string(),
+                    }),
+                )
+                .await?;
         }
         Ok(())
     }
@@ -603,9 +662,16 @@ impl BrowserInstance {
 
     /// Get the page as PDF (base64).
     async fn print_pdf(&self, tab_id: &str) -> claw_core::Result<String> {
-        let result = self.cdp.send_command(tab_id, "Page.printToPDF", json!({
-            "printBackground": true,
-        })).await?;
+        let result = self
+            .cdp
+            .send_command(
+                tab_id,
+                "Page.printToPDF",
+                json!({
+                    "printBackground": true,
+                }),
+            )
+            .await?;
 
         Ok(result["result"]["data"].as_str().unwrap_or("").to_string())
     }
@@ -620,13 +686,19 @@ impl BrowserInstance {
             _ => (0, amount),
         };
 
-        self.cdp.send_command(tab_id, "Input.dispatchMouseEvent", json!({
-            "type": "mouseWheel",
-            "x": 640,
-            "y": 360,
-            "deltaX": dx,
-            "deltaY": dy,
-        })).await?;
+        self.cdp
+            .send_command(
+                tab_id,
+                "Input.dispatchMouseEvent",
+                json!({
+                    "type": "mouseWheel",
+                    "x": 640,
+                    "y": 360,
+                    "deltaX": dx,
+                    "deltaY": dy,
+                }),
+            )
+            .await?;
 
         Ok(())
     }
@@ -638,7 +710,12 @@ impl BrowserInstance {
     /// `DOM.getDocument` → `DOM.querySelector` → `nodeId` approach, which breaks on
     /// hidden/clipped inputs, dynamically-modified DOM, and stale DOM agent state.
     /// This is the same technique Puppeteer/Playwright use internally.
-    async fn upload_file(&self, tab_id: &str, selector: &str, file_paths: &[String]) -> claw_core::Result<()> {
+    async fn upload_file(
+        &self,
+        tab_id: &str,
+        selector: &str,
+        file_paths: &[String],
+    ) -> claw_core::Result<()> {
         // 1. Resolve the element via Runtime.evaluate (works for hidden, clipped, any element)
         let js = format!(
             r#"(() => {{
@@ -654,10 +731,17 @@ impl BrowserInstance {
             }})()"#,
             sel = serde_json::to_string(selector).unwrap_or_else(|_| format!("\"{}\"", selector)),
         );
-        let eval_result = self.cdp.send_command(tab_id, "Runtime.evaluate", json!({
-            "expression": js,
-            "returnByValue": false,
-        })).await?;
+        let eval_result = self
+            .cdp
+            .send_command(
+                tab_id,
+                "Runtime.evaluate",
+                json!({
+                    "expression": js,
+                    "returnByValue": false,
+                }),
+            )
+            .await?;
 
         let object_id = eval_result["result"]["result"]["objectId"]
             .as_str()
@@ -670,10 +754,16 @@ impl BrowserInstance {
             })?;
 
         // 2. Set the file paths on the input element using objectId (most reliable)
-        self.cdp.send_command(tab_id, "DOM.setFileInputFiles", json!({
-            "objectId": object_id,
-            "files": file_paths,
-        })).await?;
+        self.cdp
+            .send_command(
+                tab_id,
+                "DOM.setFileInputFiles",
+                json!({
+                    "objectId": object_id,
+                    "files": file_paths,
+                }),
+            )
+            .await?;
 
         // 3. Dispatch events that React/Vue/Svelte/vanilla JS all recognize.
         //    - Native 'change' + 'input' events with bubbling
@@ -720,10 +810,17 @@ impl BrowserInstance {
             }})()"#,
             sel = serde_json::to_string(selector).unwrap_or_else(|_| format!("\"{}\"", selector)),
         );
-        let ev_result = self.cdp.send_command(tab_id, "Runtime.evaluate", json!({
-            "expression": event_js,
-            "returnByValue": true,
-        })).await;
+        let ev_result = self
+            .cdp
+            .send_command(
+                tab_id,
+                "Runtime.evaluate",
+                json!({
+                    "expression": event_js,
+                    "returnByValue": true,
+                }),
+            )
+            .await;
         info!(result = ?ev_result, "upload event dispatch");
 
         Ok(())
@@ -813,12 +910,18 @@ impl BrowserManager {
         match BrowserInstance::connect(self.default_port).await {
             Ok(inst) => {
                 self.instance = Some(inst);
-                Ok(format!("connected to existing browser on port {}", self.default_port))
+                Ok(format!(
+                    "connected to existing browser on port {}",
+                    self.default_port
+                ))
             }
             Err(_) => {
                 let inst = BrowserInstance::launch(headless, self.default_port).await?;
                 self.instance = Some(inst);
-                Ok(format!("launched headless browser on port {}", self.default_port))
+                Ok(format!(
+                    "launched headless browser on port {}",
+                    self.default_port
+                ))
             }
         }
     }
@@ -870,7 +973,11 @@ impl BrowserManager {
 
     /// Upload file(s) to a <input type="file"> element by CSS selector.
     /// Uses CDP DOM.setFileInputFiles — files must be absolute paths accessible to Chrome.
-    pub async fn upload_file(&mut self, selector: &str, file_paths: &[String]) -> claw_core::Result<String> {
+    pub async fn upload_file(
+        &mut self,
+        selector: &str,
+        file_paths: &[String],
+    ) -> claw_core::Result<String> {
         let tab_id = self.ensure_tab().await?;
         let browser = self.instance.as_ref().unwrap();
         browser.upload_file(&tab_id, selector, file_paths).await?;
@@ -926,7 +1033,10 @@ impl BrowserManager {
         self.ensure_browser().await?;
         let browser = self.instance.as_ref().unwrap();
         // Activate via CDP
-        browser.cdp.send_command(tab_id, "Page.bringToFront", json!({})).await?;
+        browser
+            .cdp
+            .send_command(tab_id, "Page.bringToFront", json!({}))
+            .await?;
         self.active_tab = Some(tab_id.to_string());
         Ok(())
     }
@@ -1089,10 +1199,7 @@ fn find_chrome_binary() -> claw_core::Result<String> {
             return Ok(candidate.to_string());
         }
         // Check PATH
-        if let Ok(output) = std::process::Command::new("which")
-            .arg(candidate)
-            .output()
-        {
+        if let Ok(output) = std::process::Command::new("which").arg(candidate).output() {
             if output.status.success() {
                 return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
             }

@@ -23,10 +23,7 @@ impl LocalProvider {
 
     /// Default Ollama instance
     pub fn ollama(model: &str) -> Self {
-        Self::new(
-            "http://127.0.0.1:11434".into(),
-            model.to_string(),
-        )
+        Self::new("http://127.0.0.1:11434".into(), model.to_string())
     }
 }
 
@@ -181,11 +178,18 @@ impl LlmProvider for LocalProvider {
                                     if line.is_empty() {
                                         continue;
                                     }
-                                    if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
+                                    if let Ok(event) =
+                                        serde_json::from_str::<serde_json::Value>(&line)
+                                    {
                                         // Content delta
-                                        if let Some(content) = event["message"]["content"].as_str() {
+                                        if let Some(content) = event["message"]["content"].as_str()
+                                        {
                                             if !content.is_empty() {
-                                                let _ = tx.send(StreamChunk::TextDelta(content.to_string())).await;
+                                                let _ = tx
+                                                    .send(StreamChunk::TextDelta(
+                                                        content.to_string(),
+                                                    ))
+                                                    .await;
                                             }
                                         }
                                         // Final message has "done": true
@@ -196,13 +200,17 @@ impl LlmProvider for LocalProvider {
                                             if let Some(et) = event["eval_count"].as_u64() {
                                                 output_tokens = et as u32;
                                             }
-                                            let _ = tx.send(StreamChunk::Usage(Usage {
-                                                input_tokens,
-                                                output_tokens,
-                                                estimated_cost_usd: 0.0,
-                                                ..Default::default()
-                                            })).await;
-                                            let _ = tx.send(StreamChunk::Done(StopReason::EndTurn)).await;
+                                            let _ = tx
+                                                .send(StreamChunk::Usage(Usage {
+                                                    input_tokens,
+                                                    output_tokens,
+                                                    estimated_cost_usd: 0.0,
+                                                    ..Default::default()
+                                                }))
+                                                .await;
+                                            let _ = tx
+                                                .send(StreamChunk::Done(StopReason::EndTurn))
+                                                .await;
                                             return;
                                         }
                                     }

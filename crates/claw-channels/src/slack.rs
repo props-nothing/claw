@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
-use serde_json::{json, Value};
-use std::sync::atomic::{AtomicBool, Ordering};
+use serde_json::{Value, json};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -97,9 +97,11 @@ impl Channel for SlackChannel {
             });
         } else {
             // No app_token — can only send, not receive
-            warn!("Slack: no app_token configured — Socket Mode disabled. \
+            warn!(
+                "Slack: no app_token configured — Socket Mode disabled. \
                    The agent can send messages but won't receive them. \
-                   Add an app_token (xapp-...) to enable receiving.");
+                   Add an app_token (xapp-...) to enable receiving."
+            );
             connected.store(true, Ordering::SeqCst);
             let _ = event_tx.send(ChannelEvent::Connected).await;
         }
@@ -444,7 +446,9 @@ async fn slack_socket_mode_loop(
 
         connected.store(false, Ordering::SeqCst);
         let _ = event_tx
-            .send(ChannelEvent::Disconnected(Some("Socket Mode connection lost".into())))
+            .send(ChannelEvent::Disconnected(Some(
+                "Socket Mode connection lost".into(),
+            )))
             .await;
 
         if *shutdown_rx.borrow() {

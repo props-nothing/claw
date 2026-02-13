@@ -11,9 +11,9 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use libp2p::{
-    gossipsub, identify, kad, mdns, noise,
+    Multiaddr, PeerId, Swarm, gossipsub, identify, kad, mdns, noise,
     swarm::{NetworkBehaviour, SwarmEvent},
-    tcp, yamux, Multiaddr, PeerId, Swarm,
+    tcp, yamux,
 };
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
@@ -73,11 +73,12 @@ pub async fn start_swarm(
     info!(peer_id = %peer_id, "libp2p swarm identity created");
 
     // Listen on the configured multiaddr
-    let addr: Multiaddr = listen_addr
-        .parse()
-        .map_err(|e| claw_core::ClawError::Agent(format!(
-            "invalid mesh listen address '{}': {}", listen_addr, e
-        )))?;
+    let addr: Multiaddr = listen_addr.parse().map_err(|e| {
+        claw_core::ClawError::Agent(format!(
+            "invalid mesh listen address '{}': {}",
+            listen_addr, e
+        ))
+    })?;
     swarm
         .listen_on(addr)
         .map_err(|e| claw_core::ClawError::Agent(format!("failed to listen: {}", e)))?;
@@ -103,9 +104,9 @@ pub async fn start_swarm(
         .behaviour_mut()
         .gossipsub
         .subscribe(&topic)
-        .map_err(|e| claw_core::ClawError::Agent(format!(
-            "failed to subscribe to gossipsub topic: {}", e
-        )))?;
+        .map_err(|e| {
+            claw_core::ClawError::Agent(format!("failed to subscribe to gossipsub topic: {}", e))
+        })?;
 
     // Create the command channel (MeshNode → swarm task)
     let (command_tx, command_rx) = mpsc::channel(256);
@@ -128,9 +129,7 @@ pub async fn start_swarm(
 }
 
 /// Build the libp2p Swarm with all sub-protocols configured.
-fn build_swarm(
-    capabilities: Vec<String>,
-) -> claw_core::Result<Swarm<ClawBehaviour>> {
+fn build_swarm(capabilities: Vec<String>) -> claw_core::Result<Swarm<ClawBehaviour>> {
     build_swarm_inner(capabilities)
         .map_err(|e| claw_core::ClawError::Agent(format!("failed to build libp2p swarm: {}", e)))
 }
@@ -171,10 +170,8 @@ fn build_swarm_inner(
             .map_err(|e| std::io::Error::other(e.to_string()))?;
 
             // ── mDNS ───────────────────────────────────────────────
-            let mdns = mdns::tokio::Behaviour::new(
-                mdns::Config::default(),
-                key.public().to_peer_id(),
-            )?;
+            let mdns =
+                mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())?;
 
             // ── Identify ───────────────────────────────────────────
             // Encode capabilities into the agent_version string so
@@ -204,10 +201,7 @@ fn build_swarm_inner(
 
             // ── Kademlia ───────────────────────────────────────────
             let peer_id = key.public().to_peer_id();
-            let kademlia = kad::Behaviour::new(
-                peer_id,
-                kad::store::MemoryStore::new(peer_id),
-            );
+            let kademlia = kad::Behaviour::new(peer_id, kad::store::MemoryStore::new(peer_id));
 
             Ok(ClawBehaviour {
                 gossipsub,
@@ -316,12 +310,16 @@ async fn handle_swarm_event(
             for (peer_id, addr) in list {
                 info!(peer = %peer_id, addr = %addr, "mDNS discovered peer");
                 swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
-                swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
+                swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .add_address(&peer_id, addr.clone());
 
                 // Register the peer immediately with basic info so it shows
                 // up in `claw mesh peers` right away.  The Identify exchange
                 // will update capabilities/hostname later.
-                let peer_hostname = addr.iter()
+                let peer_hostname = addr
+                    .iter()
                     .find_map(|p| match p {
                         libp2p::multiaddr::Protocol::Ip4(ip) => Some(ip.to_string()),
                         libp2p::multiaddr::Protocol::Dns(name) => Some(name.to_string()),
@@ -348,7 +346,10 @@ async fn handle_swarm_event(
         SwarmEvent::Behaviour(ClawBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
             for (peer_id, _addr) in list {
                 info!(peer = %peer_id, "mDNS peer expired");
-                swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
+                swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .remove_explicit_peer(&peer_id);
             }
         }
 
@@ -407,14 +408,8 @@ async fn handle_swarm_event(
                     .filter(|s| !s.is_empty())
                     .map(String::from)
                     .collect();
-                let hostname = parts
-                    .get(2)
-                    .unwrap_or(&"unknown")
-                    .to_string();
-                let os = parts
-                    .get(3)
-                    .unwrap_or(&"unknown")
-                    .to_string();
+                let hostname = parts.get(2).unwrap_or(&"unknown").to_string();
+                let os = parts.get(3).unwrap_or(&"unknown").to_string();
 
                 // Forward an Announce to the runtime so it can register the peer
                 let announce = MeshMessage::Announce {
@@ -463,11 +458,7 @@ async fn handle_swarm_event(
                 os: std::env::consts::OS.to_string(),
             };
             if let Ok(data) = serde_json::to_vec(&announce) {
-                if let Err(e) = swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .publish(topic.clone(), data)
-                {
+                if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), data) {
                     debug!(error = %e, "connection announce publish failed");
                 }
             }
@@ -475,17 +466,28 @@ async fn handle_swarm_event(
         SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
             info!(peer = %peer_id, cause = ?cause, "mesh connection closed");
             // Notify the runtime to remove the disconnected peer
-            let _ = message_tx.send(MeshMessage::PeerLeft {
-                peer_id: peer_id.to_string(),
-            }).await;
+            let _ = message_tx
+                .send(MeshMessage::PeerLeft {
+                    peer_id: peer_id.to_string(),
+                })
+                .await;
         }
-        SwarmEvent::IncomingConnection { local_addr, send_back_addr, .. } => {
+        SwarmEvent::IncomingConnection {
+            local_addr,
+            send_back_addr,
+            ..
+        } => {
             debug!(local = %local_addr, remote = %send_back_addr, "incoming connection");
         }
         SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
             warn!(peer = ?peer_id, error = %error, "outgoing connection error");
         }
-        SwarmEvent::IncomingConnectionError { local_addr, send_back_addr, error, .. } => {
+        SwarmEvent::IncomingConnectionError {
+            local_addr,
+            send_back_addr,
+            error,
+            ..
+        } => {
             warn!(local = %local_addr, remote = %send_back_addr, error = %error, "incoming connection error");
         }
 

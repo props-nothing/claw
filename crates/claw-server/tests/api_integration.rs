@@ -6,11 +6,9 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 use claw_config::schema::ServerConfig;
-use claw_llm::mock::MockProvider;
 use claw_llm::ModelRouter;
-use claw_runtime::{
-    RuntimeHandle, build_test_state_with_router, set_runtime_handle,
-};
+use claw_llm::mock::MockProvider;
+use claw_runtime::{RuntimeHandle, build_test_state_with_router, set_runtime_handle};
 use std::sync::Arc;
 
 /// Build a test router with a mock provider that has `n` queued text responses.
@@ -71,7 +69,12 @@ async fn test_metrics_endpoint() {
     let resp = app.oneshot(req).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let ct = resp.headers().get("content-type").unwrap().to_str().unwrap();
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert!(ct.contains("text/plain"));
     let body = body_string(resp).await;
     assert!(body.contains("claw_http_requests_total"));
@@ -92,7 +95,11 @@ async fn test_chat_endpoint() {
     let body = body_string(resp).await;
     let json: serde_json::Value = serde_json::from_str(&body).unwrap();
     // Response text may vary depending on test ordering (shared global state)
-    assert!(json["response"].is_string(), "expected response string, got: {}", json);
+    assert!(
+        json["response"].is_string(),
+        "expected response string, got: {}",
+        json
+    );
     assert!(json["session_id"].is_string());
 }
 
@@ -149,7 +156,9 @@ async fn test_status_endpoint() {
 #[tokio::test]
 async fn test_sessions_endpoint() {
     let app = setup(vec![]).await;
-    let req = Request::get("/api/v1/sessions").body(Body::empty()).unwrap();
+    let req = Request::get("/api/v1/sessions")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
@@ -180,13 +189,19 @@ async fn test_tools_endpoint() {
     let body = body_string(resp).await;
     let json: serde_json::Value = serde_json::from_str(&body).unwrap();
     // Should be an array of tool definitions or an object wrapper
-    assert!(json.is_array() || json.is_object(), "unexpected tools format: {}", json);
+    assert!(
+        json.is_array() || json.is_object(),
+        "unexpected tools format: {}",
+        json
+    );
 }
 
 #[tokio::test]
 async fn test_facts_endpoint() {
     let app = setup(vec![]).await;
-    let req = Request::get("/api/v1/memory/facts").body(Body::empty()).unwrap();
+    let req = Request::get("/api/v1/memory/facts")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);

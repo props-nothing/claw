@@ -54,12 +54,7 @@ impl GuardrailEngine {
     }
 
     /// Evaluate a tool call against all guardrails.
-    pub fn evaluate(
-        &self,
-        tool: &Tool,
-        call: &ToolCall,
-        level: AutonomyLevel,
-    ) -> GuardrailVerdict {
+    pub fn evaluate(&self, tool: &Tool, call: &ToolCall, level: AutonomyLevel) -> GuardrailVerdict {
         // Check denylist first
         if self.denylist.iter().any(|d| d == &tool.name) {
             warn!(tool = %tool.name, "tool is on denylist");
@@ -168,7 +163,8 @@ impl Guardrail for NetworkExfiltrationGuardrail {
         // If a shell command is piping file content to curl/wget, that's suspicious
         if tool.name == "shell_exec" || tool.name == "system_run" {
             if let Some(cmd) = call.arguments.get("command").and_then(|v| v.as_str()) {
-                let suspicious = cmd.contains("curl") && (cmd.contains("cat ") || cmd.contains("< /"))
+                let suspicious = cmd.contains("curl")
+                    && (cmd.contains("cat ") || cmd.contains("< /"))
                     || cmd.contains("wget") && cmd.contains("--post-file");
                 if suspicious {
                     return GuardrailVerdict::Escalate(

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use tokio::sync::mpsc;
-use tracing::{info, debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::protocol::MeshMessage;
 
@@ -129,13 +129,8 @@ impl MeshNode {
         let (tx, rx) = mpsc::channel(256);
         self.message_tx = Some(tx.clone());
 
-        let handle = crate::transport::start_swarm(
-            listen_addr,
-            bootstrap_peers,
-            capabilities,
-            tx,
-        )
-        .await?;
+        let handle =
+            crate::transport::start_swarm(listen_addr, bootstrap_peers, capabilities, tx).await?;
 
         // Replace the placeholder UUID with the real libp2p PeerId
         self.peer_id = handle.peer_id.to_string();
@@ -153,8 +148,8 @@ impl MeshNode {
 
     /// Broadcast a message to all peers via GossipSub.
     pub async fn broadcast(&self, message: &MeshMessage) -> claw_core::Result<()> {
-        let data = serde_json::to_vec(message)
-            .map_err(|e| claw_core::ClawError::Agent(e.to_string()))?;
+        let data =
+            serde_json::to_vec(message).map_err(|e| claw_core::ClawError::Agent(e.to_string()))?;
 
         if let Some(ref cmd_tx) = self.command_tx {
             cmd_tx
@@ -178,8 +173,8 @@ impl MeshNode {
             return Err(claw_core::ClawError::PeerUnreachable(peer_id.to_string()));
         }
 
-        let data = serde_json::to_vec(message)
-            .map_err(|e| claw_core::ClawError::Agent(e.to_string()))?;
+        let data =
+            serde_json::to_vec(message).map_err(|e| claw_core::ClawError::Agent(e.to_string()))?;
 
         if let Some(ref cmd_tx) = self.command_tx {
             cmd_tx
@@ -196,9 +191,9 @@ impl MeshNode {
 
     /// Dial a peer at a specific multiaddr.
     pub async fn dial(&self, addr: &str) -> claw_core::Result<()> {
-        let multiaddr: libp2p::Multiaddr = addr
-            .parse()
-            .map_err(|e| claw_core::ClawError::Agent(format!("invalid multiaddr '{}': {}", addr, e)))?;
+        let multiaddr: libp2p::Multiaddr = addr.parse().map_err(|e| {
+            claw_core::ClawError::Agent(format!("invalid multiaddr '{}': {}", addr, e))
+        })?;
 
         if let Some(ref cmd_tx) = self.command_tx {
             cmd_tx

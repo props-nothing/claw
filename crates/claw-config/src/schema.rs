@@ -486,14 +486,19 @@ impl ClawConfig {
                 field: "agent.model".into(),
                 message: "model is empty".into(),
                 severity: WarningSeverity::Error,
-                hint: Some("Set to e.g. 'anthropic/claude-sonnet-4-20250514' or 'openai/gpt-4o'".into()),
+                hint: Some(
+                    "Set to e.g. 'anthropic/claude-sonnet-4-20250514' or 'openai/gpt-4o'".into(),
+                ),
             });
         } else if !model.contains('/') {
             warnings.push(ConfigWarning {
                 field: "agent.model".into(),
                 message: format!("model '{}' should be in 'provider/model' format", model),
                 severity: WarningSeverity::Warning,
-                hint: Some("Use 'anthropic/claude-sonnet-4-20250514', 'openai/gpt-4o', or 'ollama/llama3'".into()),
+                hint: Some(
+                    "Use 'anthropic/claude-sonnet-4-20250514', 'openai/gpt-4o', or 'ollama/llama3'"
+                        .into(),
+                ),
             });
         }
 
@@ -556,7 +561,10 @@ impl ClawConfig {
         } else if self.autonomy.daily_budget_usd > 500.0 {
             warnings.push(ConfigWarning {
                 field: "autonomy.daily_budget_usd".into(),
-                message: format!("daily budget is ${:.2} — this is very high", self.autonomy.daily_budget_usd),
+                message: format!(
+                    "daily budget is ${:.2} — this is very high",
+                    self.autonomy.daily_budget_usd
+                ),
                 severity: WarningSeverity::Warning,
                 hint: Some("Consider a lower limit to prevent runaway costs".into()),
             });
@@ -566,7 +574,10 @@ impl ClawConfig {
         if self.autonomy.approval_threshold > 10 {
             warnings.push(ConfigWarning {
                 field: "autonomy.approval_threshold".into(),
-                message: format!("threshold {} > 10 — all tools would need approval", self.autonomy.approval_threshold),
+                message: format!(
+                    "threshold {} > 10 — all tools would need approval",
+                    self.autonomy.approval_threshold
+                ),
                 severity: WarningSeverity::Warning,
                 hint: Some("Risk scores range 0-10. A threshold of 7-8 is typical.".into()),
             });
@@ -622,7 +633,9 @@ impl ClawConfig {
         }
 
         // ── Channel types ───
-        let valid_channel_types = ["telegram", "webchat", "discord", "slack", "whatsapp", "signal", "matrix", "imessage"];
+        let valid_channel_types = [
+            "telegram", "webchat", "discord", "slack", "whatsapp", "signal", "matrix", "imessage",
+        ];
         for (id, ch) in &self.channels {
             if !valid_channel_types.contains(&ch.channel_type.as_str()) {
                 warnings.push(ConfigWarning {
@@ -653,7 +666,10 @@ impl ClawConfig {
             .collect();
 
         if !errors.is_empty() {
-            return Err(format!("Configuration errors:\n  • {}", errors.join("\n  • ")));
+            return Err(format!(
+                "Configuration errors:\n  • {}",
+                errors.join("\n  • ")
+            ));
         }
 
         Ok(warnings)

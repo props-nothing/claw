@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use claw_config::schema::*;
     use claw_config::ConfigLoader;
+    use claw_config::schema::*;
     use std::io::Write;
 
     // ── Default tests ──────────────────────────────────────────
@@ -124,7 +124,9 @@ enabled = true
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("claw.toml");
         let mut f = std::fs::File::create(&config_path).unwrap();
-        writeln!(f, r#"
+        writeln!(
+            f,
+            r#"
 [agent]
 model = "openai/gpt-4o"
 max_tokens = 4096
@@ -135,7 +137,9 @@ daily_budget_usd = 5.0
 
 [server]
 listen = "0.0.0.0:8080"
-"#).unwrap();
+"#
+        )
+        .unwrap();
 
         let loader = ConfigLoader::load(Some(config_path.as_path())).unwrap();
         let config = loader.get();
@@ -163,19 +167,27 @@ listen = "0.0.0.0:8080"
         let config_path = dir.path().join("claw.toml");
 
         // Write initial config
-        std::fs::write(&config_path, r#"
+        std::fs::write(
+            &config_path,
+            r#"
 [agent]
 model = "openai/gpt-4o"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let loader = ConfigLoader::load(Some(config_path.as_path())).unwrap();
         assert_eq!(loader.get().agent.model, "openai/gpt-4o");
 
         // Update the file
-        std::fs::write(&config_path, r#"
+        std::fs::write(
+            &config_path,
+            r#"
 [agent]
 model = "anthropic/claude-opus-4-20250514"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         loader.reload().unwrap();
         assert_eq!(loader.get().agent.model, "anthropic/claude-opus-4-20250514");

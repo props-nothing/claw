@@ -64,12 +64,17 @@ impl AutonomyLevel {
 
 impl fmt::Display for AutonomyLevel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "L{} ({})", *self as u8, match self {
-            Self::Manual => "Manual",
-            Self::Assisted => "Assisted",
-            Self::Supervised => "Supervised",
-            Self::Autonomous => "Autonomous",
-            Self::FullAuto => "Full Auto",
-        })
+        write!(
+            f,
+            "L{} ({})",
+            *self as u8,
+            match self {
+                Self::Manual => "Manual",
+                Self::Assisted => "Assisted",
+                Self::Supervised => "Supervised",
+                Self::Autonomous => "Autonomous",
+                Self::FullAuto => "Full Auto",
+            }
+        )
     }
 }

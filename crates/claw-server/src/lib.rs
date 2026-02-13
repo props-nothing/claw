@@ -7,21 +7,22 @@
 //! - Webhook receiver for external triggers
 //! - Web UI static file serving
 
-pub mod ratelimit;
-pub mod metrics;
 pub mod hub;
+pub mod metrics;
+pub mod ratelimit;
 
 use axum::{
+    Router,
     extract::{Path, Query, State},
-    http::{StatusCode, Request, HeaderMap},
+    http::{HeaderMap, Request, StatusCode},
     middleware::{self, Next},
     response::{Json, Response, Sse, sse::Event as SseEvent},
     routing::{get, post},
-    Router,
 };
 use claw_config::schema::ServerConfig;
-use claw_runtime::{RuntimeHandle, QueryKind, StreamEvent, get_runtime_handle};
+use claw_runtime::{QueryKind, RuntimeHandle, StreamEvent, get_runtime_handle};
 use futures::stream::Stream;
+use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -29,7 +30,6 @@ use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tracing::{info, warn};
-use rust_embed::RustEmbed;
 
 /// Web UI assets embedded at compile time from the workspace `web/` directory.
 #[derive(RustEmbed)]
@@ -109,7 +109,10 @@ pub fn build_router(config: ServerConfig, hub_url: Option<String>) -> Router {
         .route("/api/v1/chat", post(chat_handler))
         .route("/api/v1/chat/stream", post(chat_stream_handler))
         .route("/api/v1/sessions", get(sessions_handler))
-        .route("/api/v1/sessions/{id}/messages", get(session_messages_handler))
+        .route(
+            "/api/v1/sessions/{id}/messages",
+            get(session_messages_handler),
+        )
         .route("/api/v1/goals", get(goals_handler))
         .route("/api/v1/status", get(status_handler))
         .route("/api/v1/tools", get(tools_handler))
@@ -117,7 +120,10 @@ pub fn build_router(config: ServerConfig, hub_url: Option<String>) -> Router {
         .route("/api/v1/memory/search", get(memory_search_handler))
         .route("/api/v1/config", get(config_handler))
         .route("/api/v1/audit", get(audit_handler))
-        .route("/api/v1/approvals/{id}/approve", post(approval_approve_handler))
+        .route(
+            "/api/v1/approvals/{id}/approve",
+            post(approval_approve_handler),
+        )
         .route("/api/v1/approvals/{id}/deny", post(approval_deny_handler))
         .route("/api/v1/mesh/status", get(mesh_status_handler))
         .route("/api/v1/mesh/peers", get(mesh_peers_handler))
@@ -125,7 +131,10 @@ pub fn build_router(config: ServerConfig, hub_url: Option<String>) -> Router {
 
     // Apply API key auth if configured
     let api_routes = if config.api_key.is_some() {
-        api_routes.layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        api_routes.layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
     } else {
         api_routes
     };
@@ -215,9 +224,7 @@ fn find_web_dir() -> Option<std::path::PathBuf> {
 }
 
 /// Serve a file from the embedded [`WebAssets`].
-async fn embedded_file_handler(
-    req: Request<axum::body::Body>,
-) -> Response {
+async fn embedded_file_handler(req: Request<axum::body::Body>) -> Response {
     let path = req.uri().path().trim_start_matches('/');
     // Default to index.html for the root path
     let path = if path.is_empty() { "index.html" } else { path };
@@ -275,9 +282,7 @@ async fn auth_middleware(
     Ok(next.run(request).await)
 }
 
-async fn health_handler(
-    State(state): State<Arc<AppState>>,
-) -> Json<HealthResponse> {
+async fn health_handler(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
     state.metrics.inc_http_requests();
     // Try to get real uptime from the runtime
     let uptime = if let Some(handle) = get_handle(&state).await {
@@ -298,11 +303,18 @@ async fn health_handler(
 /// Prometheus-compatible metrics endpoint.
 async fn metrics_handler(
     State(state): State<Arc<AppState>>,
-) -> (StatusCode, [(axum::http::header::HeaderName, &'static str); 1], String) {
+) -> (
+    StatusCode,
+    [(axum::http::header::HeaderName, &'static str); 1],
+    String,
+) {
     let body = state.metrics.render_prometheus();
     (
         StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
         body,
     )
 }
@@ -368,7 +380,9 @@ async fn chat_stream_handler(
 ) -> Result<Sse<impl Stream<Item = Result<SseEvent, Infallible>>>, StatusCode> {
     state.metrics.inc_http_requests();
     state.metrics.inc_chat_stream_messages();
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
 
     let mut chunk_rx = handle
         .chat_stream(req.message, req.session_id)
@@ -392,7 +406,9 @@ async fn chat_stream_handler(
 async fn sessions_handler(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     match handle.query(QueryKind::Sessions).await {
         Ok(data) => Ok(Json(data)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -403,7 +419,9 @@ async fn session_messages_handler(
     State(state): State<Arc<AppState>>,
     axum::extract::Path(session_id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     match handle.query(QueryKind::SessionMessages(session_id)).await {
         Ok(data) => Ok(Json(data)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -413,7 +431,9 @@ async fn session_messages_handler(
 async fn goals_handler(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     match handle.query(QueryKind::Goals).await {
         Ok(data) => Ok(Json(data)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -423,7 +443,9 @@ async fn goals_handler(
 async fn status_handler(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     match handle.query(QueryKind::Status).await {
         Ok(data) => Ok(Json(data)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -433,7 +455,9 @@ async fn status_handler(
 async fn tools_handler(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     match handle.query(QueryKind::Tools).await {
         Ok(data) => Ok(Json(data)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -443,7 +467,9 @@ async fn tools_handler(
 async fn facts_handler(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     match handle.query(QueryKind::Facts).await {
         Ok(data) => Ok(Json(data)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -454,7 +480,9 @@ async fn memory_search_handler(
     State(state): State<Arc<AppState>>,
     Query(params): Query<MemorySearchParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     match handle.query(QueryKind::MemorySearch(params.q)).await {
         Ok(data) => Ok(Json(data)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -464,7 +492,9 @@ async fn memory_search_handler(
 async fn config_handler(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     match handle.query(QueryKind::Config).await {
         Ok(data) => Ok(Json(data)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -475,7 +505,9 @@ async fn audit_handler(
     State(state): State<Arc<AppState>>,
     Query(params): Query<AuditLogParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     match handle.query(QueryKind::AuditLog(params.limit)).await {
         Ok(data) => Ok(Json(data)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -486,8 +518,12 @@ async fn approval_approve_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-    let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let uuid = id
+        .parse::<uuid::Uuid>()
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
     match handle.approve(uuid).await {
         Ok(()) => Ok(Json(serde_json::json!({ "status": "approved", "id": id }))),
         Err(e) => {
@@ -501,8 +537,12 @@ async fn approval_deny_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-    let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let uuid = id
+        .parse::<uuid::Uuid>()
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
     match handle.deny(uuid).await {
         Ok(()) => Ok(Json(serde_json::json!({ "status": "denied", "id": id }))),
         Err(e) => {
@@ -517,7 +557,9 @@ async fn approval_deny_handler(
 async fn mesh_status_handler(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     match handle.query(QueryKind::MeshStatus).await {
         Ok(data) => Ok(Json(data)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -527,7 +569,9 @@ async fn mesh_status_handler(
 async fn mesh_peers_handler(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     match handle.query(QueryKind::MeshPeers).await {
         Ok(data) => Ok(Json(data)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -545,7 +589,9 @@ async fn mesh_send_handler(
     State(state): State<Arc<AppState>>,
     Json(body): Json<MeshSendRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let handle = get_handle(&state).await.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
 
     // Get the runtime's shared state to access the mesh node
     match handle.query(QueryKind::MeshStatus).await {
@@ -582,9 +628,7 @@ async fn mesh_send_handler(
 
 /// Serve a screenshot file from ~/.claw/screenshots/.
 /// Accessed via GET /api/v1/screenshots/{filename}
-async fn screenshot_handler(
-    Path(filename): Path<String>,
-) -> Result<Response, StatusCode> {
+async fn screenshot_handler(Path(filename): Path<String>) -> Result<Response, StatusCode> {
     use axum::body::Body;
     use axum::http::header;
 
@@ -608,7 +652,9 @@ async fn screenshot_handler(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let bytes = tokio::fs::read(&filepath).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let bytes = tokio::fs::read(&filepath)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Response::builder()
         .status(StatusCode::OK)

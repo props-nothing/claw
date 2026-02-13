@@ -6,8 +6,8 @@ use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
-use claw_core::{Message, MessageContent, Role, Result};
 use crate::provider::*;
+use claw_core::{Message, MessageContent, Result, Role};
 
 /// A mock LLM provider that returns pre-configured responses.
 ///
@@ -180,10 +180,7 @@ impl LlmProvider for MockProvider {
         })
     }
 
-    async fn stream(
-        &self,
-        request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<StreamChunk>> {
+    async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<StreamChunk>> {
         self.requests.lock().unwrap().push(request.clone());
         let mock = self.next_response();
 

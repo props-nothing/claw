@@ -1,7 +1,7 @@
+use parking_lot::Mutex;
+use rusqlite::Connection;
 use std::path::Path;
 use std::sync::Arc;
-use rusqlite::Connection;
-use parking_lot::Mutex;
 use tracing::info;
 use uuid::Uuid;
 
@@ -22,8 +22,8 @@ impl MemoryStore {
     pub fn open(path: &Path) -> claw_core::Result<Self> {
         info!(?path, "opening memory store");
 
-        let conn = Connection::open(path)
-            .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
+        let conn =
+            Connection::open(path).map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
 
         // Enable WAL mode for concurrent reads
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
@@ -132,11 +132,19 @@ impl MemoryStore {
 
         // Load persisted data on startup
         match store.load_facts() {
-            Ok(count) => if count > 0 { info!(count, "loaded facts from SQLite"); },
+            Ok(count) => {
+                if count > 0 {
+                    info!(count, "loaded facts from SQLite");
+                }
+            }
             Err(e) => tracing::warn!(error = %e, "failed to load facts from SQLite"),
         }
         match store.episodic.load_from_db() {
-            Ok(count) => if count > 0 { info!(count, "loaded episodes from SQLite"); },
+            Ok(count) => {
+                if count > 0 {
+                    info!(count, "loaded episodes from SQLite");
+                }
+            }
             Err(e) => tracing::warn!(error = %e, "failed to load episodes from SQLite"),
         }
 
@@ -155,12 +163,7 @@ impl MemoryStore {
     }
 
     /// Persist a fact to SQLite (upsert by category+key), optionally with an embedding.
-    pub fn persist_fact(
-        &self,
-        category: &str,
-        key: &str,
-        value: &str,
-    ) -> claw_core::Result<()> {
+    pub fn persist_fact(&self, category: &str, key: &str, value: &str) -> claw_core::Result<()> {
         self.persist_fact_with_embedding(category, key, value, None)
     }
 
@@ -175,9 +178,8 @@ impl MemoryStore {
         let db = self.db.lock();
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
-        let embedding_blob: Option<Vec<u8>> = embedding.map(|emb| {
-            emb.iter().flat_map(|f| f.to_le_bytes()).collect()
-        });
+        let embedding_blob: Option<Vec<u8>> =
+            embedding.map(|emb| emb.iter().flat_map(|f| f.to_le_bytes()).collect());
         db.execute(
             "INSERT INTO facts (id, category, key, value, confidence, source, embedding, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, 1.0, 'agent', ?5, ?6, ?6)
@@ -191,22 +193,24 @@ impl MemoryStore {
     /// Delete a fact from SQLite by category and key.
     pub fn delete_fact(&self, category: &str, key: &str) -> claw_core::Result<bool> {
         let db = self.db.lock();
-        let rows = db.execute(
-            "DELETE FROM facts WHERE category = ?1 AND key = ?2",
-            rusqlite::params![category, key],
-        )
-        .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
+        let rows = db
+            .execute(
+                "DELETE FROM facts WHERE category = ?1 AND key = ?2",
+                rusqlite::params![category, key],
+            )
+            .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
         Ok(rows > 0)
     }
 
     /// Delete all facts in a category from SQLite. Returns number of rows deleted.
     pub fn delete_facts_by_category(&self, category: &str) -> claw_core::Result<usize> {
         let db = self.db.lock();
-        let rows = db.execute(
-            "DELETE FROM facts WHERE category = ?1",
-            rusqlite::params![category],
-        )
-        .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
+        let rows = db
+            .execute(
+                "DELETE FROM facts WHERE category = ?1",
+                rusqlite::params![category],
+            )
+            .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
         Ok(rows)
     }
 
@@ -237,11 +241,13 @@ impl MemoryStore {
         for (category, key, value, confidence, embedding_blob) in rows {
             // Deserialize embedding from LE f32 bytes
             let embedding = embedding_blob.and_then(|blob| {
-                if blob.len() % 4 != 0 { return None; }
+                if blob.len() % 4 != 0 {
+                    return None;
+                }
                 Some(
                     blob.chunks_exact(4)
                         .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                        .collect::<Vec<f32>>()
+                        .collect::<Vec<f32>>(),
                 )
             });
 
@@ -269,7 +275,13 @@ impl MemoryStore {
         details: Option<&str>,
     ) -> claw_core::Result<()> {
         let timestamp = chrono::Utc::now().to_rfc3339();
-        let checksum_input = format!("{}:{}:{}:{}", timestamp, event_type, action, details.unwrap_or(""));
+        let checksum_input = format!(
+            "{}:{}:{}:{}",
+            timestamp,
+            event_type,
+            action,
+            details.unwrap_or("")
+        );
         // Simple checksum — production would use HMAC with a device-local key
         let checksum = format!("{:x}", md5_hash(checksum_input.as_bytes()));
 
@@ -378,7 +390,7 @@ impl MemoryStore {
             .prepare(
                 "SELECT g.id, g.description, g.status, g.priority, g.progress, g.parent_id
                  FROM goals g
-                 ORDER BY g.priority DESC"
+                 ORDER BY g.priority DESC",
             )
             .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
 
@@ -503,7 +515,7 @@ impl MemoryStore {
                 "SELECT id, name, channel, target, active, message_count, created_at
                  FROM sessions
                  ORDER BY updated_at DESC
-                 LIMIT ?1"
+                 LIMIT ?1",
             )
             .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
 
@@ -529,11 +541,9 @@ impl MemoryStore {
     /// Delete empty sessions (0 messages, no name) from SQLite to prevent clutter.
     pub fn cleanup_empty_sessions(&self) -> claw_core::Result<usize> {
         let db = self.db.lock();
-        let deleted = db.execute(
-            "DELETE FROM sessions WHERE message_count = 0",
-            [],
-        )
-        .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
+        let deleted = db
+            .execute("DELETE FROM sessions WHERE message_count = 0", [])
+            .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
         // Also clean up orphaned session_messages
         let _ = db.execute(
             "DELETE FROM session_messages WHERE session_id NOT IN (SELECT id FROM sessions)",

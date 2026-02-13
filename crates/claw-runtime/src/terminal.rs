@@ -21,10 +21,10 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 /// Maximum output buffer size per terminal (256 KB).
 const MAX_OUTPUT_BYTES: usize = 256 * 1024;
@@ -309,7 +309,12 @@ pub async fn terminal_open(label: &str, working_dir: Option<&str>) -> io::Result
         },
     );
 
-    info!(terminal_id = id, pid = child_pid, label = label, "opened terminal session");
+    info!(
+        terminal_id = id,
+        pid = child_pid,
+        label = label,
+        "opened terminal session"
+    );
 
     // If a working directory was specified, cd into it
     if let Some(dir) = working_dir {
@@ -354,17 +359,24 @@ pub async fn terminal_input(id: u32, text: &str, timeout_ms: u64) -> io::Result<
 /// Detects repeated views with no change to prevent polling loops.
 pub async fn terminal_view(id: u32, lines: usize) -> io::Result<String> {
     let mgr = TERMINAL_REGISTRY.lock().await;
-    let session = mgr
-        .sessions
-        .get(&id)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("terminal {id} not found")))?;
+    let session = mgr.sessions.get(&id).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, format!("terminal {id} not found"))
+    })?;
 
-    let status = if session.is_alive() { "alive" } else { "exited" };
+    let status = if session.is_alive() {
+        "alive"
+    } else {
+        "exited"
+    };
 
     // Check if meaningful data arrived since last view (not just spinners).
     // This is reliable because it checks raw buffer bytes, not a hash of
     // a sliding window that shifts as the buffer grows.
-    let has_new_meaningful = session.output.lock().await.has_meaningful_new_data_since_view();
+    let has_new_meaningful = session
+        .output
+        .lock()
+        .await
+        .has_meaningful_new_data_since_view();
     let text = session.output.lock().await.get_last_n_lines(lines);
 
     drop(mgr);
@@ -382,10 +394,9 @@ pub async fn terminal_view(id: u32, lines: usize) -> io::Result<String> {
 /// Close a terminal session (sends SIGHUP, closes master fd).
 pub async fn terminal_close(id: u32) -> io::Result<String> {
     let mut mgr = TERMINAL_REGISTRY.lock().await;
-    let session = mgr
-        .sessions
-        .remove(&id)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("terminal {id} not found")))?;
+    let session = mgr.sessions.remove(&id).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, format!("terminal {id} not found"))
+    })?;
 
     let label = session.label.clone();
     let pid = session.child_pid;
@@ -432,10 +443,9 @@ pub struct TerminalInfo {
 /// Write raw bytes to a terminal's master fd.
 async fn terminal_write_raw(id: u32, text: &str) -> io::Result<()> {
     let mgr = TERMINAL_REGISTRY.lock().await;
-    let session = mgr
-        .sessions
-        .get(&id)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("terminal {id} not found")))?;
+    let session = mgr.sessions.get(&id).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, format!("terminal {id} not found"))
+    })?;
 
     if !session.is_alive() {
         return Err(io::Error::new(
@@ -487,10 +497,9 @@ async fn terminal_write_raw(id: u32, text: &str) -> io::Result<()> {
 /// Wait for terminal output to settle (no new data for SETTLE_MS) or until timeout.
 async fn wait_for_output(id: u32, timeout_ms: u64) -> io::Result<String> {
     let mgr = TERMINAL_REGISTRY.lock().await;
-    let session = mgr
-        .sessions
-        .get(&id)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("terminal {id} not found")))?;
+    let session = mgr.sessions.get(&id).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, format!("terminal {id} not found"))
+    })?;
     let output = Arc::clone(&session.output);
     let _alive = session.is_alive();
     let exited = Arc::clone(&session.exited);
@@ -535,10 +544,7 @@ async fn wait_for_output(id: u32, timeout_ms: u64) -> io::Result<String> {
         }
 
         let before_len = output.lock().await.len();
-        let wait_time = std::cmp::min(
-            SETTLE_MS,
-            (deadline - elapsed).as_millis() as u64,
-        );
+        let wait_time = std::cmp::min(SETTLE_MS, (deadline - elapsed).as_millis() as u64);
         tokio::time::sleep(std::time::Duration::from_millis(wait_time)).await;
         let after_len = output.lock().await.len();
 
@@ -553,7 +559,10 @@ async fn wait_for_output(id: u32, timeout_ms: u64) -> io::Result<String> {
     let status = if exited.load(Ordering::Relaxed) {
         "[process exited]\n"
     } else if timed_out {
-        &format!("[timed out after {}s — process still running, use terminal_view to check later]\n", timeout_ms / 1000)
+        &format!(
+            "[timed out after {}s — process still running, use terminal_view to check later]\n",
+            timeout_ms / 1000
+        )
     } else {
         ""
     };
@@ -577,7 +586,9 @@ fn clean_terminal_output(s: &str) -> String {
     for line in s.lines() {
         // A "spinner line" is one that's only Braille dots + whitespace
         let is_spinner = !line.is_empty()
-            && line.chars().all(|c| ('\u{2800}'..='\u{28FF}').contains(&c) || c.is_whitespace());
+            && line
+                .chars()
+                .all(|c| ('\u{2800}'..='\u{28FF}').contains(&c) || c.is_whitespace());
         if is_spinner {
             spinner_run += 1;
         } else {
@@ -586,7 +597,8 @@ fn clean_terminal_output(s: &str) -> String {
                 spinner_run = 0;
             }
             // Also strip any inline Braille spinners (e.g. "⠙⠹⠸ added 357 packages")
-            let cleaned: String = line.chars()
+            let cleaned: String = line
+                .chars()
                 .filter(|c| !('\u{2800}'..='\u{28FF}').contains(c))
                 .collect();
             result.push(cleaned);
@@ -681,7 +693,11 @@ pub async fn cleanup_all_terminals() {
                 libc::kill(session.child_pid as i32, libc::SIGHUP);
                 libc::close(session.master_fd);
             }
-            info!(terminal_id = id, pid = session.child_pid, "cleaned up terminal on shutdown");
+            info!(
+                terminal_id = id,
+                pid = session.child_pid,
+                "cleaned up terminal on shutdown"
+            );
         }
     }
 }
@@ -698,10 +714,7 @@ mod tests {
         assert_eq!(strip_ansi_codes("hello world"), "hello world");
 
         // Color codes are stripped
-        assert_eq!(
-            strip_ansi_codes("\x1b[32mgreen\x1b[0m text"),
-            "green text"
-        );
+        assert_eq!(strip_ansi_codes("\x1b[32mgreen\x1b[0m text"), "green text");
 
         // Bold, underline, etc.
         assert_eq!(strip_ansi_codes("\x1b[1mbold\x1b[22m"), "bold");
@@ -710,10 +723,7 @@ mod tests {
         assert_eq!(strip_ansi_codes("\x1b[2Jhello"), "hello");
 
         // OSC (title setting) sequences
-        assert_eq!(
-            strip_ansi_codes("\x1b]0;My Title\x07hello"),
-            "hello"
-        );
+        assert_eq!(strip_ansi_codes("\x1b]0;My Title\x07hello"), "hello");
 
         // Carriage returns are stripped
         assert_eq!(strip_ansi_codes("line1\r\nline2"), "line1\nline2");
@@ -759,13 +769,18 @@ mod tests {
         buf.push(b"line1\nline2\nline3\nline4\nline5\n");
 
         assert_eq!(buf.get_last_n_lines(2), "line4\nline5");
-        assert_eq!(buf.get_last_n_lines(10), "line1\nline2\nline3\nline4\nline5");
+        assert_eq!(
+            buf.get_last_n_lines(10),
+            "line1\nline2\nline3\nline4\nline5"
+        );
     }
 
     #[tokio::test]
     async fn test_terminal_open_close() {
         // Open a terminal
-        let (id, _initial) = terminal_open("test-terminal", None).await.expect("open failed");
+        let (id, _initial) = terminal_open("test-terminal", None)
+            .await
+            .expect("open failed");
         assert!(id > 0);
 
         // List should show it

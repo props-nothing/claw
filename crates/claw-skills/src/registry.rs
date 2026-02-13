@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 use crate::definition::SkillDefinition;
 
@@ -54,7 +54,11 @@ impl SkillRegistry {
             }
 
             let entries = std::fs::read_dir(&dir).map_err(|e| {
-                claw_core::ClawError::Agent(format!("failed to read skills dir {}: {}", dir.display(), e))
+                claw_core::ClawError::Agent(format!(
+                    "failed to read skills dir {}: {}",
+                    dir.display(),
+                    e
+                ))
             })?;
 
             for entry in entries {
@@ -172,7 +176,10 @@ impl SkillRegistry {
 
     /// Get the primary skills directory (first in list).
     pub fn skills_dir(&self) -> &Path {
-        self.skills_dirs.first().map(|p| p.as_path()).unwrap_or(Path::new("."))
+        self.skills_dirs
+            .first()
+            .map(|p| p.as_path())
+            .unwrap_or(Path::new("."))
     }
 }
 

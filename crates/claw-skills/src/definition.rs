@@ -79,9 +79,10 @@ impl SkillDefinition {
             return Err(claw_core::ClawError::Agent("skill name is empty".into()));
         }
         if def.description.is_empty() {
-            return Err(claw_core::ClawError::Agent(
-                format!("skill '{}' has no description", def.name),
-            ));
+            return Err(claw_core::ClawError::Agent(format!(
+                "skill '{}' has no description",
+                def.name
+            )));
         }
 
         Ok(def)
@@ -233,7 +234,8 @@ When testing the skill parser.
 
     #[test]
     fn parse_with_base_dir_replacement() {
-        let content = "---\nname: templates\ndescription: Has base dir\n---\n\nRead {baseDir}/data.json";
+        let content =
+            "---\nname: templates\ndescription: Has base dir\n---\n\nRead {baseDir}/data.json";
         let def = SkillDefinition::parse(
             content,
             PathBuf::from("/skills/templates/SKILL.md"),
@@ -248,34 +250,40 @@ When testing the skill parser.
     #[test]
     fn missing_frontmatter_errors() {
         let content = "# No frontmatter\nJust markdown.";
-        assert!(SkillDefinition::parse(
-            content,
-            PathBuf::from("/tmp/SKILL.md"),
-            PathBuf::from("/tmp"),
-        )
-        .is_err());
+        assert!(
+            SkillDefinition::parse(
+                content,
+                PathBuf::from("/tmp/SKILL.md"),
+                PathBuf::from("/tmp"),
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn missing_name_errors() {
         let content = "---\ndescription: No name\n---\nBody.";
-        assert!(SkillDefinition::parse(
-            content,
-            PathBuf::from("/tmp/SKILL.md"),
-            PathBuf::from("/tmp"),
-        )
-        .is_err());
+        assert!(
+            SkillDefinition::parse(
+                content,
+                PathBuf::from("/tmp/SKILL.md"),
+                PathBuf::from("/tmp"),
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn missing_description_errors() {
         let content = "---\nname: no-desc\n---\nBody.";
-        assert!(SkillDefinition::parse(
-            content,
-            PathBuf::from("/tmp/SKILL.md"),
-            PathBuf::from("/tmp"),
-        )
-        .is_err());
+        assert!(
+            SkillDefinition::parse(
+                content,
+                PathBuf::from("/tmp/SKILL.md"),
+                PathBuf::from("/tmp"),
+            )
+            .is_err()
+        );
     }
 
     #[test]
