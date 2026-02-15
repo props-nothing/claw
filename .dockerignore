@@ -1,0 +1,9 @@
+target/
+.git/
+dist/
+.DS_Store
+.vscode/
+.idea/
+*.md
+!skills/**/*.md
+!examples/**/*.md

@@ -27,8 +27,10 @@ RUN apt-get update && apt-get install -y \
 
 # Cache dependencies — copy manifests first, build a dummy, then copy real source
 COPY Cargo.toml Cargo.lock ./
-COPY claw-bin/Cargo.toml claw-bin/
+COPY claw-bin/ claw-bin/
 COPY crates/ crates/
+COPY skills/ skills/
+COPY web/ web/
 
 # Build
 RUN cargo build --release --bin claw \
