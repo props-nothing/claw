@@ -60,6 +60,12 @@ pub struct AndroidBridge {
     active_device: Option<String>,
 }
 
+impl Default for AndroidBridge {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AndroidBridge {
     pub fn new() -> Self {
         Self {
@@ -246,8 +252,8 @@ impl AndroidBridge {
 
     /// Tap at screen coordinates.
     pub async fn tap(&self, x: u32, y: u32) -> claw_core::Result<String> {
-        self.shell(&format!("input tap {} {}", x, y)).await?;
-        Ok(format!("tapped ({}, {})", x, y))
+        self.shell(&format!("input tap {x} {y}")).await?;
+        Ok(format!("tapped ({x}, {y})"))
     }
 
     /// Swipe from one point to another.
@@ -259,14 +265,10 @@ impl AndroidBridge {
         y2: u32,
         duration_ms: u32,
     ) -> claw_core::Result<String> {
-        self.shell(&format!(
-            "input swipe {} {} {} {} {}",
-            x1, y1, x2, y2, duration_ms
-        ))
-        .await?;
+        self.shell(&format!("input swipe {x1} {y1} {x2} {y2} {duration_ms}"))
+            .await?;
         Ok(format!(
-            "swiped ({},{}) → ({},{}) over {}ms",
-            x1, y1, x2, y2, duration_ms
+            "swiped ({x1},{y1}) → ({x2},{y2}) over {duration_ms}ms"
         ))
     }
 
@@ -277,7 +279,7 @@ impl AndroidBridge {
             .replace(' ', "%s")
             .replace('&', "\\&")
             .replace('\'', "\\'");
-        self.shell(&format!("input text '{}'", escaped)).await?;
+        self.shell(&format!("input text '{escaped}'")).await?;
         Ok(format!("typed {} chars", text.len()))
     }
 
@@ -297,8 +299,8 @@ impl AndroidBridge {
             "escape" | "esc" => "KEYCODE_ESCAPE",
             other => other, // Pass through raw keycode
         };
-        self.shell(&format!("input keyevent {}", keycode)).await?;
-        Ok(format!("pressed {}", key))
+        self.shell(&format!("input keyevent {keycode}")).await?;
+        Ok(format!("pressed {key}"))
     }
 
     /// Install an APK.
@@ -311,17 +313,16 @@ impl AndroidBridge {
     pub async fn launch_app(&self, package: &str) -> claw_core::Result<String> {
         let _output = self
             .shell(&format!(
-                "monkey -p {} -c android.intent.category.LAUNCHER 1",
-                package
+                "monkey -p {package} -c android.intent.category.LAUNCHER 1"
             ))
             .await?;
-        Ok(format!("launched {}", package))
+        Ok(format!("launched {package}"))
     }
 
     /// Force stop an app.
     pub async fn stop_app(&self, package: &str) -> claw_core::Result<String> {
-        self.shell(&format!("am force-stop {}", package)).await?;
-        Ok(format!("stopped {}", package))
+        self.shell(&format!("am force-stop {package}")).await?;
+        Ok(format!("stopped {package}"))
     }
 
     /// List installed packages.

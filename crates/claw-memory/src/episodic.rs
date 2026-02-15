@@ -25,6 +25,12 @@ pub struct EpisodicMemory {
     db: Option<Arc<Mutex<Connection>>>,
 }
 
+impl Default for EpisodicMemory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EpisodicMemory {
     pub fn new() -> Self {
         Self {
@@ -100,31 +106,29 @@ impl EpisodicMemory {
             .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
 
         let mut count = 0;
-        for row in rows {
-            if let Ok((id_str, session_str, summary, outcome, tags_str, created_str, updated_str)) =
-                row
-            {
-                let id = id_str.parse::<Uuid>().unwrap_or_else(|_| Uuid::new_v4());
-                let session_id = session_str.parse::<Uuid>().unwrap_or_else(|_| Uuid::nil());
-                let tags: Vec<String> = serde_json::from_str(&tags_str).unwrap_or_default();
-                let created_at = chrono::DateTime::parse_from_rfc3339(&created_str)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .unwrap_or_else(|_| Utc::now());
-                let updated_at = chrono::DateTime::parse_from_rfc3339(&updated_str)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .unwrap_or_else(|_| Utc::now());
+        for (id_str, session_str, summary, outcome, tags_str, created_str, updated_str) in
+            rows.flatten()
+        {
+            let id = id_str.parse::<Uuid>().unwrap_or_else(|_| Uuid::new_v4());
+            let session_id = session_str.parse::<Uuid>().unwrap_or_else(|_| Uuid::nil());
+            let tags: Vec<String> = serde_json::from_str(&tags_str).unwrap_or_default();
+            let created_at = chrono::DateTime::parse_from_rfc3339(&created_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
+            let updated_at = chrono::DateTime::parse_from_rfc3339(&updated_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
 
-                self.recent.push(Episode {
-                    id,
-                    session_id,
-                    summary,
-                    outcome,
-                    tags,
-                    created_at,
-                    updated_at,
-                });
-                count += 1;
-            }
+            self.recent.push(Episode {
+                id,
+                session_id,
+                summary,
+                outcome,
+                tags,
+                created_at,
+                updated_at,
+            });
+            count += 1;
         }
         // Reverse so oldest is first (we loaded DESC)
         self.recent.reverse();

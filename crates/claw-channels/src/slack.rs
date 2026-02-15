@@ -117,7 +117,7 @@ impl Channel for SlackChannel {
 
         let resp = self
             .client
-            .post(format!("{}/chat.postMessage", SLACK_API_BASE))
+            .post(format!("{SLACK_API_BASE}/chat.postMessage"))
             .header("Authorization", format!("Bearer {}", self.bot_token))
             .header("Content-Type", "application/json")
             .json(&body)
@@ -125,7 +125,7 @@ impl Channel for SlackChannel {
             .await
             .map_err(|e| claw_core::ClawError::Channel {
                 channel: "slack".into(),
-                reason: format!("HTTP error: {}", e),
+                reason: format!("HTTP error: {e}"),
             })?;
 
         let data: Value = resp.json().await.unwrap_or_default();
@@ -134,7 +134,7 @@ impl Channel for SlackChannel {
             warn!(error = %err, "Slack API error sending message");
             return Err(claw_core::ClawError::Channel {
                 channel: "slack".into(),
-                reason: format!("Slack API error: {}", err),
+                reason: format!("Slack API error: {err}"),
             });
         }
 
@@ -152,7 +152,7 @@ impl Channel for SlackChannel {
 
         let resp = self
             .client
-            .post(format!("{}/chat.postMessage", SLACK_API_BASE))
+            .post(format!("{SLACK_API_BASE}/chat.postMessage"))
             .header("Authorization", format!("Bearer {}", self.bot_token))
             .header("Content-Type", "application/json")
             .json(&body)
@@ -160,7 +160,7 @@ impl Channel for SlackChannel {
             .await
             .map_err(|e| claw_core::ClawError::Channel {
                 channel: "slack".into(),
-                reason: format!("HTTP error: {}", e),
+                reason: format!("HTTP error: {e}"),
             })?;
 
         let data: Value = resp.json().await.unwrap_or_default();
@@ -168,7 +168,7 @@ impl Channel for SlackChannel {
             let err = data["error"].as_str().unwrap_or("unknown");
             return Err(claw_core::ClawError::Channel {
                 channel: "slack".into(),
-                reason: format!("Slack API error: {}", err),
+                reason: format!("Slack API error: {err}"),
             });
         }
 
@@ -189,7 +189,7 @@ impl Channel for SlackChannel {
 
         let _ = self
             .client
-            .post(format!("{}/chat.update", SLACK_API_BASE))
+            .post(format!("{SLACK_API_BASE}/chat.update"))
             .header("Authorization", format!("Bearer {}", self.bot_token))
             .header("Content-Type", "application/json")
             .json(&body)
@@ -221,8 +221,8 @@ impl Channel for SlackChannel {
 /// Fetch the bot's own user ID via auth.test.
 async fn fetch_bot_user_id(client: &reqwest::Client, bot_token: &str) -> Option<String> {
     let resp = client
-        .post(format!("{}/auth.test", SLACK_API_BASE))
-        .header("Authorization", format!("Bearer {}", bot_token))
+        .post(format!("{SLACK_API_BASE}/auth.test"))
+        .header("Authorization", format!("Bearer {bot_token}"))
         .send()
         .await
         .ok()?;
@@ -232,6 +232,7 @@ async fn fetch_bot_user_id(client: &reqwest::Client, bot_token: &str) -> Option<
 }
 
 /// Socket Mode loop: opens a WebSocket to Slack for real-time event delivery.
+#[allow(clippy::too_many_arguments)]
 async fn slack_socket_mode_loop(
     app_token: String,
     _bot_token: String,
@@ -295,7 +296,7 @@ async fn slack_socket_mode_loop(
                 }
                 _ = ping_timer.tick() => {
                     let _ = write.send(
-                        tokio_tungstenite::tungstenite::Message::Ping(vec![].into())
+                        tokio_tungstenite::tungstenite::Message::Ping(vec![])
                     ).await;
                 }
                 msg = read.next() => {
@@ -320,7 +321,7 @@ async fn slack_socket_mode_loop(
                             if let Some(envelope_id) = payload["envelope_id"].as_str() {
                                 let ack = json!({ "envelope_id": envelope_id });
                                 let _ = write.send(
-                                    tokio_tungstenite::tungstenite::Message::Text(ack.to_string().into())
+                                    tokio_tungstenite::tungstenite::Message::Text(ack.to_string())
                                 ).await;
                             }
 
@@ -357,7 +358,7 @@ async fn slack_socket_mode_loop(
                                             let is_mention = {
                                                 let lock = bot_user_id.read().await;
                                                 lock.as_ref()
-                                                    .map(|my_id| text.contains(&format!("<@{}>", my_id)))
+                                                    .map(|my_id| text.contains(&format!("<@{my_id}>")))
                                                     .unwrap_or(false)
                                             };
 
@@ -464,8 +465,8 @@ async fn slack_socket_mode_loop(
 /// Request a Socket Mode WebSocket URL via apps.connections.open.
 async fn request_socket_mode_url(client: &reqwest::Client, app_token: &str) -> Option<String> {
     let resp = client
-        .post(format!("{}/apps.connections.open", SLACK_API_BASE))
-        .header("Authorization", format!("Bearer {}", app_token))
+        .post(format!("{SLACK_API_BASE}/apps.connections.open"))
+        .header("Authorization", format!("Bearer {app_token}"))
         .header("Content-Type", "application/x-www-form-urlencoded")
         .send()
         .await

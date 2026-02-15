@@ -37,7 +37,7 @@ mod tests {
         fn test_cap_at_100() {
             let mut mem = EpisodicMemory::new();
             for i in 0..110 {
-                mem.record(make_episode(&format!("episode {}", i), vec![]));
+                mem.record(make_episode(&format!("episode {i}"), vec![]));
             }
             let recent = mem.recent(200);
             assert_eq!(recent.len(), 100);
@@ -241,7 +241,7 @@ mod tests {
             let sid = Uuid::new_v4();
             // Push exactly 4 messages
             for i in 0..4 {
-                wm.push(Message::text(sid, Role::User, &format!("msg {}", i)));
+                wm.push(Message::text(sid, Role::User, format!("msg {i}")));
             }
             let result = wm.compact(sid);
             // Compaction should NOT reduce below 4
@@ -254,7 +254,7 @@ mod tests {
             let mut wm = WorkingMemory::new();
             let sid = Uuid::new_v4();
             for i in 0..20 {
-                wm.push(Message::text(sid, Role::User, &format!("message {}", i)));
+                wm.push(Message::text(sid, Role::User, format!("message {i}")));
             }
             assert_eq!(wm.messages(sid).len(), 20);
             let summary = wm.compact(sid);
@@ -309,7 +309,7 @@ mod tests {
                 )
                 .unwrap();
             // At least episodes, facts, goals, goal_steps, audit_log
-            assert!(count >= 5, "expected at least 5 tables, got {}", count);
+            assert!(count >= 5, "expected at least 5 tables, got {count}");
         }
 
         #[test]

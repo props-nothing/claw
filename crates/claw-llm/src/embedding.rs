@@ -72,20 +72,19 @@ impl EmbeddingProvider for OpenAiEmbedding {
             .send()
             .await
             .map_err(|e| {
-                claw_core::ClawError::LlmProvider(format!("embedding request failed: {}", e))
+                claw_core::ClawError::LlmProvider(format!("embedding request failed: {e}"))
             })?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             return Err(claw_core::ClawError::LlmProvider(format!(
-                "embedding HTTP {}: {}",
-                status, text
+                "embedding HTTP {status}: {text}"
             )));
         }
 
         let data: serde_json::Value = resp.json().await.map_err(|e| {
-            claw_core::ClawError::LlmProvider(format!("embedding parse error: {}", e))
+            claw_core::ClawError::LlmProvider(format!("embedding parse error: {e}"))
         })?;
 
         let embeddings: Vec<Vec<f32>> = data["data"]
@@ -157,15 +156,12 @@ impl EmbeddingProvider for OllamaEmbedding {
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| {
-                    claw_core::ClawError::LlmProvider(format!("ollama embedding: {}", e))
-                })?;
+                .map_err(|e| claw_core::ClawError::LlmProvider(format!("ollama embedding: {e}")))?;
 
             if !resp.status().is_success() {
                 let text = resp.text().await.unwrap_or_default();
                 return Err(claw_core::ClawError::LlmProvider(format!(
-                    "ollama embedding error: {}",
-                    text
+                    "ollama embedding error: {text}"
                 )));
             }
 

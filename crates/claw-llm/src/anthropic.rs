@@ -188,8 +188,7 @@ impl LlmProvider for AnthropicProvider {
                 });
             }
             return Err(claw_core::ClawError::LlmProvider(format!(
-                "HTTP {}: {}",
-                status, text
+                "HTTP {status}: {text}"
             )));
         }
 
@@ -290,7 +289,7 @@ impl LlmProvider for AnthropicProvider {
 
         tokio::spawn(async move {
             let resp = client
-                .post(format!("{}/messages", base_url))
+                .post(format!("{base_url}/messages"))
                 .header("x-api-key", &api_key)
                 .header("anthropic-version", "2024-10-22")
                 .header("content-type", "application/json")

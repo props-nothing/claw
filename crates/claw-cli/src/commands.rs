@@ -373,12 +373,12 @@ impl Cli {
                 eprintln!("⚠️  No LLM API keys found. The agent won't be able to think.");
                 eprintln!();
                 if model.starts_with("anthropic/") {
-                    eprintln!("   Your model is '{}'. Set your key:", model);
+                    eprintln!("   Your model is '{model}'. Set your key:");
                     eprintln!("   In claw.toml:  [services]");
                     eprintln!("                  anthropic_api_key = \"sk-ant-...\"");
                     eprintln!("   Or env var:    export ANTHROPIC_API_KEY=sk-ant-...");
                 } else if model.starts_with("openai/") {
-                    eprintln!("   Your model is '{}'. Set your key:", model);
+                    eprintln!("   Your model is '{model}'. Set your key:");
                     eprintln!("   In claw.toml:  [services]");
                     eprintln!("                  openai_api_key = \"sk-...\"");
                     eprintln!("   Or env var:    export OPENAI_API_KEY=sk-...");
@@ -438,7 +438,7 @@ impl Cli {
                         .with_dm_policy(dm_policy)
                         .with_allow_from(allow_from);
                     runtime.add_channel(Box::new(channel));
-                    println!("   📱 WhatsApp: enabled (dm_policy={})", dm_policy_str);
+                    println!("   📱 WhatsApp: enabled (dm_policy={dm_policy_str})");
                     println!("      Link your phone: claw channels login whatsapp");
                 }
                 "discord" => {
@@ -624,14 +624,14 @@ impl Cli {
                                     eprint!("\x1b[32mclaw>\x1b[0m ");
                                     got_text = true;
                                 }
-                                print!("{}", content);
+                                print!("{content}");
                                 std::io::stdout().flush().ok();
                             }
                             StreamEvent::Thinking { content } => {
-                                eprint!("\x1b[90m💭 {}\x1b[0m", content);
+                                eprint!("\x1b[90m💭 {content}\x1b[0m");
                             }
                             StreamEvent::ToolCall { name, id: _, .. } => {
-                                eprintln!("\x1b[33m🔧 Calling tool: {}\x1b[0m", name);
+                                eprintln!("\x1b[33m🔧 Calling tool: {name}\x1b[0m");
                             }
                             StreamEvent::ToolResult {
                                 id: _,
@@ -660,13 +660,13 @@ impl Cli {
                             } => {
                                 println!();
                                 println!("\x1b[33m⚠️  APPROVAL REQUIRED\x1b[0m");
-                                println!("   🔧 Tool: \x1b[1m{}\x1b[0m", tool_name);
-                                println!("   ⚡ Risk: {}/10", risk_level);
-                                println!("   📋 Reason: {}", reason);
+                                println!("   🔧 Tool: \x1b[1m{tool_name}\x1b[0m");
+                                println!("   ⚡ Risk: {risk_level}/10");
+                                println!("   📋 Reason: {reason}");
                                 let args_pretty = serde_json::to_string_pretty(&tool_args)
                                     .unwrap_or_else(|_| tool_args.to_string());
                                 let args_short = truncate_output(&args_pretty, 300);
-                                println!("\x1b[90m   {}\x1b[0m", args_short);
+                                println!("\x1b[90m   {args_short}\x1b[0m");
                                 println!();
                                 eprint!("\x1b[33m   Approve? [y/n]>\x1b[0m ");
                                 std::io::stderr().flush().ok();
@@ -683,7 +683,7 @@ impl Cli {
                                                         eprintln!("\x1b[32m   ✅ Approved\x1b[0m")
                                                     }
                                                     Err(e) => {
-                                                        eprintln!("\x1b[31m   ❌ {}\x1b[0m", e)
+                                                        eprintln!("\x1b[31m   ❌ {e}\x1b[0m")
                                                     }
                                                 }
                                             } else {
@@ -692,7 +692,7 @@ impl Cli {
                                                         eprintln!("\x1b[31m   ❌ Denied\x1b[0m")
                                                     }
                                                     Err(e) => {
-                                                        eprintln!("\x1b[31m   ❌ {}\x1b[0m", e)
+                                                        eprintln!("\x1b[31m   ❌ {e}\x1b[0m")
                                                     }
                                                 }
                                             }
@@ -713,12 +713,11 @@ impl Cli {
                                 cost_usd,
                             } => {
                                 eprintln!(
-                                    "\n\x1b[90m   [{} in / {} out, ${:.4}]\x1b[0m",
-                                    input_tokens, output_tokens, cost_usd
+                                    "\n\x1b[90m   [{input_tokens} in / {output_tokens} out, ${cost_usd:.4}]\x1b[0m"
                                 );
                             }
                             StreamEvent::Error { message } => {
-                                println!("\x1b[31m❌ Error: {}\x1b[0m", message);
+                                println!("\x1b[31m❌ Error: {message}\x1b[0m");
                             }
                             StreamEvent::Done => {
                                 if got_text {
@@ -730,7 +729,7 @@ impl Cli {
                     }
                 }
                 Err(e) => {
-                    println!("\x1b[31m❌ {}\x1b[0m", e);
+                    println!("\x1b[31m❌ {e}\x1b[0m");
                 }
             }
             println!();
@@ -741,14 +740,14 @@ impl Cli {
 
     async fn cmd_status(config: claw_config::ClawConfig) -> claw_core::Result<()> {
         let listen = &config.server.listen;
-        println!("Checking status at http://{}...", listen);
+        println!("Checking status at http://{listen}...");
 
         let client = reqwest::Client::builder()
             .tcp_keepalive(None)
             .build()
             .unwrap_or_default();
         match client
-            .get(format!("http://{}/api/v1/status", listen))
+            .get(format!("http://{listen}/api/v1/status"))
             .send()
             .await
         {
@@ -760,7 +759,7 @@ impl Cli {
                 println!("{}", serde_json::to_string_pretty(&data).unwrap());
             }
             Err(_) => {
-                println!("❌ Agent is not running at {}", listen);
+                println!("❌ Agent is not running at {listen}");
             }
         }
         Ok(())
@@ -808,12 +807,12 @@ impl Cli {
                 registry
                     .install(&name, version.as_deref(), &config.plugins.plugin_dir)
                     .await?;
-                println!("✅ Installed {}", name);
+                println!("✅ Installed {name}");
             }
             PluginAction::Uninstall { name } => {
                 let mut host = claw_plugin::PluginHost::new(&config.plugins.plugin_dir)?;
                 host.uninstall(&name)?;
-                println!("✅ Uninstalled {}", name);
+                println!("✅ Uninstalled {name}");
             }
             PluginAction::Search { query } => match registry.search(&query).await {
                 Ok(results) => {
@@ -825,7 +824,7 @@ impl Cli {
                     }
                 }
                 Err(e) => {
-                    println!("Search failed: {}", e);
+                    println!("Search failed: {e}");
                 }
             },
             PluginAction::Info { name } => {
@@ -842,10 +841,10 @@ impl Cli {
                             println!("  Authors: {}", manifest.plugin.authors.join(", "));
                         }
                         if let Some(ref license) = manifest.plugin.license {
-                            println!("  License: {}", license);
+                            println!("  License: {license}");
                         }
                         if let Some(ref homepage) = manifest.plugin.homepage {
-                            println!("  Homepage: {}", homepage);
+                            println!("  Homepage: {homepage}");
                         }
                         if let Some(ref checksum) = manifest.plugin.checksum {
                             println!("  Checksum: {}", &checksum[..checksum.len().min(16)]);
@@ -882,7 +881,7 @@ impl Cli {
                         }
                     }
                     None => {
-                        println!("Plugin '{}' not found. Is it installed?", name);
+                        println!("Plugin '{name}' not found. Is it installed?");
                     }
                 }
             }
@@ -924,8 +923,7 @@ description = "Say hello"
 parameters = {{ "type": "object", "properties": {{ "name": {{ "type": "string" }} }} }}
 risk_level = 0
 is_mutating = false
-"#,
-            name = name
+"#
         );
         std::fs::write(project_dir.join("plugin.toml"), manifest)?;
 
@@ -942,8 +940,7 @@ crate-type = ["cdylib"]
 [dependencies]
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
-"#,
-            name = name
+"#
         );
         std::fs::write(project_dir.join("Cargo.toml"), cargo_toml)?;
 
@@ -1054,7 +1051,7 @@ fn write_response(json: &str) -> u64 {
                     println!("\x1b[1m{}\x1b[0m v{}", skill.name, skill.version);
                     println!("  {}", skill.description);
                     if let Some(ref author) = skill.author {
-                        println!("  Author: {}", author);
+                        println!("  Author: {author}");
                     }
                     if !skill.tags.is_empty() {
                         println!("  Tags: {}", skill.tags.join(", "));
@@ -1063,16 +1060,16 @@ fn write_response(json: &str) -> u64 {
 
                     println!("\n  \x1b[1mInstructions:\x1b[0m");
                     for line in skill.body.lines() {
-                        println!("    {}", line);
+                        println!("    {line}");
                     }
                 }
                 None => {
-                    println!("Skill '{}' not found.", name);
+                    println!("Skill '{name}' not found.");
                 }
             },
             SkillAction::Run { name, param: _ } => match registry.get(&name) {
                 Some(skill) => {
-                    println!("📖 Skill '{}' — SKILL.md instructions:\n", name);
+                    println!("📖 Skill '{name}' — SKILL.md instructions:\n");
                     println!("{}", skill.body);
                     println!("\n\x1b[33mNote:\x1b[0m Skills are now prompt-injected instructions.");
                     println!(
@@ -1081,7 +1078,7 @@ fn write_response(json: &str) -> u64 {
                     println!("Start the agent with 'claw start' and ask it to use this skill.");
                 }
                 None => {
-                    println!("Skill '{}' not found.", name);
+                    println!("Skill '{name}' not found.");
                 }
             },
             SkillAction::Create { name } => {
@@ -1121,8 +1118,7 @@ Describe when this skill should be activated.
 
 - Add any important notes or caveats here
 - Reference files in this skill directory with {{baseDir}}
-"#,
-                    name = name
+"#
                 );
 
                 std::fs::write(&skill_path, template)?;
@@ -1139,9 +1135,9 @@ Describe when this skill should be activated.
                 } else {
                     // Try removing from registry
                     if registry.remove(&name) {
-                        println!("✅ Removed skill '{}' from registry", name);
+                        println!("✅ Removed skill '{name}' from registry");
                     } else {
-                        println!("Skill '{}' not found.", name);
+                        println!("Skill '{name}' not found.");
                     }
                 }
             }
@@ -1157,7 +1153,7 @@ Describe when this skill should be activated.
                 // Read the local SKILL.md and push it to the hub
                 let skill = registry.get(&name).ok_or_else(|| {
                     claw_core::ClawError::Agent(
-                        format!("Skill '{}' not found locally. Use 'claw skill list' to see available skills.", name),
+                        format!("Skill '{name}' not found locally. Use 'claw skill list' to see available skills."),
                     )
                 })?;
 
@@ -1168,7 +1164,7 @@ Describe when this skill should be activated.
                     .tcp_keepalive(None)
                     .build()
                     .unwrap_or_default();
-                let url = format!("{}/api/v1/hub/skills", hub_url);
+                let url = format!("{hub_url}/api/v1/hub/skills");
 
                 let resp = client
                     .post(&url)
@@ -1178,8 +1174,7 @@ Describe when this skill should be activated.
                     .await
                     .map_err(|e| {
                         claw_core::ClawError::Agent(format!(
-                            "Cannot reach hub at {} — is it running? ({})",
-                            hub_url, e
+                            "Cannot reach hub at {hub_url} — is it running? ({e})"
                         ))
                     })?;
 
@@ -1198,8 +1193,7 @@ Describe when this skill should be activated.
                     let status = resp.status();
                     let body = resp.text().await.unwrap_or_default();
                     return Err(claw_core::ClawError::Agent(format!(
-                        "Hub returned {}: {}",
-                        status, body
+                        "Hub returned {status}: {body}"
                     )));
                 }
             }
@@ -1215,12 +1209,11 @@ Describe when this skill should be activated.
                     .tcp_keepalive(None)
                     .build()
                     .unwrap_or_default();
-                let url = format!("{}/api/v1/hub/skills/{}/pull", hub_url, name);
+                let url = format!("{hub_url}/api/v1/hub/skills/{name}/pull");
 
                 let resp = client.post(&url).send().await.map_err(|e| {
                     claw_core::ClawError::Agent(format!(
-                        "Cannot reach hub at {} — is it running? ({})",
-                        hub_url, e
+                        "Cannot reach hub at {hub_url} — is it running? ({e})"
                     ))
                 })?;
 
@@ -1228,8 +1221,7 @@ Describe when this skill should be activated.
                     let status = resp.status();
                     let body = resp.text().await.unwrap_or_default();
                     return Err(claw_core::ClawError::Agent(format!(
-                        "Hub returned {}: {}",
-                        status, body
+                        "Hub returned {status}: {body}"
                     )));
                 }
 
@@ -1267,23 +1259,21 @@ Describe when this skill should be activated.
                     .tcp_keepalive(None)
                     .build()
                     .unwrap_or_default();
-                let mut url = format!("{}/api/v1/hub/skills/search?q={}", hub_url, query);
+                let mut url = format!("{hub_url}/api/v1/hub/skills/search?q={query}");
                 if let Some(ref t) = tag {
-                    url.push_str(&format!("&tag={}", t));
+                    url.push_str(&format!("&tag={t}"));
                 }
 
                 let resp = client.get(&url).send().await.map_err(|e| {
                     claw_core::ClawError::Agent(format!(
-                        "Cannot reach hub at {} — is it running? ({})",
-                        hub_url, e
+                        "Cannot reach hub at {hub_url} — is it running? ({e})"
                     ))
                 })?;
 
                 if !resp.status().is_success() {
                     let status = resp.status();
                     return Err(claw_core::ClawError::Agent(format!(
-                        "Hub returned {}",
-                        status
+                        "Hub returned {status}"
                     )));
                 }
 
@@ -1311,9 +1301,9 @@ Describe when this skill should be activated.
                                 .map(|t| t.iter().filter_map(|v| v.as_str()).collect())
                                 .unwrap_or_default();
 
-                            println!("  📦 {} v{} (⬇ {})", name, ver, dl);
+                            println!("  📦 {name} v{ver} (⬇ {dl})");
                             if !desc.is_empty() {
-                                println!("     {}", desc);
+                                println!("     {desc}");
                             }
                             if !tags.is_empty() {
                                 println!("     tags: {}", tags.join(", "));
@@ -1323,7 +1313,7 @@ Describe when this skill should be activated.
                         println!("Pull a skill with: claw skill pull <name>");
                     }
                     _ => {
-                        println!("No skills found matching '{}' on {}", query, hub_url);
+                        println!("No skills found matching '{query}' on {hub_url}");
                     }
                 }
             }
@@ -1348,25 +1338,25 @@ Describe when this skill should be activated.
 
                 println!("🦞 Claw Skills Hub");
                 println!("   Database: {}", db_path.display());
-                println!("   Listening: http://{}", listen);
+                println!("   Listening: http://{listen}");
                 println!();
                 println!("   Remote agents should set in their claw.toml:");
                 println!("   [services]");
-                println!("   hub_url = \"http://{}\"", listen);
+                println!("   hub_url = \"http://{listen}\"");
                 println!();
 
                 let router = claw_server::hub::standalone_hub_router(&db_path)
-                    .map_err(|e| claw_core::ClawError::Agent(e))?;
+                    .map_err(claw_core::ClawError::Agent)?;
 
                 let listener = tokio::net::TcpListener::bind(&listen).await.map_err(|e| {
-                    claw_core::ClawError::Agent(format!("Failed to bind {}: {}", listen, e))
+                    claw_core::ClawError::Agent(format!("Failed to bind {listen}: {e}"))
                 })?;
 
                 println!("✅ Hub server started — press Ctrl+C to stop\n");
 
                 axum::serve(listener, router)
                     .await
-                    .map_err(|e| claw_core::ClawError::Agent(format!("Hub server error: {}", e)))?;
+                    .map_err(|e| claw_core::ClawError::Agent(format!("Hub server error: {e}")))?;
             }
         }
         Ok(())
@@ -1385,18 +1375,17 @@ Describe when this skill should be activated.
         let build_req = |url: &str| -> reqwest::RequestBuilder {
             let mut req = client.get(url);
             if let Some(ref key) = config.server.api_key {
-                req = req.header("Authorization", format!("Bearer {}", key));
+                req = req.header("Authorization", format!("Bearer {key}"));
             }
             req
         };
 
         match action {
             MeshAction::Status => {
-                let url = format!("http://{}/api/v1/mesh/status", listen);
+                let url = format!("http://{listen}/api/v1/mesh/status");
                 let resp = build_req(&url).send().await.map_err(|e| {
                     claw_core::ClawError::Agent(format!(
-                        "Cannot reach agent at {} — is it running? ({})",
-                        listen, e
+                        "Cannot reach agent at {listen} — is it running? ({e})"
                     ))
                 })?;
 
@@ -1450,11 +1439,10 @@ Describe when this skill should be activated.
                 }
             }
             MeshAction::Peers => {
-                let url = format!("http://{}/api/v1/mesh/peers", listen);
+                let url = format!("http://{listen}/api/v1/mesh/peers");
                 let resp = build_req(&url).send().await.map_err(|e| {
                     claw_core::ClawError::Agent(format!(
-                        "Cannot reach agent at {} — is it running? ({})",
-                        listen, e
+                        "Cannot reach agent at {listen} — is it running? ({e})"
                     ))
                 })?;
 
@@ -1481,7 +1469,7 @@ Describe when this skill should be activated.
                         println!("   enabled = true");
                     }
                 } else {
-                    println!("🕸️  Mesh Peers ({} connected)\n", count);
+                    println!("🕸️  Mesh Peers ({count} connected)\n");
                     if let Some(peers) = peers {
                         for peer in peers {
                             let id = peer["peer_id"].as_str().unwrap_or("?");
@@ -1491,8 +1479,8 @@ Describe when this skill should be activated.
                                 .as_array()
                                 .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
                                 .unwrap_or_default();
-                            println!("   📡 {}", id);
-                            println!("      Host: {} ({})", host, os);
+                            println!("   📡 {id}");
+                            println!("      Host: {host} ({os})");
                             println!(
                                 "      Capabilities: {}",
                                 if caps.is_empty() {
@@ -1507,7 +1495,7 @@ Describe when this skill should be activated.
                 }
             }
             MeshAction::Send { peer_id, message } => {
-                let url = format!("http://{}/api/v1/mesh/send", listen);
+                let url = format!("http://{listen}/api/v1/mesh/send");
                 let body = serde_json::json!({
                     "peer_id": peer_id,
                     "message": message,
@@ -1515,24 +1503,22 @@ Describe when this skill should be activated.
 
                 let mut req = client.post(&url).json(&body);
                 if let Some(ref key) = config.server.api_key {
-                    req = req.header("Authorization", format!("Bearer {}", key));
+                    req = req.header("Authorization", format!("Bearer {key}"));
                 }
 
                 let resp = req.send().await.map_err(|e| {
                     claw_core::ClawError::Agent(format!(
-                        "Cannot reach agent at {} — is it running? ({})",
-                        listen, e
+                        "Cannot reach agent at {listen} — is it running? ({e})"
                     ))
                 })?;
 
                 if resp.status().is_success() {
-                    println!("✅ Message sent to peer {}", peer_id);
+                    println!("✅ Message sent to peer {peer_id}");
                 } else {
                     let status = resp.status();
                     let body = resp.text().await.unwrap_or_default();
                     return Err(claw_core::ClawError::Agent(format!(
-                        "Failed to send message: {} — {}",
-                        status, body
+                        "Failed to send message: {status} — {body}"
                     )));
                 }
             }
@@ -1571,7 +1557,7 @@ Describe when this skill should be activated.
                         .find(|(_, c)| c.channel_type == "whatsapp")
                         .map(|(_, c)| c.dm_policy.as_str())
                         .unwrap_or("pairing");
-                    println!("   📱 WhatsApp:  {} (dm: {})", status, dm_policy);
+                    println!("   📱 WhatsApp:  {status} (dm: {dm_policy})");
                     if !wa_linked {
                         println!("      \x1b[90m→ Run: claw channels login whatsapp\x1b[0m");
                     }
@@ -1594,7 +1580,7 @@ Describe when this skill should be activated.
                     } else {
                         "\x1b[33m○ no token\x1b[0m"
                     };
-                    println!("   🤖 Telegram:  {}", status);
+                    println!("   🤖 Telegram:  {status}");
                 }
 
                 // Check Discord
@@ -1614,7 +1600,7 @@ Describe when this skill should be activated.
                     } else {
                         "\x1b[33m○ no token\x1b[0m"
                     };
-                    println!("   💬 Discord:   {}", status);
+                    println!("   💬 Discord:   {status}");
                 }
 
                 // Check Signal
@@ -1629,7 +1615,7 @@ Describe when this skill should be activated.
                     } else {
                         "\x1b[31m○ signal-cli not found\x1b[0m"
                     };
-                    println!("   🔒 Signal:    {}", status);
+                    println!("   🔒 Signal:    {status}");
                 }
 
                 // Check Slack
@@ -1729,7 +1715,7 @@ Describe when this skill should be activated.
                             .spawn()
                             .map_err(|e| claw_core::ClawError::Channel {
                                 channel: "whatsapp".into(),
-                                reason: format!("Failed to start bridge: {}", e),
+                                reason: format!("Failed to start bridge: {e}"),
                             })?;
 
                         let stdout = child.stdout.take().expect("stdout piped");
@@ -1793,7 +1779,7 @@ Describe when this skill should be activated.
                                                         (false, false) => ' ',
                                                     });
                                                 }
-                                                println!("{}", row);
+                                                println!("{row}");
                                                 y += 2;
                                             }
                                             println!();
@@ -1801,8 +1787,7 @@ Describe when this skill should be activated.
                                         }
                                         Err(e) => {
                                             eprintln!(
-                                                "   ⚠️  QR render failed: {}. Raw data: {}",
-                                                e, qr_data
+                                                "   ⚠️  QR render failed: {e}. Raw data: {qr_data}"
                                             );
                                         }
                                     }
@@ -1811,7 +1796,7 @@ Describe when this skill should be activated.
                                     let phone = event["phone"].as_str().unwrap_or("unknown");
                                     println!();
                                     println!("   \x1b[32m✅ WhatsApp linked successfully!\x1b[0m");
-                                    println!("   Phone: {}", phone);
+                                    println!("   Phone: {phone}");
                                     println!("   Credentials: {}", cred_dir.display());
                                     println!();
                                     println!("   Start your agent: claw start");
@@ -1828,7 +1813,7 @@ Describe when this skill should be activated.
                                 }
                                 "error" => {
                                     let msg = event["message"].as_str().unwrap_or("unknown error");
-                                    eprintln!("   ❌ Bridge error: {}", msg);
+                                    eprintln!("   ❌ Bridge error: {msg}");
                                     break;
                                 }
                                 _ => {}
@@ -1864,7 +1849,7 @@ Describe when this skill should be activated.
                                 let content = std::fs::read_to_string(&config_path)?;
                                 let mut doc =
                                     content.parse::<toml_edit::DocumentMut>().map_err(|e| {
-                                        claw_core::ClawError::Config(format!("Invalid TOML: {}", e))
+                                        claw_core::ClawError::Config(format!("Invalid TOML: {e}"))
                                     })?;
 
                                 doc["channels"]["telegram"]["type"] = toml_edit::value("telegram");
@@ -1896,7 +1881,7 @@ Describe when this skill should be activated.
                                 let content = std::fs::read_to_string(&config_path)?;
                                 let mut doc =
                                     content.parse::<toml_edit::DocumentMut>().map_err(|e| {
-                                        claw_core::ClawError::Config(format!("Invalid TOML: {}", e))
+                                        claw_core::ClawError::Config(format!("Invalid TOML: {e}"))
                                     })?;
 
                                 doc["channels"]["discord"]["type"] = toml_edit::value("discord");
@@ -1946,7 +1931,7 @@ Describe when this skill should be activated.
                                 let content = std::fs::read_to_string(&config_path)?;
                                 let mut doc =
                                     content.parse::<toml_edit::DocumentMut>().map_err(|e| {
-                                        claw_core::ClawError::Config(format!("Invalid TOML: {}", e))
+                                        claw_core::ClawError::Config(format!("Invalid TOML: {e}"))
                                     })?;
 
                                 doc["channels"]["slack"]["type"] = toml_edit::value("slack");
@@ -1959,7 +1944,7 @@ Describe when this skill should be activated.
                         }
                     }
                     other => {
-                        eprintln!("❌ Unknown channel: '{}'", other);
+                        eprintln!("❌ Unknown channel: '{other}'");
                         eprintln!("   Supported: whatsapp, telegram, discord, signal, slack");
                     }
                 }
@@ -1976,7 +1961,7 @@ Describe when this skill should be activated.
                     );
                 }
                 other => {
-                    println!("Channel '{}' logout: removing config entry.", other);
+                    println!("Channel '{other}' logout: removing config entry.");
                     println!("Edit claw.toml to fully remove the channel configuration.");
                 }
             },
@@ -2004,7 +1989,7 @@ Describe when this skill should be activated.
                     }
                 }
                 other => {
-                    println!("Pairing for '{}' — checking credential store...", other);
+                    println!("Pairing for '{other}' — checking credential store...");
                     let cred_dir = dirs::home_dir()
                         .unwrap_or_else(|| PathBuf::from("."))
                         .join(".claw")
@@ -2013,9 +1998,9 @@ Describe when this skill should be activated.
                     let pairing_file = cred_dir.join("pairing.json");
                     if pairing_file.exists() {
                         let data = std::fs::read_to_string(&pairing_file)?;
-                        println!("{}", data);
+                        println!("{data}");
                     } else {
-                        println!("No pending pairing requests for '{}'.", other);
+                        println!("No pending pairing requests for '{other}'.");
                     }
                 }
             },
@@ -2024,17 +2009,16 @@ Describe when this skill should be activated.
                     let wa = claw_channels::whatsapp::WhatsAppChannel::new("whatsapp".into(), None);
                     match wa.approve_pairing(&code) {
                         Ok(sender) => {
-                            println!("✅ Approved pairing for {} on WhatsApp", sender);
+                            println!("✅ Approved pairing for {sender} on WhatsApp");
                         }
                         Err(e) => {
-                            eprintln!("❌ {}", e);
+                            eprintln!("❌ {e}");
                         }
                     }
                 }
                 other => {
                     println!(
-                        "Pairing approval for '{}' with code '{}' — not yet implemented.",
-                        other, code
+                        "Pairing approval for '{other}' with code '{code}' — not yet implemented."
                     );
                 }
             },
@@ -2042,10 +2026,10 @@ Describe when this skill should be activated.
                 "whatsapp" | "wa" => {
                     let wa = claw_channels::whatsapp::WhatsAppChannel::new("whatsapp".into(), None);
                     wa.deny_pairing(&code)?;
-                    println!("❌ Denied pairing code {}", code);
+                    println!("❌ Denied pairing code {code}");
                 }
                 _ => {
-                    println!("Denied pairing code {} for {}", code, channel);
+                    println!("Denied pairing code {code} for {channel}");
                 }
             },
         }
@@ -2063,17 +2047,16 @@ Describe when this skill should be activated.
             .tcp_keepalive(None)
             .build()
             .unwrap_or_default();
-        let url = format!("http://{}/api/v1/audit?limit={}", listen, limit);
+        let url = format!("http://{listen}/api/v1/audit?limit={limit}");
 
         let mut req = client.get(&url);
         if let Some(ref key) = config.server.api_key {
-            req = req.header("Authorization", format!("Bearer {}", key));
+            req = req.header("Authorization", format!("Bearer {key}"));
         }
 
         let resp = req.send().await.map_err(|e| {
             claw_core::ClawError::Agent(format!(
-                "Cannot reach agent at {} — is it running? ({})",
-                listen, e
+                "Cannot reach agent at {listen} — is it running? ({e})"
             ))
         })?;
 
@@ -2123,7 +2106,7 @@ Describe when this skill should be activated.
                 "No audit log entries{}",
                 event_type
                     .as_ref()
-                    .map(|t| format!(" matching '{}'", t))
+                    .map(|t| format!(" matching '{t}'"))
                     .unwrap_or_default()
             );
             return Ok(());
@@ -2147,10 +2130,7 @@ Describe when this skill should be activated.
                 _ => "\x1b[37m",                                                    // default
             };
 
-            println!(
-                "\x1b[90m{}\x1b[0m  {}{}\x1b[0m  {}",
-                ts, color, etype, action
-            );
+            println!("\x1b[90m{ts}\x1b[0m  {color}{etype}\x1b[0m  {action}");
             if !details.is_empty() {
                 println!("   \x1b[90m{}\x1b[0m", truncate_output(details, 120));
             }
@@ -2217,7 +2197,7 @@ Describe when this skill should be activated.
 
         match old_value {
             Some(old) => println!("✅ {} = {} (was {})", key, value, old.trim()),
-            None => println!("✅ {} = {} (new)", key, value),
+            None => println!("✅ {key} = {value} (new)"),
         }
 
         Ok(())
@@ -2231,7 +2211,7 @@ Describe when this skill should be activated.
         let warnings = match config.validate() {
             Ok(w) => w,
             Err(e) => {
-                println!("{}", e);
+                println!("{e}");
                 return Ok(());
             }
         };
@@ -2240,7 +2220,7 @@ Describe when this skill should be activated.
         let mut info_count = 0;
 
         for w in &warnings {
-            println!("  {}", w);
+            println!("  {w}");
             match w.severity {
                 claw_config::WarningSeverity::Warning => warn_count += 1,
                 claw_config::WarningSeverity::Info => info_count += 1,
@@ -2274,8 +2254,7 @@ Describe when this skill should be activated.
                 5 - warn_count - info_count
             });
         println!(
-            "  ✅ {} checks passed, ⚠️  {} warnings, 💡 {} suggestions",
-            ok_total, warn_count, info_count
+            "  ✅ {ok_total} checks passed, ⚠️  {warn_count} warnings, 💡 {info_count} suggestions"
         );
 
         Ok(())
@@ -2521,7 +2500,7 @@ level = "info"
             if !env_var_name.is_empty() {
                 if let Ok(key) = std::env::var(env_var_name) {
                     api_key_value = key;
-                    println!("   ✅ {} found in environment", env_var_name);
+                    println!("   ✅ {env_var_name} found in environment");
                 } else {
                     println!("\n   You need an API key from your provider.");
                     if provider_prefix == "anthropic" {
@@ -2531,8 +2510,7 @@ level = "info"
                     }
                     let key: String = Input::with_theme(&theme)
                         .with_prompt(format!(
-                            "{} API key (or press Enter to skip)",
-                            provider_prefix
+                            "{provider_prefix} API key (or press Enter to skip)"
                         ))
                         .allow_empty(true)
                         .interact_text()
@@ -2542,8 +2520,7 @@ level = "info"
                         println!("   ✅ API key saved to config");
                     } else {
                         println!(
-                            "   ⚠️  Skipped — set later: claw config set {}_api_key YOUR_KEY",
-                            provider_prefix
+                            "   ⚠️  Skipped — set later: claw config set {provider_prefix}_api_key YOUR_KEY"
                         );
                     }
                 }
@@ -2854,7 +2831,7 @@ level = "info"
 
         // Agent section
         config.push_str("[agent]\n");
-        config.push_str(&format!("model = \"{}\"\n", model));
+        config.push_str(&format!("model = \"{model}\"\n"));
         if provider_prefix == "anthropic" {
             config.push_str("# thinking_level = \"medium\"\n");
         }
@@ -2863,8 +2840,8 @@ level = "info"
 
         // Autonomy section
         config.push_str("[autonomy]\n");
-        config.push_str(&format!("level = {}\n", autonomy));
-        config.push_str(&format!("daily_budget_usd = {}\n", budget));
+        config.push_str(&format!("level = {autonomy}\n"));
+        config.push_str(&format!("daily_budget_usd = {budget}\n"));
         if autonomy >= 2 {
             config.push_str("approval_threshold = 7\n");
         }
@@ -2877,14 +2854,14 @@ level = "info"
 
         // Server section
         config.push_str("[server]\n");
-        config.push_str(&format!("listen = \"{}\"\n", listen));
+        config.push_str(&format!("listen = \"{listen}\"\n"));
         config.push_str("web_ui = true\n\n");
 
         // Services section
         config.push_str("[services]\n");
         if provider_prefix == "anthropic" {
             if !api_key_value.is_empty() {
-                config.push_str(&format!("anthropic_api_key = \"{}\"\n", api_key_value));
+                config.push_str(&format!("anthropic_api_key = \"{api_key_value}\"\n"));
             } else {
                 config.push_str(
                     "# anthropic_api_key = \"sk-ant-...\"   # or env: ANTHROPIC_API_KEY\n",
@@ -2894,7 +2871,7 @@ level = "info"
         } else if provider_prefix == "openai" {
             config.push_str("# anthropic_api_key = \"sk-ant-...\"   # or env: ANTHROPIC_API_KEY\n");
             if !api_key_value.is_empty() {
-                config.push_str(&format!("openai_api_key = \"{}\"\n", api_key_value));
+                config.push_str(&format!("openai_api_key = \"{api_key_value}\"\n"));
             } else {
                 config
                     .push_str("# openai_api_key = \"sk-...\"          # or env: OPENAI_API_KEY\n");
@@ -2904,7 +2881,7 @@ level = "info"
             config.push_str("# openai_api_key = \"sk-...\"          # or env: OPENAI_API_KEY\n");
         }
         if !brave_key.is_empty() {
-            config.push_str(&format!("brave_api_key = \"{}\"\n", brave_key));
+            config.push_str(&format!("brave_api_key = \"{brave_key}\"\n"));
         } else {
             config.push_str(
                 "# brave_api_key = \"\"    # Get one free: https://api.search.brave.com/\n",
@@ -2943,7 +2920,7 @@ level = "info"
                 config.push_str(&format!("dm_policy = \"{}\"\n", ch.dm_policy));
                 if !ch.allow_from.is_empty() {
                     let nums: Vec<String> =
-                        ch.allow_from.iter().map(|n| format!("\"{}\"", n)).collect();
+                        ch.allow_from.iter().map(|n| format!("\"{n}\"")).collect();
                     config.push_str(&format!("allow_from = [{}]\n", nums.join(", ")));
                 }
             }
@@ -2954,12 +2931,12 @@ level = "info"
         // Mesh section
         config.push_str("# ── Mesh Network ────────────────────────────────────────────────\n\n");
         config.push_str("[mesh]\n");
-        config.push_str(&format!("enabled = {}\n", mesh_enabled));
-        config.push_str(&format!("listen = \"{}\"\n", mesh_listen));
+        config.push_str(&format!("enabled = {mesh_enabled}\n"));
+        config.push_str(&format!("listen = \"{mesh_listen}\"\n"));
         config.push_str("mdns = true\n");
         let caps_toml: Vec<String> = mesh_capabilities
             .iter()
-            .map(|c| format!("\"{}\"", c))
+            .map(|c| format!("\"{c}\""))
             .collect();
         config.push_str(&format!("capabilities = [{}]\n", caps_toml.join(", ")));
         config.push_str("# bootstrap_peers = [\"/ip4/192.168.1.100/tcp/4001/p2p/PEER_ID\"]\n");
@@ -3041,7 +3018,7 @@ level = "info"
                     match claw_channels::whatsapp::WhatsAppChannel::install_bridge() {
                         Ok(_) => println!("   ✅ Bridge installed\n"),
                         Err(e) => {
-                            println!("   ❌ Bridge install failed: {}", e);
+                            println!("   ❌ Bridge install failed: {e}");
                             println!("   Try again later: claw channels login whatsapp\n");
                         }
                     }
@@ -3125,7 +3102,7 @@ level = "info"
                                                     (false, false) => ' ',
                                                 });
                                             }
-                                            println!("{}", row);
+                                            println!("{row}");
                                             y += 2;
                                         }
                                         println!();
@@ -3135,14 +3112,13 @@ level = "info"
                                 "connected" => {
                                     let phone = event["phone"].as_str().unwrap_or("unknown");
                                     println!(
-                                        "\n   \x1b[32m✅ WhatsApp linked! Phone: {}\x1b[0m\n",
-                                        phone
+                                        "\n   \x1b[32m✅ WhatsApp linked! Phone: {phone}\x1b[0m\n"
                                     );
                                     break;
                                 }
                                 "error" => {
                                     let msg = event["message"].as_str().unwrap_or("unknown");
-                                    println!("   ❌ Bridge error: {}", msg);
+                                    println!("   ❌ Bridge error: {msg}");
                                     break;
                                 }
                                 _ => {}
@@ -3166,8 +3142,8 @@ level = "info"
         println!("   ┌──────────────────────────────────────────────┐");
         println!("   │  \x1b[1mConfiguration Summary\x1b[0m                        │");
         println!("   ├──────────────────────────────────────────────┤");
-        println!("   │  Model:    {:<35}│", model);
-        println!("   │  Autonomy: L{:<34}│", autonomy);
+        println!("   │  Model:    {model:<35}│");
+        println!("   │  Autonomy: L{autonomy:<34}│");
 
         let enabled_channels: Vec<&str> = channels
             .iter()
@@ -3176,7 +3152,7 @@ level = "info"
             .collect();
         if !enabled_channels.is_empty() {
             let ch_str = enabled_channels.join(", ");
-            println!("   │  Channels: {:<35}│", ch_str);
+            println!("   │  Channels: {ch_str:<35}│");
         } else {
             println!("   │  Channels: none                              │");
         }
@@ -3203,13 +3179,13 @@ level = "info"
         let mut step = 1;
 
         if api_key_value.is_empty() && !env_var_name.is_empty() {
-            println!("   {}. Add your API key:", step);
-            println!("      claw config set {}_api_key YOUR_KEY", provider_prefix);
+            println!("   {step}. Add your API key:");
+            println!("      claw config set {provider_prefix}_api_key YOUR_KEY");
             step += 1;
         }
 
         if has_whatsapp && !link_now_channels.contains(&"whatsapp".to_string()) {
-            println!("   {}. Link WhatsApp (scan QR code):", step);
+            println!("   {step}. Link WhatsApp (scan QR code):");
             println!("      claw channels login whatsapp");
             step += 1;
         }
@@ -3220,16 +3196,16 @@ level = "info"
             .map(|c| c.name.as_str())
             .collect();
         if !pending_channels.is_empty() {
-            println!("   {}. Set up remaining channels:", step);
+            println!("   {step}. Set up remaining channels:");
             for ch in &pending_channels {
-                println!("      claw channels login {}", ch);
+                println!("      claw channels login {ch}");
             }
             step += 1;
         }
 
-        println!("   {}. Start the agent:   claw start", step);
+        println!("   {step}. Start the agent:   claw start");
         step += 1;
-        println!("   {}. Chat interactively: claw chat", step);
+        println!("   {step}. Chat interactively: claw chat");
 
         println!();
         println!("   Run 'claw doctor' to verify your configuration.");
@@ -3240,7 +3216,7 @@ level = "info"
 
     fn cmd_version() -> claw_core::Result<()> {
         println!("🦞 Claw v{}", env!("CARGO_PKG_VERSION"));
-        println!("   Rust edition: {}", "2024");
+        println!("   Rust edition: 2024");
         println!("   Target: {}", std::env::consts::ARCH);
         println!("   OS: {}", std::env::consts::OS);
         #[cfg(debug_assertions)]

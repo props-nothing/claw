@@ -74,7 +74,7 @@ pub struct HubState {
 impl HubState {
     pub fn new(db_path: &std::path::Path) -> Result<Self, String> {
         let conn = rusqlite::Connection::open(db_path)
-            .map_err(|e| format!("failed to open hub db: {}", e))?;
+            .map_err(|e| format!("failed to open hub db: {e}"))?;
 
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS skills (
@@ -92,7 +92,7 @@ impl HubState {
             CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name);
             CREATE INDEX IF NOT EXISTS idx_skills_tags ON skills(tags);",
         )
-        .map_err(|e| format!("failed to create hub tables: {}", e))?;
+        .map_err(|e| format!("failed to create hub tables: {e}"))?;
 
         Ok(Self {
             db: Mutex::new(conn),
@@ -176,7 +176,7 @@ async fn proxy_forward(
         .map(|pq| pq.as_str())
         .unwrap_or(req.uri().path());
 
-    let target_url = format!("{}{}", hub_base, path_and_query);
+    let target_url = format!("{hub_base}{path_and_query}");
 
     // Map method
     let method = match req.method().clone() {
@@ -253,8 +253,7 @@ async fn list_skills(
     let sql = format!(
         "SELECT id, name, description, version, author, tags, \
          skill_content, downloads, published_at, updated_at \
-         FROM skills {} LIMIT ?1 OFFSET ?2",
-        sort_clause
+         FROM skills {sort_clause} LIMIT ?1 OFFSET ?2"
     );
 
     let mut stmt = db
@@ -297,8 +296,8 @@ async fn search_skills(
 
     if let Some(ref tag) = params.tag {
         let idx = bind_values.len() + 1;
-        conditions.push(format!("tags LIKE ?{}", idx));
-        bind_values.push(Box::new(format!("%\"{}%", tag)));
+        conditions.push(format!("tags LIKE ?{idx}"));
+        bind_values.push(Box::new(format!("%\"{tag}%")));
     }
 
     let where_clause = if conditions.is_empty() {

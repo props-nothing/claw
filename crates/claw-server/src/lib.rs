@@ -359,7 +359,7 @@ async fn chat_handler(
             if let Some(err) = response.error {
                 warn!(error = %err, "agent returned error");
                 Ok(Json(ChatResponse {
-                    response: format!("Error: {}", err),
+                    response: format!("Error: {err}"),
                     session_id: response.session_id,
                 }))
             } else {
@@ -754,11 +754,11 @@ pub async fn start_server(config: ServerConfig, hub_url: Option<String>) -> claw
 
     let listener = tokio::net::TcpListener::bind(&listen)
         .await
-        .map_err(|e| claw_core::ClawError::Agent(format!("failed to bind {}: {}", listen, e)))?;
+        .map_err(|e| claw_core::ClawError::Agent(format!("failed to bind {listen}: {e}")))?;
 
     axum::serve(listener, router)
         .await
-        .map_err(|e| claw_core::ClawError::Agent(format!("server error: {}", e)))?;
+        .map_err(|e| claw_core::ClawError::Agent(format!("server error: {e}")))?;
 
     Ok(())
 }

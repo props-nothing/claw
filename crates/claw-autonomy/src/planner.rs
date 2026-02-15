@@ -75,6 +75,12 @@ pub struct GoalPlanner {
     goals: Vec<Goal>,
 }
 
+impl Default for GoalPlanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GoalPlanner {
     pub fn new() -> Self {
         Self { goals: Vec::new() }
@@ -315,7 +321,7 @@ impl GoalPlanner {
             }
             if fail_goal {
                 goal.status = GoalStatus::Failed;
-                goal.retrospective = Some(format!("Failed at step: {}", error));
+                goal.retrospective = Some(format!("Failed at step: {error}"));
             }
             goal.updated_at = Utc::now();
         }
@@ -345,6 +351,7 @@ impl GoalPlanner {
     }
 
     /// Restore a goal from persistent storage (SQLite).
+    #[allow(clippy::too_many_arguments)]
     pub fn restore_goal(
         &mut self,
         id: Uuid,

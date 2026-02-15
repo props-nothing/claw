@@ -96,7 +96,7 @@ impl Channel for SignalChannel {
             .await
             .map_err(|e| claw_core::ClawError::Channel {
                 channel: "signal".into(),
-                reason: format!("signal-cli send failed: {}", e),
+                reason: format!("signal-cli send failed: {e}"),
             })?;
 
         if !output.status.success() {
@@ -104,7 +104,7 @@ impl Channel for SignalChannel {
             warn!(error = %stderr, "signal-cli send error");
             return Err(claw_core::ClawError::Channel {
                 channel: "signal".into(),
-                reason: format!("signal-cli send failed: {}", stderr),
+                reason: format!("signal-cli send failed: {stderr}"),
             });
         }
 
@@ -172,8 +172,7 @@ async fn signal_receive_loop(
                 connected.store(false, Ordering::SeqCst);
                 let _ = event_tx
                     .send(ChannelEvent::Disconnected(Some(format!(
-                        "signal-cli spawn failed: {}",
-                        e
+                        "signal-cli spawn failed: {e}"
                     ))))
                     .await;
                 tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
@@ -311,7 +310,7 @@ fn parse_signal_message(payload: &Value, channel_id: &str) -> Option<IncomingMes
     }
 
     Some(IncomingMessage {
-        id: format!("signal-{}", timestamp),
+        id: format!("signal-{timestamp}"),
         channel: channel_id.to_string(),
         sender: source.to_string(),
         sender_name: source_name,

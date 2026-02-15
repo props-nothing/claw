@@ -20,6 +20,12 @@ pub struct Session {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+impl Default for Session {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Session {
     pub fn new() -> Self {
         Self {
@@ -46,6 +52,12 @@ pub struct SessionManager {
     sessions: Arc<RwLock<HashMap<Uuid, Session>>>,
     /// Per-session run locks — prevents concurrent agent runs on the same session.
     run_locks: Arc<RwLock<HashMap<Uuid, Arc<TokioMutex<()>>>>>,
+}
+
+impl Default for SessionManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SessionManager {

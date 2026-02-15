@@ -61,7 +61,7 @@ impl PluginManifest {
     pub fn from_toml(s: &str) -> claw_core::Result<Self> {
         toml::from_str(s).map_err(|e| claw_core::ClawError::Plugin {
             plugin: "unknown".into(),
-            reason: format!("failed to parse plugin.toml: {}", e),
+            reason: format!("failed to parse plugin.toml: {e}"),
         })
     }
 

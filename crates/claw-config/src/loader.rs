@@ -202,7 +202,7 @@ impl ConfigLoader {
                 }
             }
         ).map_err(|e| {
-            claw_core::ClawError::Config(format!("failed to create file watcher: {}", e))
+            claw_core::ClawError::Config(format!("failed to create file watcher: {e}"))
         })?;
 
         // Watch the parent directory (some editors create temp files + rename)
@@ -210,7 +210,7 @@ impl ConfigLoader {
         watcher
             .watch(watch_path, RecursiveMode::NonRecursive)
             .map_err(|e| {
-                claw_core::ClawError::Config(format!("failed to watch config directory: {}", e))
+                claw_core::ClawError::Config(format!("failed to watch config directory: {e}"))
             })?;
 
         Ok(watcher)

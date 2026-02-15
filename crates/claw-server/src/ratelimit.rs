@@ -130,7 +130,7 @@ pub async fn rate_limit_middleware(
             warn!(client_ip = %ip, retry_after, "rate limited");
             let mut resp = (
                 StatusCode::TOO_MANY_REQUESTS,
-                format!("Rate limit exceeded. Retry after {} seconds.", retry_after),
+                format!("Rate limit exceeded. Retry after {retry_after} seconds."),
             )
                 .into_response();
             resp.headers_mut()

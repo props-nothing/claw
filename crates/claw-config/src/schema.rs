@@ -5,6 +5,7 @@ use std::path::PathBuf;
 /// Root configuration — maps to `claw.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct ClawConfig {
     pub agent: AgentConfig,
     pub autonomy: AutonomyConfig,
@@ -340,6 +341,7 @@ impl Default for CredentialsConfig {
 /// External service API keys and configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct ServicesConfig {
     /// Anthropic API key — used for Claude models.
     /// Can also be set via ANTHROPIC_API_KEY environment variable.
@@ -357,35 +359,7 @@ pub struct ServicesConfig {
     pub hub_url: Option<String>,
 }
 
-impl Default for ServicesConfig {
-    fn default() -> Self {
-        Self {
-            anthropic_api_key: None,
-            openai_api_key: None,
-            brave_api_key: None,
-            hub_url: None,
-        }
-    }
-}
-
 // ── Default for root ───────────────────────────────────────────
-
-impl Default for ClawConfig {
-    fn default() -> Self {
-        Self {
-            agent: AgentConfig::default(),
-            autonomy: AutonomyConfig::default(),
-            memory: MemoryConfig::default(),
-            channels: HashMap::new(),
-            mesh: MeshConfig::default(),
-            plugins: PluginsConfig::default(),
-            server: ServerConfig::default(),
-            logging: LoggingConfig::default(),
-            credentials: CredentialsConfig::default(),
-            services: ServicesConfig::default(),
-        }
-    }
-}
 
 fn default_true() -> bool {
     true
@@ -473,7 +447,7 @@ impl std::fmt::Display for ConfigWarning {
         };
         write!(f, "{} {}: {}", icon, self.field, self.message)?;
         if let Some(ref h) = self.hint {
-            write!(f, "\n   ↳ {}", h)?;
+            write!(f, "\n   ↳ {h}")?;
         }
         Ok(())
     }
@@ -499,7 +473,7 @@ impl ClawConfig {
         } else if !model.contains('/') {
             warnings.push(ConfigWarning {
                 field: "agent.model".into(),
-                message: format!("model '{}' should be in 'provider/model' format", model),
+                message: format!("model '{model}' should be in 'provider/model' format"),
                 severity: WarningSeverity::Warning,
                 hint: Some(
                     "Use 'anthropic/claude-sonnet-4-20250514', 'openai/gpt-4o', or 'ollama/llama3'"
@@ -645,7 +619,7 @@ impl ClawConfig {
         for (id, ch) in &self.channels {
             if !valid_channel_types.contains(&ch.channel_type.as_str()) {
                 warnings.push(ConfigWarning {
-                    field: format!("channels.{}.type", id),
+                    field: format!("channels.{id}.type"),
                     message: format!("unknown channel type '{}'", ch.channel_type),
                     severity: WarningSeverity::Warning,
                     hint: Some(format!("Supported: {}", valid_channel_types.join(", "))),
@@ -656,7 +630,7 @@ impl ClawConfig {
             let valid_policies = ["pairing", "allowlist", "open", "disabled"];
             if !valid_policies.contains(&ch.dm_policy.as_str()) {
                 warnings.push(ConfigWarning {
-                    field: format!("channels.{}.dm_policy", id),
+                    field: format!("channels.{id}.dm_policy"),
                     message: format!("unknown DM policy '{}'", ch.dm_policy),
                     severity: WarningSeverity::Warning,
                     hint: Some(format!("Valid: {}", valid_policies.join(", "))),

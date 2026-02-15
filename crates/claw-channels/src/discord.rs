@@ -105,7 +105,7 @@ impl Channel for DiscordChannel {
             .await
             .map_err(|e| claw_core::ClawError::Channel {
                 channel: "discord".into(),
-                reason: format!("HTTP error: {}", e),
+                reason: format!("HTTP error: {e}"),
             })?;
 
         if !resp.status().is_success() {
@@ -114,7 +114,7 @@ impl Channel for DiscordChannel {
             warn!(status = %status, body = %text, "Discord API error sending message");
             return Err(claw_core::ClawError::Channel {
                 channel: "discord".into(),
-                reason: format!("Discord API {} — {}", status, text),
+                reason: format!("Discord API {status} — {text}"),
             });
         }
 
@@ -122,7 +122,7 @@ impl Channel for DiscordChannel {
     }
 
     async fn send_typing(&self, target: &str) -> claw_core::Result<()> {
-        let url = format!("{}/channels/{}/typing", DISCORD_API_BASE, target);
+        let url = format!("{DISCORD_API_BASE}/channels/{target}/typing");
 
         let _ = self
             .client
@@ -152,7 +152,7 @@ impl Channel for DiscordChannel {
             .await
             .map_err(|e| claw_core::ClawError::Channel {
                 channel: "discord".into(),
-                reason: format!("HTTP error: {}", e),
+                reason: format!("HTTP error: {e}"),
             })?;
 
         if !resp.status().is_success() {
@@ -173,10 +173,7 @@ impl Channel for DiscordChannel {
         message_id: &str,
         text: &str,
     ) -> claw_core::Result<()> {
-        let url = format!(
-            "{}/channels/{}/messages/{}",
-            DISCORD_API_BASE, target, message_id
-        );
+        let url = format!("{DISCORD_API_BASE}/channels/{target}/messages/{message_id}");
 
         let body = json!({ "content": text });
 
@@ -273,7 +270,7 @@ async fn discord_gateway_loop(
 
         if let Err(e) = write
             .send(tokio_tungstenite::tungstenite::Message::Text(
-                identify.to_string().into(),
+                identify.to_string(),
             ))
             .await
         {
@@ -305,7 +302,7 @@ async fn discord_gateway_loop(
                 _ = heartbeat_timer.tick() => {
                     let hb = json!({ "op": OP_HEARTBEAT, "d": sequence });
                     if let Err(e) = write.send(
-                        tokio_tungstenite::tungstenite::Message::Text(hb.to_string().into())
+                        tokio_tungstenite::tungstenite::Message::Text(hb.to_string())
                     ).await {
                         warn!(error = %e, "Discord: heartbeat send failed");
                         break;
@@ -348,7 +345,7 @@ async fn discord_gateway_loop(
                                 OP_HEARTBEAT => {
                                     let hb = json!({ "op": OP_HEARTBEAT, "d": sequence });
                                     let _ = write.send(
-                                        tokio_tungstenite::tungstenite::Message::Text(hb.to_string().into())
+                                        tokio_tungstenite::tungstenite::Message::Text(hb.to_string())
                                     ).await;
                                 }
                                 _ => {

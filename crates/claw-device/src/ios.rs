@@ -49,6 +49,12 @@ pub struct IosBridge {
     is_simulator: bool,
 }
 
+impl Default for IosBridge {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IosBridge {
     pub fn new() -> Self {
         Self {
@@ -215,7 +221,7 @@ impl IosBridge {
     /// Take a screenshot.
     pub async fn screenshot(&self) -> claw_core::Result<IosScreenshot> {
         let udid = self.require_device()?;
-        let tmp = format!("/tmp/claw_ios_screenshot_{}.png", udid);
+        let tmp = format!("/tmp/claw_ios_screenshot_{udid}.png");
 
         if self.is_simulator {
             Self::run_cmd("xcrun", &["simctl", "io", udid, "screenshot", &tmp]).await?;
@@ -249,7 +255,7 @@ impl IosBridge {
             Self::run_cmd("ideviceinstaller", &["-u", udid, "-i", path]).await?;
         }
 
-        Ok(format!("installed {}", path))
+        Ok(format!("installed {path}"))
     }
 
     /// Launch an app by bundle identifier.
@@ -262,7 +268,7 @@ impl IosBridge {
             Self::run_cmd("idevicedebug", &["-u", udid, "run", bundle_id]).await?;
         }
 
-        Ok(format!("launched {}", bundle_id))
+        Ok(format!("launched {bundle_id}"))
     }
 
     /// Terminate an app.
@@ -276,7 +282,7 @@ impl IosBridge {
             warn!("terminate on physical device requires developer disk image");
         }
 
-        Ok(format!("terminated {}", bundle_id))
+        Ok(format!("terminated {bundle_id}"))
     }
 
     /// List installed apps.
@@ -324,7 +330,7 @@ impl IosBridge {
                 &["ui", "tap", &x.to_string(), &y.to_string(), "--udid", udid],
             )
             .await?;
-            return Ok(format!("tapped ({}, {}) via idb", x, y));
+            return Ok(format!("tapped ({x}, {y}) via idb"));
         }
 
         // 2. For simulators: use AppleScript to click in the Simulator window
@@ -416,7 +422,7 @@ end tell"#;
     /// and reading its pixel size, then dividing by the Retina scale factor.
     async fn get_device_screen_size(&self) -> Option<(f64, f64)> {
         let udid = self.active_device.as_deref()?;
-        let tmp = format!("/tmp/claw_ios_size_probe_{}.png", udid);
+        let tmp = format!("/tmp/claw_ios_size_probe_{udid}.png");
 
         // Take a screenshot to get pixel dimensions
         if Self::run_cmd("xcrun", &["simctl", "io", udid, "screenshot", &tmp])
@@ -436,10 +442,16 @@ end tell"#;
         let mut ph: Option<f64> = None;
         for line in output.lines() {
             if line.contains("pixelWidth") {
-                pw = line.split(':').last().and_then(|s| s.trim().parse().ok());
+                pw = line
+                    .split(':')
+                    .next_back()
+                    .and_then(|s| s.trim().parse().ok());
             }
             if line.contains("pixelHeight") {
-                ph = line.split(':').last().and_then(|s| s.trim().parse().ok());
+                ph = line
+                    .split(':')
+                    .next_back()
+                    .and_then(|s| s.trim().parse().ok());
             }
         }
 
@@ -490,7 +502,7 @@ end tell"#;
                 ],
             )
             .await?;
-            return Ok(format!("swiped ({},{}) → ({},{}) via idb", x1, y1, x2, y2));
+            return Ok(format!("swiped ({x1},{y1}) → ({x2},{y2}) via idb"));
         }
 
         // 2. For simulators: use AppleScript mouse drag
@@ -592,12 +604,6 @@ try:
 except ImportError:
     print("no_quartz")
 "#,
-            sx1 = sx1,
-            sy1 = sy1,
-            sx2 = sx2,
-            sy2 = sy2,
-            steps = steps,
-            step_delay = step_delay,
         );
 
         let output = tokio::process::Command::new("python3")
@@ -612,10 +618,7 @@ except ImportError:
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         if stdout.trim() == "ok" {
-            return Ok(format!(
-                "swiped ({},{}) → ({},{}) via CGEvent",
-                x1, y1, x2, y2
-            ));
+            return Ok(format!("swiped ({x1},{y1}) → ({x2},{y2}) via CGEvent"));
         }
 
         // Fallback: try cliclick
@@ -626,10 +629,7 @@ except ImportError:
                 sx1 as i32, sy1 as i32, sx2 as i32, sy2 as i32
             );
             Self::run_cmd("cliclick", &[&cmd]).await?;
-            return Ok(format!(
-                "swiped ({},{}) → ({},{}) via cliclick",
-                x1, y1, x2, y2
-            ));
+            return Ok(format!("swiped ({x1},{y1}) → ({x2},{y2}) via cliclick"));
         }
 
         Err(ClawError::ToolExecution {
@@ -688,7 +688,7 @@ except ImportError:
         // 1. Try idb first (works for all button types)
         if check_idb_available().await {
             Self::run_cmd("idb", &["ui", "button", button, "--udid", udid]).await?;
-            return Ok(format!("pressed {} via idb", button));
+            return Ok(format!("pressed {button} via idb"));
         }
 
         // 2. For simulators: use Simulator.app keyboard shortcuts
@@ -728,8 +728,7 @@ except ImportError:
                     return Err(ClawError::ToolExecution {
                         tool: "ios".into(),
                         reason: format!(
-                            "unknown button '{}'. Supported: home, lock, power, siri, volume_up, volume_down, shake, screenshot_device",
-                            button
+                            "unknown button '{button}'. Supported: home, lock, power, siri, volume_up, volume_down, shake, screenshot_device"
                         ),
                     });
                 }
@@ -742,17 +741,13 @@ except ImportError:
                     reason: format!("AppleScript button press failed: {e}"),
                 })?;
 
-            return Ok(format!(
-                "pressed {} via Simulator keyboard shortcut",
-                button
-            ));
+            return Ok(format!("pressed {button} via Simulator keyboard shortcut"));
         }
 
         Err(ClawError::ToolExecution {
             tool: "ios".into(),
             reason: format!(
-                "button '{}' on physical device requires idb. Install: brew install idb-companion && pip3 install fb-idb",
-                button
+                "button '{button}' on physical device requires idb. Install: brew install idb-companion && pip3 install fb-idb"
             ),
         })
     }
@@ -762,13 +757,13 @@ except ImportError:
     /// Boot a simulator.
     pub async fn boot_simulator(&self, udid: &str) -> claw_core::Result<String> {
         Self::run_cmd("xcrun", &["simctl", "boot", udid]).await?;
-        Ok(format!("booted simulator {}", udid))
+        Ok(format!("booted simulator {udid}"))
     }
 
     /// Shutdown a simulator.
     pub async fn shutdown_simulator(&self, udid: &str) -> claw_core::Result<String> {
         Self::run_cmd("xcrun", &["simctl", "shutdown", udid]).await?;
-        Ok(format!("shut down simulator {}", udid))
+        Ok(format!("shut down simulator {udid}"))
     }
 
     /// Open a URL on the device (deep links, web URLs).
@@ -786,7 +781,7 @@ except ImportError:
             });
         }
 
-        Ok(format!("opened {}", url))
+        Ok(format!("opened {url}"))
     }
 
     /// Push a file to the device.
@@ -800,7 +795,9 @@ except ImportError:
                 &["simctl", "push", udid, "data", local, remote_path],
             )
             .await
-            .unwrap_or_else(|_| format!("simulator file push may require app container context"));
+            .unwrap_or_else(|_| {
+                "simulator file push may require app container context".to_string()
+            });
         } else {
             // Use AFC via idevice tools or idb
             if check_idb_available().await {
@@ -813,7 +810,7 @@ except ImportError:
             }
         }
 
-        Ok(format!("pushed {} → {}", local, remote_path))
+        Ok(format!("pushed {local} → {remote_path}"))
     }
 
     /// Get device status.

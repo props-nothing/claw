@@ -29,6 +29,12 @@ static FILE_EDIT_COUNTS: LazyLock<Mutex<HashMap<String, u32>>> =
 #[derive(Clone, Copy)]
 pub struct BuiltinTools;
 
+impl Default for BuiltinTools {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BuiltinTools {
     pub fn new() -> Self {
         Self
@@ -1014,7 +1020,7 @@ impl BuiltinTools {
                 .await
                 .map_err(|_| claw_core::ClawError::ToolExecution {
                     tool: "shell_exec".into(),
-                    reason: format!("command timed out after {}s", timeout_secs),
+                    reason: format!("command timed out after {timeout_secs}s"),
                 })?
                 .map_err(|e| claw_core::ClawError::ToolExecution {
                     tool: "shell_exec".into(),
@@ -1093,7 +1099,7 @@ impl BuiltinTools {
             }),
             Err(e) => Ok(ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("Error reading {}: {}", path, e),
+                content: format!("Error reading {path}: {e}"),
                 is_error: true,
                 data: None,
             }),
@@ -1129,7 +1135,7 @@ impl BuiltinTools {
             }),
             Err(e) => Ok(ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("Error writing {}: {}", path, e),
+                content: format!("Error writing {path}: {e}"),
                 is_error: true,
                 data: None,
             }),
@@ -1169,7 +1175,7 @@ impl BuiltinTools {
             } else {
                 "📄 "
             };
-            entries.push(format!("{}{}", prefix, name));
+            entries.push(format!("{prefix}{name}"));
         }
 
         entries.sort();
@@ -1251,7 +1257,7 @@ impl BuiltinTools {
             Err(e) => {
                 return Ok(ToolResult {
                     tool_call_id: call.id.clone(),
-                    content: format!("Error reading {}: {}", path, e),
+                    content: format!("Error reading {path}: {e}"),
                     is_error: true,
                     data: None,
                 });
@@ -1259,7 +1265,7 @@ impl BuiltinTools {
         };
 
         // Smart guard: if old_string covers >50% of the file, nudge toward file_write
-        let coverage = if content.len() > 0 {
+        let coverage = if !content.is_empty() {
             old_string.len() as f64 / content.len() as f64
         } else {
             1.0
@@ -1283,9 +1289,8 @@ impl BuiltinTools {
             return Ok(ToolResult {
                 tool_call_id: call.id.clone(),
                 content: format!(
-                    "Error: old_string not found in {}. Make sure you're matching the exact text including whitespace and indentation. \
-                     TIP: If you're trying to restructure or rewrite most of the file, use `file_write` instead of `file_edit`.",
-                    path
+                    "Error: old_string not found in {path}. Make sure you're matching the exact text including whitespace and indentation. \
+                     TIP: If you're trying to restructure or rewrite most of the file, use `file_write` instead of `file_edit`."
                 ),
                 is_error: true,
                 data: None,
@@ -1312,9 +1317,8 @@ impl BuiltinTools {
                 );
                 if edit_count >= 2 {
                     msg.push_str(&format!(
-                        "\n\n⚠️ You've edited this file {} times. Consider using file_write to write the complete file \
-                         content in one shot instead of many small edits.",
-                        edit_count
+                        "\n\n⚠️ You've edited this file {edit_count} times. Consider using file_write to write the complete file \
+                         content in one shot instead of many small edits."
                     ));
                 }
                 Ok(ToolResult {
@@ -1326,7 +1330,7 @@ impl BuiltinTools {
             }
             Err(e) => Ok(ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("Error writing {}: {}", path, e),
+                content: format!("Error writing {path}: {e}"),
                 is_error: true,
                 data: None,
             }),
@@ -1395,7 +1399,7 @@ impl BuiltinTools {
         if files.is_empty() {
             return Ok(ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("No files found matching '{}' in {}", pattern, directory),
+                content: format!("No files found matching '{pattern}' in {directory}"),
                 is_error: false,
                 data: None,
             });
@@ -1466,7 +1470,7 @@ impl BuiltinTools {
         if lines.is_empty() {
             return Ok(ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("No matches for '{}' in {}", pattern, directory),
+                content: format!("No matches for '{pattern}' in {directory}"),
                 is_error: false,
                 data: None,
             });
@@ -1535,11 +1539,10 @@ impl BuiltinTools {
                 Ok(ToolResult {
                     tool_call_id: call.id.clone(),
                     content: format!(
-                        "Started background process '{}' (PID: {})\n\
-                         Command: {}\n\
-                         Log file: {}\n\
-                         Use `process_output` with PID {} to check output.",
-                        label, pid, command, log_file, pid
+                        "Started background process '{label}' (PID: {pid})\n\
+                         Command: {command}\n\
+                         Log file: {log_file}\n\
+                         Use `process_output` with PID {pid} to check output."
                     ),
                     is_error: false,
                     data: Some(json!({ "pid": pid, "label": label, "log_file": log_file })),
@@ -1547,7 +1550,7 @@ impl BuiltinTools {
             }
             Err(e) => Ok(ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("Failed to start process: {}", e),
+                content: format!("Failed to start process: {e}"),
                 is_error: true,
                 data: None,
             }),
@@ -1612,7 +1615,7 @@ impl BuiltinTools {
         let registry = PROCESS_REGISTRY.lock().await;
         let proc = registry.get(&pid).ok_or_else(|| claw_core::ClawError::ToolExecution {
             tool: "process_output".into(),
-            reason: format!("PID {} not found in tracked processes. Use `process_list` to see tracked processes.", pid),
+            reason: format!("PID {pid} not found in tracked processes. Use `process_list` to see tracked processes."),
         })?;
 
         let log_file = proc.log_file.clone();
@@ -1627,10 +1630,7 @@ impl BuiltinTools {
             Err(e) => {
                 return Ok(ToolResult {
                     tool_call_id: call.id.clone(),
-                    content: format!(
-                        "Process '{}' (PID {}) — could not read log: {}",
-                        label, pid, e
-                    ),
+                    content: format!("Process '{label}' (PID {pid}) — could not read log: {e}"),
                     is_error: true,
                     data: None,
                 });
@@ -1706,7 +1706,7 @@ impl BuiltinTools {
         if output.status.success() {
             Ok(ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("Successfully killed process '{}' (PID {})", label, pid),
+                content: format!("Successfully killed process '{label}' (PID {pid})"),
                 is_error: false,
                 data: None,
             })
@@ -1805,7 +1805,7 @@ impl BuiltinTools {
                 Ok(_) => {
                     success_count += 1;
                     let note = if occurrences > 1 {
-                        format!(" (replaced 1 of {} occurrences)", occurrences)
+                        format!(" (replaced 1 of {occurrences} occurrences)")
                     } else {
                         String::new()
                     };

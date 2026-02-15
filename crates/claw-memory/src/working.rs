@@ -25,6 +25,12 @@ pub struct SessionContext {
     pub compaction_count: u32,
 }
 
+impl Default for WorkingMemory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WorkingMemory {
     pub fn new() -> Self {
         Self {
@@ -136,7 +142,7 @@ impl WorkingMemory {
                 };
                 let text = m.text_content();
                 let truncated: String = text.chars().take(500).collect();
-                format!("[{}]: {}", role, truncated)
+                format!("[{role}]: {truncated}")
             })
             .collect();
 
@@ -208,7 +214,7 @@ impl WorkingMemory {
             // Cap each message to 1000 chars in the compaction input
             let truncated: String = text.chars().take(1000).collect();
             if !truncated.is_empty() {
-                compaction_text.push_str(&format!("[{}]: {}\n", role, truncated));
+                compaction_text.push_str(&format!("[{role}]: {truncated}\n"));
             }
             // Include tool calls
             for tc in &msg.tool_calls {
@@ -261,9 +267,8 @@ impl WorkingMemory {
             let summary_msg = Message::text(
                 session_id,
                 claw_core::Role::System,
-                &format!(
-                    "[Conversation summary — compacted {} messages]\n{}",
-                    messages_to_remove, summary
+                format!(
+                    "[Conversation summary — compacted {messages_to_remove} messages]\n{summary}"
                 ),
             );
             ctx.messages.push(summary_msg);

@@ -74,14 +74,11 @@ pub async fn start_swarm(
 
     // Listen on the configured multiaddr
     let addr: Multiaddr = listen_addr.parse().map_err(|e| {
-        claw_core::ClawError::Agent(format!(
-            "invalid mesh listen address '{}': {}",
-            listen_addr, e
-        ))
+        claw_core::ClawError::Agent(format!("invalid mesh listen address '{listen_addr}': {e}"))
     })?;
     swarm
         .listen_on(addr)
-        .map_err(|e| claw_core::ClawError::Agent(format!("failed to listen: {}", e)))?;
+        .map_err(|e| claw_core::ClawError::Agent(format!("failed to listen: {e}")))?;
 
     // Dial bootstrap peers
     for peer_addr in bootstrap_peers {
@@ -105,7 +102,7 @@ pub async fn start_swarm(
         .gossipsub
         .subscribe(&topic)
         .map_err(|e| {
-            claw_core::ClawError::Agent(format!("failed to subscribe to gossipsub topic: {}", e))
+            claw_core::ClawError::Agent(format!("failed to subscribe to gossipsub topic: {e}"))
         })?;
 
     // Create the command channel (MeshNode → swarm task)
@@ -131,7 +128,7 @@ pub async fn start_swarm(
 /// Build the libp2p Swarm with all sub-protocols configured.
 fn build_swarm(capabilities: Vec<String>) -> claw_core::Result<Swarm<ClawBehaviour>> {
     build_swarm_inner(capabilities)
-        .map_err(|e| claw_core::ClawError::Agent(format!("failed to build libp2p swarm: {}", e)))
+        .map_err(|e| claw_core::ClawError::Agent(format!("failed to build libp2p swarm: {e}")))
 }
 
 /// Inner builder that uses `Box<dyn Error>` for ergonomic `?` propagation

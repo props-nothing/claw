@@ -84,7 +84,7 @@ impl PluginRegistry {
         std::fs::create_dir_all(&plugin_dir)?;
 
         // For now, write as raw .wasm — production would handle tarballs
-        let wasm_path = plugin_dir.join(format!("{}.wasm", name));
+        let wasm_path = plugin_dir.join(format!("{name}.wasm"));
         std::fs::write(&wasm_path, &bytes)?;
 
         info!(plugin = name, path = ?wasm_path, "plugin installed");

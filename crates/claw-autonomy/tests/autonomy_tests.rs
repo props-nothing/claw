@@ -103,7 +103,7 @@ mod tests {
             let c = call("dangerous_tool");
             match engine.evaluate(&t, &c, AutonomyLevel::FullAuto) {
                 GuardrailVerdict::Deny(msg) => assert!(msg.contains("denylist")),
-                other => panic!("expected Deny, got {:?}", other),
+                other => panic!("expected Deny, got {other:?}"),
             }
         }
 
@@ -115,7 +115,7 @@ mod tests {
             let c = call("safe_tool");
             match engine.evaluate(&t, &c, AutonomyLevel::Manual) {
                 GuardrailVerdict::Approve => {}
-                other => panic!("expected Approve, got {:?}", other),
+                other => panic!("expected Approve, got {other:?}"),
             }
         }
 
@@ -130,7 +130,7 @@ mod tests {
                     assert!(msg.contains("risk level 5"));
                     assert!(msg.contains("threshold 3"));
                 }
-                other => panic!("expected Escalate, got {:?}", other),
+                other => panic!("expected Escalate, got {other:?}"),
             }
         }
 
@@ -141,7 +141,7 @@ mod tests {
             let c = call("ls");
             match engine.evaluate(&t, &c, AutonomyLevel::Assisted) {
                 GuardrailVerdict::Approve => {}
-                other => panic!("expected Approve, got {:?}", other),
+                other => panic!("expected Approve, got {other:?}"),
             }
         }
 
@@ -153,10 +153,7 @@ mod tests {
             // Below Supervised, delete operations should escalate
             match engine.evaluate(&t, &c, AutonomyLevel::Assisted) {
                 GuardrailVerdict::Escalate(msg) => assert!(msg.contains("delete")),
-                other => panic!(
-                    "expected Escalate for delete below Supervised, got {:?}",
-                    other
-                ),
+                other => panic!("expected Escalate for delete below Supervised, got {other:?}"),
             }
         }
 
@@ -170,7 +167,7 @@ mod tests {
             // This contains "curl" and "cat "
             match engine.evaluate(&t, &c, AutonomyLevel::Supervised) {
                 GuardrailVerdict::Escalate(msg) => assert!(msg.contains("exfiltrating")),
-                other => panic!("expected Escalate for exfiltration, got {:?}", other),
+                other => panic!("expected Escalate for exfiltration, got {other:?}"),
             }
         }
     }

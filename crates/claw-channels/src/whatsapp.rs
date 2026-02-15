@@ -116,10 +116,12 @@ fn find_path_start(text_before_ext: &str) -> Option<usize> {
 
     // First try: find `~/` pattern
     for i in (0..len.saturating_sub(1)).rev() {
-        if bytes[i] == b'~' && i + 1 < len && bytes[i + 1] == b'/' {
-            if i == 0 || is_path_delimiter(bytes[i - 1]) {
-                return Some(i);
-            }
+        if bytes[i] == b'~'
+            && i + 1 < len
+            && bytes[i + 1] == b'/'
+            && (i == 0 || is_path_delimiter(bytes[i - 1]))
+        {
+            return Some(i);
         }
     }
 
@@ -280,9 +282,10 @@ pub struct WhatsAppChannel {
 }
 
 /// DM access policy — mirrors OpenClaw's pairing system.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum DmPolicy {
     /// Unknown senders get a pairing code; owner must approve.
+    #[default]
     Pairing,
     /// Only numbers in `allow_from` can chat.
     Allowlist,
@@ -290,12 +293,6 @@ pub enum DmPolicy {
     Open,
     /// WhatsApp DMs are disabled entirely.
     Disabled,
-}
-
-impl Default for DmPolicy {
-    fn default() -> Self {
-        DmPolicy::Pairing
-    }
 }
 
 impl std::fmt::Display for DmPolicy {
@@ -318,8 +315,7 @@ impl std::str::FromStr for DmPolicy {
             "open" => Ok(DmPolicy::Open),
             "disabled" => Ok(DmPolicy::Disabled),
             _ => Err(format!(
-                "unknown DM policy: '{}' (valid: pairing, allowlist, open, disabled)",
-                s
+                "unknown DM policy: '{s}' (valid: pairing, allowlist, open, disabled)"
             )),
         }
     }
@@ -412,7 +408,7 @@ impl WhatsAppChannel {
         let data =
             serde_json::to_string_pretty(requests).map_err(|e| claw_core::ClawError::Channel {
                 channel: "whatsapp".into(),
-                reason: format!("failed to serialize pairing requests: {}", e),
+                reason: format!("failed to serialize pairing requests: {e}"),
             })?;
         std::fs::write(&path, data)?;
         Ok(())
@@ -426,7 +422,7 @@ impl WhatsAppChannel {
             .position(|r| r.code == code)
             .ok_or_else(|| claw_core::ClawError::Channel {
                 channel: "whatsapp".into(),
-                reason: format!("pairing code '{}' not found", code),
+                reason: format!("pairing code '{code}' not found"),
             })?;
         let approved = requests.remove(pos);
         self.save_pairing_requests(&requests)?;
@@ -467,7 +463,7 @@ impl WhatsAppChannel {
         use rand::Rng;
         let mut rng = rand::thread_rng();
         let code: u32 = rng.gen_range(100_000..999_999);
-        format!("{}", code)
+        format!("{code}")
     }
 
     /// Load the persistent allowlist from disk.
@@ -556,17 +552,14 @@ impl WhatsAppChannel {
             .output()
             .map_err(|e| claw_core::ClawError::Channel {
                 channel: "whatsapp".into(),
-                reason: format!(
-                    "npm install failed: {}. Make sure Node.js ≥ 18 is installed.",
-                    e
-                ),
+                reason: format!("npm install failed: {e}. Make sure Node.js ≥ 18 is installed."),
             })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(claw_core::ClawError::Channel {
                 channel: "whatsapp".into(),
-                reason: format!("npm install failed: {}", stderr),
+                reason: format!("npm install failed: {stderr}"),
             });
         }
 
@@ -652,7 +645,7 @@ impl Channel for WhatsAppChannel {
         }
 
         let bridge_port = self.read_bridge_port();
-        let base_url = format!("http://127.0.0.1:{}/send", bridge_port);
+        let base_url = format!("http://127.0.0.1:{bridge_port}/send");
 
         // ── 1. Collect image paths to send ───────────────────────
         let mut photo_paths: Vec<PathBuf> = Vec::new();
@@ -866,7 +859,7 @@ impl Channel for WhatsAppChannel {
                         warn!(error = %text, "WhatsApp bridge send error");
                         return Err(claw_core::ClawError::Channel {
                             channel: "whatsapp".into(),
-                            reason: format!("Bridge send failed: {}", text),
+                            reason: format!("Bridge send failed: {text}"),
                         });
                     }
                 }
@@ -874,8 +867,7 @@ impl Channel for WhatsAppChannel {
                     return Err(claw_core::ClawError::Channel {
                         channel: "whatsapp".into(),
                         reason: format!(
-                            "Cannot reach WhatsApp bridge at port {} — is it running? ({})",
-                            bridge_port, e
+                            "Cannot reach WhatsApp bridge at port {bridge_port} — is it running? ({e})"
                         ),
                     });
                 }
@@ -894,7 +886,7 @@ impl Channel for WhatsAppChannel {
         let body = json!({ "type": "typing", "to": target });
         let _ = self
             .client
-            .post(format!("http://127.0.0.1:{}/send", bridge_port))
+            .post(format!("http://127.0.0.1:{bridge_port}/send"))
             .json(&body)
             .send()
             .await;
@@ -945,6 +937,7 @@ fn is_sender_allowed(
 }
 
 /// Bridge loop: spawns the Node.js bridge process and reads its JSON output.
+#[allow(clippy::too_many_arguments)]
 async fn whatsapp_bridge_loop(
     auth_dir: PathBuf,
     channel_id: String,
@@ -999,8 +992,7 @@ async fn whatsapp_bridge_loop(
                 error!(error = %e, "WhatsApp: failed to spawn bridge");
                 let _ = event_tx
                     .send(ChannelEvent::Disconnected(Some(format!(
-                        "Bridge spawn failed: {}",
-                        e
+                        "Bridge spawn failed: {e}"
                     ))))
                     .await;
                 tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
@@ -1085,14 +1077,14 @@ async fn whatsapp_bridge_loop(
                                                 eprintln!("   \x1b[1m📱 Scan this QR code with WhatsApp:\x1b[0m");
                                                 eprintln!("   Open WhatsApp → Settings → Linked Devices → Link a Device\n");
                                                 for line in qr_str.lines() {
-                                                    eprintln!("   {}", line);
+                                                    eprintln!("   {line}");
                                                 }
                                                 eprintln!();
                                             }
                                             Err(e) => {
                                                 warn!(error = %e, "Failed to render QR code");
                                                 // Fallback: print raw data
-                                                eprintln!("\n   QR data: {}\n", qr_data);
+                                                eprintln!("\n   QR data: {qr_data}\n");
                                             }
                                         }
                                     }
@@ -1104,7 +1096,7 @@ async fn whatsapp_bridge_loop(
                                         info!(phone = %phone, "WhatsApp connected!");
 
                                         // Auto-trust the linked phone number
-                                        let phone_jid = format!("{}@s.whatsapp.net", phone);
+                                        let phone_jid = format!("{phone}@s.whatsapp.net");
                                         if !allow_from.iter().any(|n| phone_jid.contains(n))
                                             && !disk_allowlist.iter().any(|n| phone_jid.contains(n))
                                         {

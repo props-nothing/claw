@@ -94,7 +94,7 @@ impl CronScheduler {
         session_id: Option<Uuid>,
     ) -> Result<Uuid, String> {
         // Validate the cron expression
-        Schedule::from_str(cron_expr).map_err(|e| format!("Invalid cron expression: {}", e))?;
+        Schedule::from_str(cron_expr).map_err(|e| format!("Invalid cron expression: {e}"))?;
 
         let mut tasks = self.tasks.lock().await;
 
@@ -334,7 +334,7 @@ impl SchedulerHandle {
         label: Option<String>,
         session_id: Option<Uuid>,
     ) -> Result<Uuid, String> {
-        Schedule::from_str(cron_expr).map_err(|e| format!("Invalid cron expression: {}", e))?;
+        Schedule::from_str(cron_expr).map_err(|e| format!("Invalid cron expression: {e}"))?;
 
         let mut tasks = self.tasks.lock().await;
 

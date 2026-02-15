@@ -32,7 +32,7 @@ async fn save_screenshot(prefix: &str, base64_data: &str) -> claw_core::Result<(
         .unwrap_or_default()
         .as_millis();
     let rand_suffix: u32 = rand::random::<u32>() % 100_000;
-    let filename = format!("{}_{ts}_{rand_suffix:05}.png", prefix);
+    let filename = format!("{prefix}_{ts}_{rand_suffix:05}.png");
     let filepath = screenshots_dir.join(&filename);
 
     // Decode base64 → raw PNG bytes → write to disk
@@ -60,6 +60,12 @@ pub struct DeviceTools {
     pub browser: Arc<Mutex<BrowserManager>>,
     pub android: Arc<Mutex<AndroidBridge>>,
     pub ios: Arc<Mutex<IosBridge>>,
+}
+
+impl Default for DeviceTools {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DeviceTools {
@@ -965,7 +971,7 @@ impl DeviceTools {
                 browser.close_tab(tab_id).await?;
                 Ok(ToolResult {
                     tool_call_id: call.id.clone(),
-                    content: format!("closed tab {}", tab_id),
+                    content: format!("closed tab {tab_id}"),
                     is_error: false,
                     data: None,
                 })
@@ -977,7 +983,7 @@ impl DeviceTools {
                 browser.scroll(direction, amount).await?;
                 Ok(ToolResult {
                     tool_call_id: call.id.clone(),
-                    content: format!("scrolled {} {}px", direction, amount),
+                    content: format!("scrolled {direction} {amount}px"),
                     is_error: false,
                     data: None,
                 })
@@ -1005,7 +1011,7 @@ impl DeviceTools {
                     if !std::path::Path::new(path).exists() {
                         return Ok(ToolResult {
                             tool_call_id: call.id.clone(),
-                            content: format!("Error: file not found: {}", path),
+                            content: format!("Error: file not found: {path}"),
                             is_error: true,
                             data: None,
                         });
@@ -1060,7 +1066,7 @@ impl DeviceTools {
                 android.select_device(serial);
                 Ok(ToolResult {
                     tool_call_id: call.id.clone(),
-                    content: format!("selected device {}", serial),
+                    content: format!("selected device {serial}"),
                     is_error: false,
                     data: None,
                 })
@@ -1071,7 +1077,7 @@ impl DeviceTools {
                 let (url_path, disk_path) = save_screenshot("android", &shot.data_base64).await?;
                 Ok(ToolResult {
                     tool_call_id: call.id.clone(),
-                    content: format!("Screenshot saved to {}. View: {}", disk_path, url_path),
+                    content: format!("Screenshot saved to {disk_path}. View: {url_path}"),
                     is_error: false,
                     data: Some(json!({ "screenshot_url": url_path, "screenshot_path": disk_path })),
                 })
@@ -1246,7 +1252,7 @@ impl DeviceTools {
                 let (url_path, disk_path) = save_screenshot("ios", &shot.data_base64).await?;
                 Ok(ToolResult {
                     tool_call_id: call.id.clone(),
-                    content: format!("Screenshot saved to {}. View: {}", disk_path, url_path),
+                    content: format!("Screenshot saved to {disk_path}. View: {url_path}"),
                     is_error: false,
                     data: Some(json!({ "screenshot_url": url_path, "screenshot_path": disk_path })),
                 })
@@ -1401,7 +1407,7 @@ fn require_str<'a>(call: &'a ToolCall, key: &str) -> claw_core::Result<&'a str> 
         .as_str()
         .ok_or_else(|| ClawError::ToolExecution {
             tool: call.tool_name.clone(),
-            reason: format!("missing '{}' argument", key),
+            reason: format!("missing '{key}' argument"),
         })
 }
 

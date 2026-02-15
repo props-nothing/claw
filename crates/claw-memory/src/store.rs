@@ -228,26 +228,26 @@ impl MemoryStore {
     }
 
     /// Load all facts from SQLite into semantic memory. Returns number of facts loaded.
+    #[allow(clippy::type_complexity)]
     pub fn load_facts(&mut self) -> claw_core::Result<usize> {
         let rows: Vec<(String, String, String, f64, Option<Vec<u8>>)> = {
             let db = self.db.lock();
             let mut stmt = db
                 .prepare("SELECT category, key, value, confidence, embedding FROM facts")
                 .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
-            let rows = stmt
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, f64>(3)?,
-                        row.get::<_, Option<Vec<u8>>>(4)?,
-                    ))
-                })
-                .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?
-                .filter_map(|r| r.ok())
-                .collect::<Vec<_>>();
-            rows
+
+            stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, f64>(3)?,
+                    row.get::<_, Option<Vec<u8>>>(4)?,
+                ))
+            })
+            .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?
+            .filter_map(|r| r.ok())
+            .collect::<Vec<_>>()
         };
 
         let count = rows.len();
@@ -614,6 +614,7 @@ impl MemoryStore {
     // ── Scheduled Tasks persistence ─────────────────────────────────
 
     /// Persist a scheduled task to SQLite (upsert).
+    #[allow(clippy::too_many_arguments)]
     pub fn persist_scheduled_task(
         &self,
         id: &str,

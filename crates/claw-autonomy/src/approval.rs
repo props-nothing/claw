@@ -34,6 +34,12 @@ pub struct ApprovalGate {
     request_rx: Option<mpsc::Receiver<(ApprovalRequest, oneshot::Sender<ApprovalResponse>)>>,
 }
 
+impl Default for ApprovalGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ApprovalGate {
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel(64);
@@ -76,7 +82,7 @@ impl ApprovalGate {
     ) -> ApprovalResponse {
         let request = ApprovalRequest {
             id,
-            action: format!("{}({})", tool_name, tool_args),
+            action: format!("{tool_name}({tool_args})"),
             reason: reason.to_string(),
             tool_name: tool_name.to_string(),
             tool_args: tool_args.clone(),

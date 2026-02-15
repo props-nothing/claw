@@ -77,13 +77,12 @@ impl LlmProvider for LocalProvider {
             .json(&body)
             .send()
             .await
-            .map_err(|e| claw_core::ClawError::LlmProvider(format!("local: {}", e)))?;
+            .map_err(|e| claw_core::ClawError::LlmProvider(format!("local: {e}")))?;
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
             return Err(claw_core::ClawError::LlmProvider(format!(
-                "local model error: {}",
-                text
+                "local model error: {text}"
             )));
         }
 
@@ -154,7 +153,7 @@ impl LlmProvider for LocalProvider {
 
         tokio::spawn(async move {
             let resp = client
-                .post(format!("{}/api/chat", base_url))
+                .post(format!("{base_url}/api/chat"))
                 .json(&body)
                 .send()
                 .await;
@@ -229,7 +228,7 @@ impl LlmProvider for LocalProvider {
                     let _ = tx.send(StreamChunk::Error(text)).await;
                 }
                 Err(e) => {
-                    let _ = tx.send(StreamChunk::Error(format!("local: {}", e))).await;
+                    let _ = tx.send(StreamChunk::Error(format!("local: {e}"))).await;
                 }
             }
         });
@@ -244,7 +243,7 @@ impl LlmProvider for LocalProvider {
             .get(format!("{}/api/tags", self.base_url))
             .send()
             .await
-            .map_err(|e| claw_core::ClawError::LlmProvider(format!("local unreachable: {}", e)))?;
+            .map_err(|e| claw_core::ClawError::LlmProvider(format!("local unreachable: {e}")))?;
 
         if resp.status().is_success() {
             Ok(())

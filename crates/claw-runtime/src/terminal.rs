@@ -243,7 +243,7 @@ pub async fn terminal_open(label: &str, working_dir: Option<&str>) -> io::Result
             libc::close(master);
             libc::close(slave);
         }
-        io::Error::new(io::ErrorKind::Other, format!("failed to spawn shell: {e}"))
+        io::Error::other(format!("failed to spawn shell: {e}"))
     })?;
     let child_pid = child.id();
 
@@ -339,7 +339,7 @@ pub async fn terminal_open(label: &str, working_dir: Option<&str>) -> io::Result
 /// output to appear, then waits for output to settle (no new data for 500ms).
 pub async fn terminal_run(id: u32, command: &str, timeout_ms: u64) -> io::Result<String> {
     // Send the command with a newline
-    let text = format!("{}\n", command);
+    let text = format!("{command}\n");
     terminal_write_raw(id, &text).await?;
 
     // Wait for output to settle
@@ -489,7 +489,7 @@ async fn terminal_write_raw(id: u32, text: &str) -> io::Result<()> {
         }
     })
     .await
-    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    .map_err(io::Error::other)?;
 
     Ok(())
 }

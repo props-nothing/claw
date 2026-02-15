@@ -197,7 +197,7 @@ impl LlmProvider for MockProvider {
             // Stream the text word by word
             if !mock.text.is_empty() {
                 for word in mock.text.split_whitespace() {
-                    let _ = tx.send(StreamChunk::TextDelta(format!("{} ", word))).await;
+                    let _ = tx.send(StreamChunk::TextDelta(format!("{word} "))).await;
                 }
             }
 

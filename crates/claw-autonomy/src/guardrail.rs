@@ -27,6 +27,12 @@ pub struct GuardrailEngine {
     denylist: Vec<String>,
 }
 
+impl Default for GuardrailEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GuardrailEngine {
     pub fn new() -> Self {
         let mut engine = Self {

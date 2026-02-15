@@ -131,6 +131,12 @@ fn retry_after_hint(err: &claw_core::ClawError) -> Option<u64> {
     }
 }
 
+impl Default for ModelRouter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ModelRouter {
     pub fn new() -> Self {
         Self {

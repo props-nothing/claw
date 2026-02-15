@@ -97,8 +97,7 @@ async fn test_chat_endpoint() {
     // Response text may vary depending on test ordering (shared global state)
     assert!(
         json["response"].is_string(),
-        "expected response string, got: {}",
-        json
+        "expected response string, got: {json}"
     );
     assert!(json["session_id"].is_string());
 }
@@ -191,8 +190,7 @@ async fn test_tools_endpoint() {
     // Should be an array of tool definitions or an object wrapper
     assert!(
         json.is_array() || json.is_object(),
-        "unexpected tools format: {}",
-        json
+        "unexpected tools format: {json}"
     );
 }
 
@@ -304,7 +302,7 @@ async fn test_approval_bad_uuid() {
 async fn test_approval_not_found() {
     let app = setup(vec![]).await;
     let fake_id = uuid::Uuid::new_v4();
-    let req = Request::post(&format!("/api/v1/approvals/{}/approve", fake_id))
+    let req = Request::post(format!("/api/v1/approvals/{fake_id}/approve"))
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();

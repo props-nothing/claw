@@ -317,7 +317,7 @@ impl TelegramChannel {
 
     /// Resolve a Telegram `file_id` into a downloadable `file_path`.
     async fn get_file_path(&self, base_url: &str, file_id: &str) -> claw_core::Result<String> {
-        let url = format!("{}/getFile", base_url);
+        let url = format!("{base_url}/getFile");
         let resp = self
             .client
             .post(&url)
@@ -326,7 +326,7 @@ impl TelegramChannel {
             .await
             .map_err(|e| claw_core::ClawError::Channel {
                 channel: "telegram".into(),
-                reason: format!("getFile failed: {}", e),
+                reason: format!("getFile failed: {e}"),
             })?;
 
         let status = resp.status();
@@ -335,7 +335,7 @@ impl TelegramChannel {
             let desc = json["description"].as_str().unwrap_or("unknown error");
             return Err(claw_core::ClawError::Channel {
                 channel: "telegram".into(),
-                reason: format!("getFile error: {}", desc),
+                reason: format!("getFile error: {desc}"),
             });
         }
 
@@ -369,7 +369,7 @@ impl TelegramChannel {
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
             })
-            .unwrap_or_else(|| format!("telegram-{}", file_id));
+            .unwrap_or_else(|| format!("telegram-{file_id}"));
 
         let dir = telegram_downloads_dir();
         tokio::fs::create_dir_all(&dir)
@@ -390,23 +390,23 @@ impl TelegramChannel {
                 .extension()
                 .map(|s| format!(".{}", s.to_string_lossy()))
                 .unwrap_or_default();
-            out_path = dir.join(format!("{}-{}{}", stem, file_id, ext));
+            out_path = dir.join(format!("{stem}-{file_id}{ext}"));
         }
 
         let bytes = self
             .client
-            .get(&self.file_url(&file_path))
+            .get(self.file_url(&file_path))
             .send()
             .await
             .map_err(|e| claw_core::ClawError::Channel {
                 channel: "telegram".into(),
-                reason: format!("file download failed: {}", e),
+                reason: format!("file download failed: {e}"),
             })?
             .bytes()
             .await
             .map_err(|e| claw_core::ClawError::Channel {
                 channel: "telegram".into(),
-                reason: format!("file download bytes failed: {}", e),
+                reason: format!("file download bytes failed: {e}"),
             })?;
 
         tokio::fs::write(&out_path, &bytes)
@@ -456,20 +456,20 @@ impl TelegramChannel {
 
         let resp = self
             .client
-            .post(&self.api_url("sendPhoto"))
+            .post(self.api_url("sendPhoto"))
             .multipart(form)
             .send()
             .await
             .map_err(|e| claw_core::ClawError::Channel {
                 channel: "telegram".into(),
-                reason: format!("sendPhoto failed: {}", e),
+                reason: format!("sendPhoto failed: {e}"),
             })?;
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
             return Err(claw_core::ClawError::Channel {
                 channel: "telegram".into(),
-                reason: format!("sendPhoto failed: {}", text),
+                reason: format!("sendPhoto failed: {text}"),
             });
         }
 
@@ -500,7 +500,7 @@ impl Channel for TelegramChannel {
 
         // Spawn long-polling loop
         tokio::spawn(async move {
-            let base_url = format!("https://api.telegram.org/bot{}", token);
+            let base_url = format!("https://api.telegram.org/bot{token}");
             let mut offset: i64 = 0;
             connected.store(true, Ordering::SeqCst);
             info!("Telegram channel connected, starting long-poll");
@@ -526,7 +526,7 @@ impl Channel for TelegramChannel {
                     break;
                 }
 
-                let url = format!("{}/getUpdates?offset={}&timeout=30", base_url, offset);
+                let url = format!("{base_url}/getUpdates?offset={offset}&timeout=30");
 
                 tokio::select! {
                     biased; // prefer shutdown signal
@@ -804,7 +804,7 @@ impl Channel for TelegramChannel {
 
             match self
                 .client
-                .post(&self.api_url(api_method))
+                .post(self.api_url(api_method))
                 .multipart(form)
                 .send()
                 .await
@@ -827,7 +827,7 @@ impl Channel for TelegramChannel {
                                 .part("document", part);
                             match self
                                 .client
-                                .post(&self.api_url("sendDocument"))
+                                .post(self.api_url("sendDocument"))
                                 .multipart(form)
                                 .send()
                                 .await
@@ -894,7 +894,7 @@ impl Channel for TelegramChannel {
 
         let resp = self
             .client
-            .post(&self.api_url("sendMessage"))
+            .post(self.api_url("sendMessage"))
             .json(&body_md)
             .send()
             .await
@@ -916,7 +916,7 @@ impl Channel for TelegramChannel {
 
         let resp = self
             .client
-            .post(&self.api_url("sendMessage"))
+            .post(self.api_url("sendMessage"))
             .json(&body)
             .send()
             .await
@@ -929,7 +929,7 @@ impl Channel for TelegramChannel {
             let text = resp.text().await.unwrap_or_default();
             return Err(claw_core::ClawError::Channel {
                 channel: "telegram".into(),
-                reason: format!("sendMessage failed: {}", text),
+                reason: format!("sendMessage failed: {text}"),
             });
         }
 
@@ -987,7 +987,7 @@ impl Channel for TelegramChannel {
 
         let resp = self
             .client
-            .post(&self.api_url("sendMessage"))
+            .post(self.api_url("sendMessage"))
             .json(&body)
             .send()
             .await
@@ -1017,7 +1017,7 @@ impl Channel for TelegramChannel {
 
         let resp = self
             .client
-            .post(&self.api_url("sendMessage"))
+            .post(self.api_url("sendMessage"))
             .json(&body)
             .send()
             .await
@@ -1048,7 +1048,7 @@ impl Channel for TelegramChannel {
 
         let resp = self
             .client
-            .post(&self.api_url("editMessageText"))
+            .post(self.api_url("editMessageText"))
             .json(&body)
             .send()
             .await
@@ -1073,7 +1073,7 @@ impl Channel for TelegramChannel {
         });
         let _ = self
             .client
-            .post(&self.api_url("sendChatAction"))
+            .post(self.api_url("sendChatAction"))
             .json(&body)
             .send()
             .await;
@@ -1125,7 +1125,7 @@ async fn dispatch_update(
         debug!(callback_id = %callback_id, data = %cb_data, "telegram callback query");
 
         // Answer the callback to remove the loading spinner
-        let answer_url = format!("{}/answerCallbackQuery", base_url);
+        let answer_url = format!("{base_url}/answerCallbackQuery");
         let _ = client
             .post(&answer_url)
             .json(&serde_json::json!({
@@ -1168,7 +1168,7 @@ async fn dispatch_update(
                 .max_by_key(|(size, _)| *size)
             {
                 match channel
-                    .download_file_by_id(&base_url, &best_file_id, Some("telegram-photo.jpg"))
+                    .download_file_by_id(base_url, &best_file_id, Some("telegram-photo.jpg"))
                     .await
                 {
                     Ok(path) => attachments.push(Attachment {
@@ -1200,7 +1200,7 @@ async fn dispatch_update(
                     .unwrap_or("application/octet-stream");
 
                 match channel
-                    .download_file_by_id(&base_url, file_id, Some(filename))
+                    .download_file_by_id(base_url, file_id, Some(filename))
                     .await
                 {
                     Ok(path) => attachments.push(Attachment {
@@ -1223,7 +1223,7 @@ async fn dispatch_update(
             let file_id = video.get("file_id").and_then(|v| v.as_str()).unwrap_or("");
             if !file_id.is_empty() {
                 match channel
-                    .download_file_by_id(&base_url, file_id, Some("telegram-video.mp4"))
+                    .download_file_by_id(base_url, file_id, Some("telegram-video.mp4"))
                     .await
                 {
                     Ok(path) => attachments.push(Attachment {
@@ -1255,7 +1255,7 @@ async fn dispatch_update(
                     .unwrap_or("audio/mpeg");
 
                 match channel
-                    .download_file_by_id(&base_url, file_id, Some(filename))
+                    .download_file_by_id(base_url, file_id, Some(filename))
                     .await
                 {
                     Ok(path) => attachments.push(Attachment {

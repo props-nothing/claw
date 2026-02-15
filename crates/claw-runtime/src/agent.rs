@@ -354,7 +354,7 @@ impl RuntimeHandle {
         let state = self.state.clone();
         let handle =
             tokio::spawn(async move { process_api_message(state, text, session_id).await });
-        handle.await.map_err(|e| format!("task panicked: {}", e))
+        handle.await.map_err(|e| format!("task panicked: {e}"))
     }
 
     /// Send a streaming chat message. Returns a receiver for stream events.
@@ -989,7 +989,7 @@ impl AgentRuntime {
                                 {
                                     let is_approve = trimmed.starts_with("/approve");
                                     // Extract UUID argument (if any) — skip the command word
-                                    let uuid_arg: Option<String> = trimmed.splitn(2, ' ').nth(1)
+                                    let uuid_arg: Option<String> = trimmed.split_once(' ').map(|x| x.1)
                                         .map(|s| s.trim().to_string())
                                         .filter(|s| !s.is_empty());
 
@@ -1010,7 +1010,7 @@ impl AgentRuntime {
                                                             } else {
                                                                 "❌ Denied.".to_string()
                                                             },
-                                                            Err(e) => format!("⚠️ {}", e),
+                                                            Err(e) => format!("⚠️ {e}"),
                                                         }
                                                     }
                                                     Err(_) => "⚠️ Invalid approval ID. Use the buttons or type /approve <uuid>.".to_string(),
@@ -1031,13 +1031,13 @@ impl AgentRuntime {
                                                         } else {
                                                             "❌ Denied.".to_string()
                                                         },
-                                                        Err(e) => format!("⚠️ {}", e),
+                                                        Err(e) => format!("⚠️ {e}"),
                                                     }
                                                 } else {
                                                     let ids: Vec<String> = map.keys().map(|id| id.to_string()).collect();
                                                     drop(map);
                                                     format!("⚠️ {} pending approvals. Specify which:\n{}", count,
-                                                        ids.iter().map(|id| format!("  /approve {}", id)).collect::<Vec<_>>().join("\n"))
+                                                        ids.iter().map(|id| format!("  /approve {id}")).collect::<Vec<_>>().join("\n"))
                                                 }
                                             }
                                         };
@@ -1069,7 +1069,7 @@ impl AgentRuntime {
                                             } else {
                                                 "❌ Action denied.".to_string()
                                             },
-                                            Err(e) => format!("⚠️ {}", e),
+                                            Err(e) => format!("⚠️ {e}"),
                                         };
                                         let _ = send_response_shared(&s, "telegram", &chat_id, &reply).await;
                                     });
@@ -1787,7 +1787,7 @@ async fn process_mesh_message(state: SharedAgentState, message: MeshMessage) {
                             .get("confidence")
                             .and_then(|v| v.as_f64())
                             .unwrap_or(0.8);
-                        let source = format!("mesh:{}", peer_id);
+                        let source = format!("mesh:{peer_id}");
                         let mut mem = state.memory.lock().await;
                         // Upsert into in-memory semantic store
                         mem.semantic.upsert(claw_memory::semantic::Fact {
@@ -1965,7 +1965,7 @@ async fn process_channel_message(
             StreamEvent::ToolCall { name, id, args } => {
                 let emoji = tool_progress_emoji(&name);
                 let desc = describe_tool_call(&name, &args);
-                let line = format!("{}  {}", emoji, desc);
+                let line = format!("{emoji}  {desc}");
                 let idx = progress_lines.len();
                 progress_lines.push(line);
                 current_tool_ids.insert(id, idx);
@@ -1988,14 +1988,14 @@ async fn process_channel_message(
                             let summary = extract_result_summary(content, 60);
                             if is_error {
                                 if summary.is_empty() {
-                                    *line = format!("❌  {}", description);
+                                    *line = format!("❌  {description}");
                                 } else {
-                                    *line = format!("❌  {} — {}", description, summary);
+                                    *line = format!("❌  {description} — {summary}");
                                 }
                             } else if summary.is_empty() {
-                                *line = format!("✅  {}", description);
+                                *line = format!("✅  {description}");
                             } else {
-                                *line = format!("✅  {} → {}", description, summary);
+                                *line = format!("✅  {description} → {summary}");
                             }
                         }
                     }
@@ -2031,7 +2031,7 @@ async fn process_channel_message(
                     &state,
                     &channel_id_owned,
                     &target,
-                    &format!("❌ Error: {}", message),
+                    &format!("❌ Error: {message}"),
                 )
                 .await;
                 break;
@@ -2276,8 +2276,7 @@ fn truncate_tool_result(content: &str, max_tokens: usize) -> String {
     let omitted_tokens = omitted_chars / 4;
 
     format!(
-        "{}\n\n[... truncated {} tokens ({} chars) to fit context window ...]\n\n{}",
-        head, omitted_tokens, omitted_chars, tail
+        "{head}\n\n[... truncated {omitted_tokens} tokens ({omitted_chars} chars) to fit context window ...]\n\n{tail}"
     )
 }
 
@@ -2324,8 +2323,7 @@ async fn maybe_compact_context(
          - Any errors encountered and how they were resolved\n\
          - Current state of progress (what's done, what remains)\n\n\
          Keep the summary under 500 words. Be factual and specific.\n\n\
-         Conversation to summarize:\n{}",
-        text_to_summarize
+         Conversation to summarize:\n{text_to_summarize}"
     );
 
     let request = LlmRequest {
@@ -2581,7 +2579,7 @@ async fn process_message_shared(
             state.config.credentials.provider
         ));
         if let Some(ref vault) = state.config.credentials.default_vault {
-            system_prompt.push_str(&format!("Default vault: {}\n", vault));
+            system_prompt.push_str(&format!("Default vault: {vault}\n"));
         }
         let has_service_account = state.config.credentials.service_account_token.is_some();
         if has_service_account {
@@ -2864,7 +2862,7 @@ async fn process_message_shared(
                         GuardrailVerdict::Approve => execute_tool_shared(&s, &tc).await,
                         GuardrailVerdict::Deny(reason) => ToolResult {
                             tool_call_id: tc_id.clone(),
-                            content: format!("DENIED: {}", reason),
+                            content: format!("DENIED: {reason}"),
                             is_error: true,
                             data: None,
                         },
@@ -2936,7 +2934,7 @@ async fn process_message_shared(
                     GuardrailVerdict::Approve => execute_tool_shared(state, tool_call).await,
                     GuardrailVerdict::Deny(reason) => ToolResult {
                         tool_call_id: tool_call.id.clone(),
-                        content: format!("DENIED: {}", reason),
+                        content: format!("DENIED: {reason}"),
                         is_error: true,
                         data: None,
                     },
@@ -3045,15 +3043,14 @@ async fn process_message_shared(
             if has_active_goals {
                 if let Some(ref scheduler) = state.scheduler {
                     let resume_desc = format!(
-                        "Auto-resume: Continue working on unfinished tasks from session {}. \
-                         Review active goals with goal_list and continue where you left off.",
-                        session_id
+                        "Auto-resume: Continue working on unfinished tasks from session {session_id}. \
+                         Review active goals with goal_list and continue where you left off."
                     );
                     let task_id = scheduler
                         .add_one_shot(
                             resume_desc,
                             60, // Resume in 60 seconds
-                            Some(format!("auto-resume:{}", session_id)),
+                            Some(format!("auto-resume:{session_id}")),
                             Some(session_id),
                         )
                         .await;
@@ -3325,7 +3322,7 @@ async fn process_message_streaming_shared(
             state.config.credentials.provider
         ));
         if let Some(ref vault) = state.config.credentials.default_vault {
-            system_prompt.push_str(&format!("Default vault: {}\n", vault));
+            system_prompt.push_str(&format!("Default vault: {vault}\n"));
         }
         let has_service_account = state.config.credentials.service_account_token.is_some();
         if has_service_account {
@@ -3645,7 +3642,7 @@ async fn process_message_streaming_shared(
                         GuardrailVerdict::Approve => execute_tool_shared(&s, &tc).await,
                         GuardrailVerdict::Deny(reason) => ToolResult {
                             tool_call_id: tc_id.clone(),
-                            content: format!("DENIED: {}", reason),
+                            content: format!("DENIED: {reason}"),
                             is_error: true,
                             data: None,
                         },
@@ -3713,7 +3710,7 @@ async fn process_message_streaming_shared(
                     GuardrailVerdict::Approve => execute_tool_shared(state, tool_call).await,
                     GuardrailVerdict::Deny(reason) => ToolResult {
                         tool_call_id: tool_call.id.clone(),
-                        content: format!("DENIED: {}", reason),
+                        content: format!("DENIED: {reason}"),
                         is_error: true,
                         data: None,
                     },
@@ -3816,15 +3813,14 @@ async fn process_message_streaming_shared(
             if has_active_goals {
                 if let Some(ref scheduler) = state.scheduler {
                     let resume_desc = format!(
-                        "Auto-resume: Continue working on unfinished tasks from session {}. \
-                         Review active goals with goal_list and continue where you left off.",
-                        session_id
+                        "Auto-resume: Continue working on unfinished tasks from session {session_id}. \
+                         Review active goals with goal_list and continue where you left off."
                     );
                     let task_id = scheduler
                         .add_one_shot(
                             resume_desc,
                             60, // Resume in 60 seconds
-                            Some(format!("auto-resume:{}", session_id)),
+                            Some(format!("auto-resume:{session_id}")),
                             Some(session_id),
                         )
                         .await;
@@ -3943,7 +3939,7 @@ async fn execute_tool_shared(state: &SharedAgentState, call: &ToolCall) -> ToolR
             Err(e) => {
                 return ToolResult {
                     tool_call_id: call.id.clone(),
-                    content: format!("Error: {}", e),
+                    content: format!("Error: {e}"),
                     is_error: true,
                     data: None,
                 };
@@ -3958,7 +3954,7 @@ async fn execute_tool_shared(state: &SharedAgentState, call: &ToolCall) -> ToolR
             Err(e) => {
                 return ToolResult {
                     tool_call_id: call.id.clone(),
-                    content: format!("Device error: {}", e),
+                    content: format!("Device error: {e}"),
                     is_error: true,
                     data: None,
                 };
@@ -3973,7 +3969,7 @@ async fn execute_tool_shared(state: &SharedAgentState, call: &ToolCall) -> ToolR
             Err(e) => {
                 return ToolResult {
                     tool_call_id: call.id.clone(),
-                    content: format!("Plugin error: {}", e),
+                    content: format!("Plugin error: {e}"),
                     is_error: true,
                     data: None,
                 };
@@ -4051,7 +4047,7 @@ async fn exec_llm_generate_shared(state: &SharedAgentState, call: &ToolCall) -> 
         }
         Err(e) => ToolResult {
             tool_call_id: call.id.clone(),
-            content: format!("LLM generation failed: {}", e),
+            content: format!("LLM generation failed: {e}"),
             is_error: true,
             data: None,
         },
@@ -4105,7 +4101,7 @@ async fn exec_web_search_shared(state: &SharedAgentState, call: &ToolCall) -> To
         Err(e) => {
             return ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("Web search request failed: {}", e),
+                content: format!("Web search request failed: {e}"),
                 is_error: true,
                 data: None,
             };
@@ -4117,7 +4113,7 @@ async fn exec_web_search_shared(state: &SharedAgentState, call: &ToolCall) -> To
         let body = resp.text().await.unwrap_or_default();
         return ToolResult {
             tool_call_id: call.id.clone(),
-            content: format!("Brave Search API error ({}): {}", status, body),
+            content: format!("Brave Search API error ({status}): {body}"),
             is_error: true,
             data: None,
         };
@@ -4128,7 +4124,7 @@ async fn exec_web_search_shared(state: &SharedAgentState, call: &ToolCall) -> To
         Err(e) => {
             return ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("Failed to parse search results: {}", e),
+                content: format!("Failed to parse search results: {e}"),
                 is_error: true,
                 data: None,
             };
@@ -4158,7 +4154,7 @@ async fn exec_web_search_shared(state: &SharedAgentState, call: &ToolCall) -> To
     if results.is_empty() {
         return ToolResult {
             tool_call_id: call.id.clone(),
-            content: format!("No results found for: {}", query),
+            content: format!("No results found for: {query}"),
             is_error: false,
             data: None,
         };
@@ -4302,8 +4298,7 @@ async fn exec_mesh_delegate_shared(state: &SharedAgentState, call: &ToolCall) ->
                     return ToolResult {
                         tool_call_id: call.id.clone(),
                         content: format!(
-                            "Peer '{}' not found in mesh. Use mesh_peers to see available peers.",
-                            pid
+                            "Peer '{pid}' not found in mesh. Use mesh_peers to see available peers."
                         ),
                         is_error: true,
                         data: None,
@@ -4384,7 +4379,7 @@ async fn exec_mesh_delegate_shared(state: &SharedAgentState, call: &ToolCall) ->
             state.pending_mesh_tasks.lock().await.remove(&task_id);
             return ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("Failed to send task to peer: {}", e),
+                content: format!("Failed to send task to peer: {e}"),
                 is_error: true,
                 data: None,
             };
@@ -4422,10 +4417,7 @@ async fn exec_mesh_delegate_shared(state: &SharedAgentState, call: &ToolCall) ->
             state.pending_mesh_tasks.lock().await.remove(&task_id);
             ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!(
-                    "Task {} was cancelled — peer may have disconnected.",
-                    task_id
-                ),
+                content: format!("Task {task_id} was cancelled — peer may have disconnected."),
                 is_error: true,
                 data: None,
             }
@@ -4518,7 +4510,7 @@ async fn exec_memory_search_shared(state: &SharedAgentState, call: &ToolCall) ->
                 ep.summary,
                 ep.outcome
                     .as_ref()
-                    .map(|o| format!(" → {}", o))
+                    .map(|o| format!(" → {o}"))
                     .unwrap_or_default()
             ));
         }
@@ -4575,8 +4567,7 @@ async fn exec_memory_search_shared(state: &SharedAgentState, call: &ToolCall) ->
 
     let content = if results.is_empty() {
         format!(
-            "No relevant memories found for query: \"{}\". Try memory_list to see all stored facts.",
-            query
+            "No relevant memories found for query: \"{query}\". Try memory_list to see all stored facts."
         )
     } else {
         results.join("\n")
@@ -4597,7 +4588,7 @@ async fn exec_memory_store_shared(state: &SharedAgentState, call: &ToolCall) -> 
 
     // Generate embedding if an embedder is configured
     let embedding = if let Some(ref embedder) = state.embedder {
-        let text_for_embedding = format!("{} {} {}", category, key, value);
+        let text_for_embedding = format!("{category} {key} {value}");
         match embedder.embed(&[&text_for_embedding]).await {
             Ok(vecs) if !vecs.is_empty() => Some(vecs.into_iter().next().unwrap()),
             Ok(_) => None,
@@ -4659,7 +4650,7 @@ async fn exec_memory_store_shared(state: &SharedAgentState, call: &ToolCall) -> 
 
     ToolResult {
         tool_call_id: call.id.clone(),
-        content: format!("Stored fact: {}/{} = {}", category, key, value),
+        content: format!("Stored fact: {category}/{key} = {value}"),
         is_error: false,
         data: None,
     }
@@ -4685,9 +4676,9 @@ async fn exec_memory_delete_shared(state: &SharedAgentState, call: &ToolCall) ->
         let removed_mem = mem.semantic.remove(category, key);
         let removed_db = mem.delete_fact(category, key).unwrap_or(false);
         if removed_mem || removed_db {
-            format!("Deleted fact: {}/{}", category, key)
+            format!("Deleted fact: {category}/{key}")
         } else {
-            format!("Fact not found: {}/{}", category, key)
+            format!("Fact not found: {category}/{key}")
         }
     } else {
         // Delete entire category
@@ -4695,9 +4686,9 @@ async fn exec_memory_delete_shared(state: &SharedAgentState, call: &ToolCall) ->
         let count_db = mem.delete_facts_by_category(category).unwrap_or(0);
         let count = count_mem.max(count_db);
         if count > 0 {
-            format!("Deleted {} fact(s) from category '{}'", count, category)
+            format!("Deleted {count} fact(s) from category '{category}'")
         } else {
-            format!("Category '{}' not found or already empty", category)
+            format!("Category '{category}' not found or already empty")
         }
     };
 
@@ -4721,7 +4712,7 @@ async fn exec_memory_list_shared(state: &SharedAgentState, call: &ToolCall) -> T
         // List facts in a specific category
         let facts = mem.semantic.category(cat);
         if facts.is_empty() {
-            lines.push(format!("Category '{}': (empty)", cat));
+            lines.push(format!("Category '{cat}': (empty)"));
         } else {
             lines.push(format!("Category '{}' ({} facts):", cat, facts.len()));
             for fact in facts {
@@ -4895,7 +4886,7 @@ async fn exec_goal_complete_step_shared(state: &SharedAgentState, call: &ToolCal
         Err(_) => {
             return ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("Invalid goal_id: {}", goal_id_str),
+                content: format!("Invalid goal_id: {goal_id_str}"),
                 is_error: true,
                 data: None,
             };
@@ -4906,7 +4897,7 @@ async fn exec_goal_complete_step_shared(state: &SharedAgentState, call: &ToolCal
         Err(_) => {
             return ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("Invalid step_id: {}", step_id_str),
+                content: format!("Invalid step_id: {step_id_str}"),
                 is_error: true,
                 data: None,
             };
@@ -4968,7 +4959,7 @@ async fn exec_goal_update_status_shared(state: &SharedAgentState, call: &ToolCal
         Err(_) => {
             return ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("Invalid goal_id: {}", goal_id_str),
+                content: format!("Invalid goal_id: {goal_id_str}"),
                 is_error: true,
                 data: None,
             };
@@ -4989,8 +4980,7 @@ async fn exec_goal_update_status_shared(state: &SharedAgentState, call: &ToolCal
                 return ToolResult {
                     tool_call_id: call.id.clone(),
                     content: format!(
-                        "Invalid status: {}. Use: active, completed, failed, paused, cancelled",
-                        status_str
+                        "Invalid status: {status_str}. Use: active, completed, failed, paused, cancelled"
                     ),
                     is_error: true,
                     data: None,
@@ -5010,7 +5000,7 @@ async fn exec_goal_update_status_shared(state: &SharedAgentState, call: &ToolCal
     if !updated {
         return ToolResult {
             tool_call_id: call.id.clone(),
-            content: format!("Goal not found: {}", goal_id_str),
+            content: format!("Goal not found: {goal_id_str}"),
             is_error: true,
             data: None,
         };
@@ -5044,7 +5034,7 @@ async fn exec_goal_update_status_shared(state: &SharedAgentState, call: &ToolCal
             if reason.is_empty() {
                 String::new()
             } else {
-                format!(": {}", reason)
+                format!(": {reason}")
             }
         ),
         is_error: false,
@@ -5085,7 +5075,7 @@ async fn exec_channel_send_file(state: &SharedAgentState, call: &ToolCall) -> To
     if !file_path.exists() {
         return ToolResult {
             tool_call_id: call.id.clone(),
-            content: format!("Error: file not found: {}", file_path_str),
+            content: format!("Error: file not found: {file_path_str}"),
             is_error: true,
             data: None,
         };
@@ -5167,7 +5157,7 @@ async fn exec_channel_send_file(state: &SharedAgentState, call: &ToolCall) -> To
     // Send through the channel with the file as an attachment
     let channels = state.channels.lock().await;
     for channel in channels.iter() {
-        if channel.id() == &channel_id {
+        if channel.id() == channel_id {
             let msg = OutgoingMessage {
                 channel: channel_id.clone(),
                 target: target.clone(),
@@ -5186,8 +5176,7 @@ async fn exec_channel_send_file(state: &SharedAgentState, call: &ToolCall) -> To
                     return ToolResult {
                         tool_call_id: call.id.clone(),
                         content: format!(
-                            "File sent successfully: {} ({}, {})",
-                            filename, media_type, channel_id
+                            "File sent successfully: {filename} ({media_type}, {channel_id})"
                         ),
                         is_error: false,
                         data: None,
@@ -5197,7 +5186,7 @@ async fn exec_channel_send_file(state: &SharedAgentState, call: &ToolCall) -> To
                     warn!(error = %e, file = %file_path_str, "channel_send_file: failed to send");
                     return ToolResult {
                         tool_call_id: call.id.clone(),
-                        content: format!("Error sending file: {}", e),
+                        content: format!("Error sending file: {e}"),
                         is_error: true,
                         data: None,
                     };
@@ -5208,7 +5197,7 @@ async fn exec_channel_send_file(state: &SharedAgentState, call: &ToolCall) -> To
 
     ToolResult {
         tool_call_id: call.id.clone(),
-        content: format!("Error: channel '{}' not found", channel_id),
+        content: format!("Error: channel '{channel_id}' not found"),
         is_error: true,
         data: None,
     }
@@ -5269,10 +5258,9 @@ fn sub_agent_system_prompt(role: &str) -> String {
     };
 
     format!(
-        "You are a Claw 🦞 sub-agent with the role: {}.\n\n{}\n\n\
+        "You are a Claw 🦞 sub-agent with the role: {role}.\n\n{role_instruction}\n\n\
          Work autonomously — complete the task using your tools without asking for clarification.\n\
-         When done, output a clear summary of what you accomplished and any important findings.",
-        role, role_instruction
+         When done, output a clear summary of what you accomplished and any important findings."
     )
 }
 
@@ -5516,7 +5504,7 @@ fn run_sub_agent_task(
 
         // Create a fresh session for this sub-agent
         let session_id = state.sessions.create().await;
-        let label = format!("sub-agent:{}", role);
+        let label = format!("sub-agent:{role}");
         state.sessions.set_name(session_id, &label).await;
 
         // Build the task message with context
@@ -5551,7 +5539,7 @@ fn run_sub_agent_task(
             // Send a marker so the UI/channel knows a sub-agent started
             let _ = ptx
                 .send(StreamEvent::TextDelta {
-                    content: format!("\n\n🤖 *Sub-agent ({}) working…*\n", role_tag),
+                    content: format!("\n\n🤖 *Sub-agent ({role_tag}) working…*\n"),
                 })
                 .await;
 
@@ -5565,7 +5553,7 @@ fn run_sub_agent_task(
                     match event {
                         StreamEvent::ToolCall { name, id, args } => {
                             // Forward tool calls with sub-agent prefix in the name
-                            let prefixed_name = format!("[{}] {}", role_fwd, name);
+                            let prefixed_name = format!("[{role_fwd}] {name}");
                             let _ = ptx_fwd
                                 .send(StreamEvent::ToolCall {
                                     name: prefixed_name,
@@ -5597,8 +5585,7 @@ fn run_sub_agent_task(
                             let _ = ptx_fwd
                                 .send(StreamEvent::TextDelta {
                                     content: format!(
-                                        "\n⚠️ Sub-agent ({}) error: {}\n",
-                                        role_fwd, message
+                                        "\n⚠️ Sub-agent ({role_fwd}) error: {message}\n"
                                     ),
                                 })
                                 .await;
@@ -5614,8 +5601,8 @@ fn run_sub_agent_task(
             let incoming = IncomingMessage {
                 id: Uuid::new_v4().to_string(),
                 channel: "sub-agent".to_string(),
-                sender: format!("sub-agent:{}", role_tag),
-                sender_name: Some(format!("Sub-agent ({})", role_tag)),
+                sender: format!("sub-agent:{role_tag}"),
+                sender_name: Some(format!("Sub-agent ({role_tag})")),
                 group: None,
                 text: Some(prompt.clone()),
                 attachments: vec![],
@@ -5644,15 +5631,12 @@ fn run_sub_agent_task(
             drop(sub_tx);
 
             // Wait for forwarder to finish and get the accumulated text
-            let sub_final_text = match forwarder.await {
-                Ok(text) => text,
-                Err(_) => String::new(),
-            };
+            let sub_final_text = forwarder.await.unwrap_or_default();
 
             // Send completion marker
             let _ = ptx
                 .send(StreamEvent::TextDelta {
-                    content: format!("\n✅ *Sub-agent ({}) done*\n\n", role_tag),
+                    content: format!("\n✅ *Sub-agent ({role_tag}) done*\n\n"),
                 })
                 .await;
 
@@ -5786,8 +5770,7 @@ async fn exec_sub_agent_wait(state: &SharedAgentState, call: &ToolCall) -> ToolR
             return ToolResult {
                 tool_call_id: call.id.clone(),
                 content: format!(
-                    "Timeout: waited {}s but not all sub-agent tasks completed.",
-                    timeout_secs
+                    "Timeout: waited {timeout_secs}s but not all sub-agent tasks completed."
                 ),
                 is_error: true,
                 data: None,
@@ -5827,7 +5810,7 @@ async fn exec_sub_agent_wait(state: &SharedAgentState, call: &ToolCall) -> ToolR
                 "error": t.error,
             }));
         } else {
-            results.push(format!("## Task {} — not found", id));
+            results.push(format!("## Task {id} — not found"));
         }
     }
 
@@ -6006,7 +5989,7 @@ async fn exec_cron_schedule(state: &SharedAgentState, call: &ToolCall) -> ToolRe
             }
             Err(e) => ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("Error scheduling cron task: {}", e),
+                content: format!("Error scheduling cron task: {e}"),
                 is_error: true,
                 data: None,
             },
@@ -6079,7 +6062,7 @@ async fn exec_cron_list(state: &SharedAgentState, call: &ToolCall) -> ToolResult
     let mut json_tasks = Vec::new();
     for task in &tasks {
         let kind_str = match &task.kind {
-            crate::scheduler::ScheduleKind::Cron { expression } => format!("cron: {}", expression),
+            crate::scheduler::ScheduleKind::Cron { expression } => format!("cron: {expression}"),
             crate::scheduler::ScheduleKind::OneShot { fire_at } => {
                 format!("one-shot: {}", fire_at.format("%Y-%m-%d %H:%M:%S UTC"))
             }
@@ -6136,7 +6119,7 @@ async fn exec_cron_cancel(state: &SharedAgentState, call: &ToolCall) -> ToolResu
         Err(_) => {
             return ToolResult {
                 tool_call_id: call.id.clone(),
-                content: format!("Error: invalid UUID: {}", task_id_str),
+                content: format!("Error: invalid UUID: {task_id_str}"),
                 is_error: true,
                 data: None,
             };
@@ -6162,14 +6145,14 @@ async fn exec_cron_cancel(state: &SharedAgentState, call: &ToolCall) -> ToolResu
         let _ = mem.delete_scheduled_task(&task_id.to_string());
         ToolResult {
             tool_call_id: call.id.clone(),
-            content: format!("Task {} cancelled and removed.", task_id),
+            content: format!("Task {task_id} cancelled and removed."),
             is_error: false,
             data: Some(serde_json::json!({ "task_id": task_id.to_string(), "removed": true })),
         }
     } else {
         ToolResult {
             tool_call_id: call.id.clone(),
-            content: format!("Task {} not found.", task_id),
+            content: format!("Task {task_id} not found."),
             is_error: true,
             data: None,
         }
@@ -6255,7 +6238,7 @@ fn describe_tool_call(name: &str, args: &serde_json::Value) -> String {
                 .unwrap_or("…");
             // Show just the filename or last 2 path components
             let short = short_path(path);
-            format!("Writing `{}`", short)
+            format!("Writing `{short}`")
         }
         "file_patch" => {
             let path = args["path"]
@@ -6288,7 +6271,7 @@ fn describe_tool_call(name: &str, args: &serde_json::Value) -> String {
                 .as_str()
                 .or_else(|| args["id"].as_str())
                 .unwrap_or("terminal");
-            format!("Checking {}", id)
+            format!("Checking {id}")
         }
         "web_search" | "brave_search" => {
             let q = args["query"].as_str().unwrap_or("…");
@@ -6301,37 +6284,37 @@ fn describe_tool_call(name: &str, args: &serde_json::Value) -> String {
                 "navigate" => {
                     let url = args["url"].as_str().unwrap_or("…");
                     let short: String = url.chars().take(50).collect();
-                    format!("Opening `{}`", short)
+                    format!("Opening `{short}`")
                 }
                 "click" => {
                     let sel = args["selector"].as_str().unwrap_or("element");
                     let short: String = sel.chars().take(30).collect();
-                    format!("Clicking `{}`", short)
+                    format!("Clicking `{short}`")
                 }
-                "type" | "input" => format!("Typing text"),
-                "screenshot" | "snapshot" => format!("Taking screenshot"),
-                "upload_file" => format!("Uploading file"),
-                _ => format!("{}", action.replace('_', " ")),
+                "type" | "input" => "Typing text".to_string(),
+                "screenshot" | "snapshot" => "Taking screenshot".to_string(),
+                "upload_file" => "Uploading file".to_string(),
+                _ => action.replace('_', " ").to_string(),
             }
         }
         n if n.starts_with("android_") || n.starts_with("ios_") => {
             let parts: Vec<&str> = n.splitn(2, '_').collect();
             let action = parts.get(1).unwrap_or(&n);
-            format!("{}", action.replace('_', " "))
+            action.replace('_', " ").to_string()
         }
-        "memory_store" => format!("Storing memory"),
-        "memory_search" => format!("Searching memory"),
+        "memory_store" => "Storing memory".to_string(),
+        "memory_search" => "Searching memory".to_string(),
         "goal_create" => {
             let desc = args["description"].as_str().unwrap_or("…");
             let short: String = desc.chars().take(40).collect();
             format!("Goal: {}", short.trim())
         }
-        "mesh_delegate" => format!("Delegating to peer"),
+        "mesh_delegate" => "Delegating to peer".to_string(),
         "channel_send_file" => {
             let path = args["file_path"].as_str().unwrap_or("…");
             format!("Sending `{}`", short_path(path))
         }
-        _ => format!("{}", name.replace('_', " ")),
+        _ => name.replace('_', " ").to_string(),
     }
 }
 
@@ -6436,6 +6419,7 @@ async fn resolve_approval(
 }
 
 /// Send an approval prompt to a channel (uses inline keyboard for Telegram, text fallback for others).
+#[allow(clippy::too_many_arguments)]
 async fn send_approval_prompt_shared(
     state: &SharedAgentState,
     channel_id: &str,
@@ -6536,7 +6520,7 @@ fn build_episode_summary(messages: &[Message], user_text: &str, final_response: 
     let user_preview: String = user_text.chars().take(120).collect();
     let response_preview: String = final_response.chars().take(200).collect();
 
-    let mut summary = format!("User: {}", user_preview);
+    let mut summary = format!("User: {user_preview}");
     if tool_count > 0 {
         let unique_tools: Vec<String> = {
             let mut seen = std::collections::HashSet::new();
@@ -6552,7 +6536,7 @@ fn build_episode_summary(messages: &[Message], user_text: &str, final_response: 
         ));
     }
     if !response_preview.is_empty() {
-        summary.push_str(&format!(" | Response: {}", response_preview));
+        summary.push_str(&format!(" | Response: {response_preview}"));
     }
     summary
 }
@@ -6768,7 +6752,7 @@ fn build_lesson_excerpt(messages: &[Message]) -> String {
         if interesting_range {
             let truncated: String = text.chars().take(500).collect();
             if !truncated.is_empty() {
-                excerpt.push_str(&format!("[{}]: {}\n", role_str, truncated));
+                excerpt.push_str(&format!("[{role_str}]: {truncated}\n"));
             }
             for tc in &msg.tool_calls {
                 let args_preview: String = tc.arguments.to_string().chars().take(200).collect();
@@ -6808,8 +6792,7 @@ async fn extract_lessons_via_llm(
          - Common errors and their solutions\n\
          - Anything the user had to correct or point out\n\n\
          Output ONLY the JSON array, nothing else. If no clear lessons, output [].\n\n\
-         Conversation excerpt:\n{}\n",
-        excerpt
+         Conversation excerpt:\n{excerpt}\n"
     );
 
     // Use fast model if available to keep costs low
@@ -6895,7 +6878,7 @@ async fn maybe_extract_lessons(state: &SharedAgentState, session_id: Uuid) {
             key: key.clone(),
             value: lesson.clone(),
             confidence: 0.9,
-            source: Some(format!("session:{}", session_id)),
+            source: Some(format!("session:{session_id}")),
             embedding: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -6911,7 +6894,7 @@ async fn maybe_extract_lessons(state: &SharedAgentState, session_id: Uuid) {
     if let Some(ref embedder) = state.embedder {
         let texts: Vec<String> = lessons
             .iter()
-            .map(|(key, lesson)| format!("learned_lessons {} {}", key, lesson))
+            .map(|(key, lesson)| format!("learned_lessons {key} {lesson}"))
             .collect();
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         if let Ok(embeddings) = embedder.embed(&text_refs).await {
@@ -7012,7 +6995,7 @@ mod tests {
 
         // Verify sessions were created
         let sessions = state.sessions.list().await;
-        assert!(sessions.len() >= 1, "expected at least one session");
+        assert!(!sessions.is_empty(), "expected at least one session");
     }
 
     #[tokio::test]
@@ -7145,7 +7128,7 @@ mod tests {
                     got_done = true;
                     break;
                 }
-                StreamEvent::Error { message } => panic!("unexpected error: {}", message),
+                StreamEvent::Error { message } => panic!("unexpected error: {message}"),
                 _ => {}
             }
         }

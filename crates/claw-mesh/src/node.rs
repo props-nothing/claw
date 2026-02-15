@@ -191,9 +191,9 @@ impl MeshNode {
 
     /// Dial a peer at a specific multiaddr.
     pub async fn dial(&self, addr: &str) -> claw_core::Result<()> {
-        let multiaddr: libp2p::Multiaddr = addr.parse().map_err(|e| {
-            claw_core::ClawError::Agent(format!("invalid multiaddr '{}': {}", addr, e))
-        })?;
+        let multiaddr: libp2p::Multiaddr = addr
+            .parse()
+            .map_err(|e| claw_core::ClawError::Agent(format!("invalid multiaddr '{addr}': {e}")))?;
 
         if let Some(ref cmd_tx) = self.command_tx {
             cmd_tx

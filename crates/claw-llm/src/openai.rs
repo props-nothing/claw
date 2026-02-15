@@ -177,8 +177,7 @@ impl LlmProvider for OpenAiProvider {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             return Err(claw_core::ClawError::LlmProvider(format!(
-                "HTTP {}: {}",
-                status, text
+                "HTTP {status}: {text}"
             )));
         }
 
@@ -374,8 +373,8 @@ impl LlmProvider for OpenAiProvider {
 
         tokio::spawn(async move {
             let resp = client
-                .post(format!("{}/chat/completions", base_url))
-                .header("Authorization", format!("Bearer {}", api_key))
+                .post(format!("{base_url}/chat/completions"))
+                .header("Authorization", format!("Bearer {api_key}"))
                 .json(&body)
                 .send()
                 .await;
@@ -407,7 +406,7 @@ impl LlmProvider for OpenAiProvider {
                                     if let Some(data) = line.strip_prefix("data: ") {
                                         if data.trim() == "[DONE]" {
                                             // Emit any accumulated tool calls
-                                            for (_idx, (id, name, args)) in &tool_calls {
+                                            for (id, name, args) in tool_calls.values() {
                                                 let arguments: serde_json::Value =
                                                     serde_json::from_str(args).unwrap_or_default();
                                                 let _ = tx

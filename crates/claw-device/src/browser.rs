@@ -88,7 +88,7 @@ struct CdpClient {
 impl CdpClient {
     fn new(port: u16) -> Self {
         Self {
-            base_url: format!("http://127.0.0.1:{}", port),
+            base_url: format!("http://127.0.0.1:{port}"),
             http: reqwest::Client::new(),
         }
     }
@@ -241,7 +241,7 @@ impl CdpClient {
             })?;
 
         // Send the CDP command
-        ws.send(Message::Text(msg_str.into()))
+        ws.send(Message::Text(msg_str))
             .await
             .map_err(|e| ClawError::ToolExecution {
                 tool: "browser".into(),
@@ -314,7 +314,7 @@ impl BrowserInstance {
         info!(binary = %chrome_bin, port = port, headless = headless, "launching browser");
 
         let mut cmd = tokio::process::Command::new(&chrome_bin);
-        cmd.arg(format!("--remote-debugging-port={}", port))
+        cmd.arg(format!("--remote-debugging-port={port}"))
             .arg("--no-first-run")
             .arg("--no-default-browser-check")
             .arg("--disable-background-networking")
@@ -323,7 +323,7 @@ impl BrowserInstance {
             .arg("--metrics-recording-only")
             .arg("--safebrowsing-disable-auto-update")
             .arg("--window-size=1920,1080")
-            .arg(format!("--user-data-dir=/tmp/claw-chrome-{}", port));
+            .arg(format!("--user-data-dir=/tmp/claw-chrome-{port}"));
 
         if headless {
             cmd.arg("--headless=new");
@@ -338,7 +338,7 @@ impl BrowserInstance {
             .spawn()
             .map_err(|e| ClawError::ToolExecution {
                 tool: "browser".into(),
-                reason: format!("failed to launch Chrome at '{}': {e}", chrome_bin),
+                reason: format!("failed to launch Chrome at '{chrome_bin}': {e}"),
             })?;
 
         // Wait for Chrome to be ready
@@ -516,7 +516,7 @@ impl BrowserInstance {
                 el.click();
                 return JSON.stringify({{ ok: true, tag: el.tagName, text: el.textContent.slice(0, 100) }});
             }})()"#,
-            sel = serde_json::to_string(selector).unwrap_or_else(|_| format!("\"{}\"", selector)),
+            sel = serde_json::to_string(selector).unwrap_or_else(|_| format!("\"{selector}\"")),
         );
         self.evaluate(tab_id, &js).await?;
         Ok(())
@@ -729,7 +729,7 @@ impl BrowserInstance {
                 // Fallback: find any <input type="file"> on the page
                 return document.querySelector('input[type="file"]');
             }})()"#,
-            sel = serde_json::to_string(selector).unwrap_or_else(|_| format!("\"{}\"", selector)),
+            sel = serde_json::to_string(selector).unwrap_or_else(|_| format!("\"{selector}\"")),
         );
         let eval_result = self
             .cdp
@@ -748,8 +748,7 @@ impl BrowserInstance {
             .ok_or_else(|| ClawError::ToolExecution {
                 tool: "browser".into(),
                 reason: format!(
-                    "file input not found with selector '{}' — also tried 'input[type=\"file\"]'",
-                    selector
+                    "file input not found with selector '{selector}' — also tried 'input[type=\"file\"]'"
                 ),
             })?;
 
@@ -808,7 +807,7 @@ impl BrowserInstance {
 
                 return 'dispatched: files=' + el.files.length;
             }})()"#,
-            sel = serde_json::to_string(selector).unwrap_or_else(|_| format!("\"{}\"", selector)),
+            sel = serde_json::to_string(selector).unwrap_or_else(|_| format!("\"{selector}\"")),
         );
         let ev_result = self
             .cdp
@@ -845,6 +844,12 @@ pub struct BrowserManager {
     active_tab: Option<String>,
     /// Default CDP port.
     default_port: u16,
+}
+
+impl Default for BrowserManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BrowserManager {
@@ -960,7 +965,7 @@ impl BrowserManager {
         browser.click(&tab_id, selector).await?;
         // Brief wait for any navigation / JS
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        Ok(format!("clicked '{}'", selector))
+        Ok(format!("clicked '{selector}'"))
     }
 
     /// Type text into an element.
@@ -984,7 +989,7 @@ impl BrowserManager {
         // Brief wait for any JS event handlers (e.g. preview rendering)
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         let count = file_paths.len();
-        Ok(format!("uploaded {} file(s) to '{}'", count, selector))
+        Ok(format!("uploaded {count} file(s) to '{selector}'"))
     }
 
     /// Evaluate JavaScript and return the result.
@@ -1162,7 +1167,7 @@ impl BrowserManager {
             })()"#.to_string(),
             other => return Err(ClawError::ToolExecution {
                 tool: "browser".into(),
-                reason: format!("unknown network action '{}' — use 'start', 'get', or 'clear'", other),
+                reason: format!("unknown network action '{other}' — use 'start', 'get', or 'clear'"),
             }),
         };
 

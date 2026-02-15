@@ -26,6 +26,12 @@ pub struct SemanticMemory {
     facts: HashMap<String, Vec<Fact>>,
 }
 
+impl Default for SemanticMemory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SemanticMemory {
     pub fn new() -> Self {
         Self {

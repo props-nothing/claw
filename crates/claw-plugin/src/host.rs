@@ -110,7 +110,7 @@ impl PluginHost {
         let entries =
             std::fs::read_dir(&self.plugin_dir).map_err(|e| claw_core::ClawError::Plugin {
                 plugin: "host".into(),
-                reason: format!("failed to read plugin dir: {}", e),
+                reason: format!("failed to read plugin dir: {e}"),
             })?;
 
         for entry in entries {
@@ -142,14 +142,14 @@ impl PluginHost {
         let manifest_str =
             std::fs::read_to_string(&manifest_path).map_err(|e| claw_core::ClawError::Plugin {
                 plugin: dir.display().to_string(),
-                reason: format!("missing plugin.toml: {}", e),
+                reason: format!("missing plugin.toml: {e}"),
             })?;
 
         let manifest = PluginManifest::from_toml(&manifest_str)?;
         let name = manifest.plugin.name.clone();
 
         // Find the .wasm file
-        let wasm_path = dir.join(format!("{}.wasm", name));
+        let wasm_path = dir.join(format!("{name}.wasm"));
         if !wasm_path.exists() {
             // Try any .wasm file in the directory
             let wasm_files: Vec<_> = std::fs::read_dir(dir)
@@ -172,7 +172,7 @@ impl PluginHost {
         // Load and compile the module
         let wasm_bytes = std::fs::read(&wasm_path).map_err(|e| claw_core::ClawError::Plugin {
             plugin: name.clone(),
-            reason: format!("failed to read wasm: {}", e),
+            reason: format!("failed to read wasm: {e}"),
         })?;
 
         // Verify checksum
@@ -245,8 +245,7 @@ impl PluginHost {
         // Verify the tool exists in the manifest
         if !plugin.manifest.tools.iter().any(|t| t.name == tool_name) {
             return Err(claw_core::ClawError::ToolNotFound(format!(
-                "{}.{}",
-                plugin_name, tool_name
+                "{plugin_name}.{tool_name}"
             )));
         }
 
@@ -268,8 +267,7 @@ impl PluginHost {
             Ok(ToolResult {
                 tool_call_id: call.id.clone(),
                 content: format!(
-                    "WASM support not enabled — rebuild with `--features wasm` to execute plugin '{}'",
-                    plugin_name
+                    "WASM support not enabled — rebuild with `--features wasm` to execute plugin '{plugin_name}'"
                 ),
                 is_error: true,
                 data: None,
@@ -459,7 +457,7 @@ impl PluginHost {
         if plugin_path.exists() && plugin_path.is_dir() {
             std::fs::remove_dir_all(&plugin_path).map_err(|e| claw_core::ClawError::Plugin {
                 plugin: name.to_string(),
-                reason: format!("failed to delete plugin directory: {}", e),
+                reason: format!("failed to delete plugin directory: {e}"),
             })?;
             info!(plugin = name, path = ?plugin_path, "deleted plugin directory");
         } else {
