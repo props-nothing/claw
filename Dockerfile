@@ -15,7 +15,7 @@
 #     claw
 
 # ── Builder stage ───────────────────────────────────────────────
-FROM rust:1.88-bookworm AS builder
+FROM rust:1.93-bookworm AS builder
 
 WORKDIR /build
 
@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Cache dependencies — copy manifests first, build a dummy, then copy real source
-COPY Cargo.toml Cargo.lock* ./
+COPY Cargo.toml Cargo.lock ./
 COPY claw-bin/Cargo.toml claw-bin/
 COPY crates/ crates/
 
