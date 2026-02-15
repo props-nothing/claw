@@ -47,6 +47,15 @@ pub struct Step {
     /// The mesh task ID if this step was delegated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegated_task_id: Option<Uuid>,
+    /// Step IDs that must complete before this step can start.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<Uuid>,
+    /// Role assigned to the sub-agent executing this step (e.g. "coder", "reviewer").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// Sub-agent task ID if this step was delegated to a sub-agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sub_agent_task_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,10 +137,127 @@ impl GoalPlanner {
                     created_at: Utc::now(),
                     delegated_to: None,
                     delegated_task_id: None,
+                    depends_on: Vec::new(),
+                    role: None,
+                    sub_agent_task_id: None,
                 })
                 .collect();
             goal.updated_at = Utc::now();
         }
+    }
+
+    /// Add steps with dependency and role information.
+    pub fn set_plan_with_deps(
+        &mut self,
+        goal_id: Uuid,
+        steps: Vec<(String, Vec<Uuid>, Option<String>)>,
+    ) {
+        if let Some(goal) = self.goals.iter_mut().find(|g| g.id == goal_id) {
+            goal.steps = steps
+                .into_iter()
+                .map(|(desc, deps, role)| Step {
+                    id: Uuid::new_v4(),
+                    description: desc,
+                    status: StepStatus::Pending,
+                    tool_calls: Vec::new(),
+                    result: None,
+                    error: None,
+                    created_at: Utc::now(),
+                    delegated_to: None,
+                    delegated_task_id: None,
+                    depends_on: deps,
+                    role,
+                    sub_agent_task_id: None,
+                })
+                .collect();
+            goal.updated_at = Utc::now();
+        }
+    }
+
+    /// Get all steps that are ready to execute (Pending + all depends_on are Completed).
+    pub fn ready_steps(&self, goal_id: Uuid) -> Vec<&Step> {
+        if let Some(goal) = self.goals.iter().find(|g| g.id == goal_id) {
+            let completed_ids: Vec<Uuid> = goal
+                .steps
+                .iter()
+                .filter(|s| s.status == StepStatus::Completed)
+                .map(|s| s.id)
+                .collect();
+            goal.steps
+                .iter()
+                .filter(|s| {
+                    s.status == StepStatus::Pending
+                        && s.depends_on.iter().all(|dep| completed_ids.contains(dep))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Mark a step as assigned to a sub-agent.
+    pub fn assign_to_sub_agent(
+        &mut self,
+        goal_id: Uuid,
+        step_id: Uuid,
+        sub_task_id: Uuid,
+        role: Option<String>,
+    ) {
+        if let Some(goal) = self.goals.iter_mut().find(|g| g.id == goal_id) {
+            if let Some(step) = goal.steps.iter_mut().find(|s| s.id == step_id) {
+                step.status = StepStatus::InProgress;
+                step.sub_agent_task_id = Some(sub_task_id);
+                if let Some(r) = role {
+                    step.role = Some(r);
+                }
+            }
+            goal.updated_at = Utc::now();
+        }
+    }
+
+    /// Complete a step that was delegated to a sub-agent, matched by sub_agent_task_id.
+    pub fn complete_sub_agent_task(&mut self, sub_task_id: Uuid, result: String) -> bool {
+        for goal in &mut self.goals {
+            if let Some(step) = goal.steps.iter_mut().find(|s| {
+                s.sub_agent_task_id == Some(sub_task_id) && s.status == StepStatus::InProgress
+            }) {
+                step.status = StepStatus::Completed;
+                step.result = Some(result);
+                // Update progress
+                let total = goal.steps.len() as f32;
+                let done = goal
+                    .steps
+                    .iter()
+                    .filter(|s| s.status == StepStatus::Completed)
+                    .count() as f32;
+                goal.progress = if total > 0.0 { done / total } else { 0.0 };
+                if goal
+                    .steps
+                    .iter()
+                    .all(|s| s.status == StepStatus::Completed || s.status == StepStatus::Skipped)
+                {
+                    goal.status = GoalStatus::Completed;
+                }
+                goal.updated_at = Utc::now();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Fail a step that was delegated to a sub-agent.
+    pub fn fail_sub_agent_task(&mut self, sub_task_id: Uuid, error: String) -> bool {
+        for goal in &mut self.goals {
+            if let Some(step) = goal.steps.iter_mut().find(|s| {
+                s.sub_agent_task_id == Some(sub_task_id) && s.status == StepStatus::InProgress
+            }) {
+                step.status = StepStatus::Failed;
+                step.error = Some(error);
+                goal.updated_at = Utc::now();
+                return true;
+            }
+        }
+        false
     }
 
     /// Get the next step to execute for a goal.
@@ -259,6 +385,9 @@ impl GoalPlanner {
                     created_at: Utc::now(),
                     delegated_to: None,
                     delegated_task_id: None,
+                    depends_on: Vec::new(),
+                    role: None,
+                    sub_agent_task_id: None,
                 }
             })
             .collect();

@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::{Mutex as TokioMutex, mpsc, oneshot};
 use tracing::{debug, error, info, warn};
@@ -35,6 +37,7 @@ use claw_skills::SkillRegistry;
 
 use crate::session::SessionManager;
 use crate::tools::BuiltinTools;
+use crate::scheduler::SchedulerHandle;
 use claw_device::DeviceTools;
 
 /// The default system prompt — concise, principle-based. Behavioral guidance
@@ -51,16 +54,21 @@ You take action using tools — files, shell, terminals, web, memory, goals, mes
 
 ## Principles
 
-- **Tools first, text after.** Every response should start with tool calls. Do NOT output any summary, plan, or description before you've taken action. Output brief status text only after all work in a turn is done.
+- **Tools first, text after.** Every response should start with tool calls. Do NOT output long summaries, plans, or descriptions before you've taken action. However, for complex tasks, your FIRST tool calls should be research and discovery (http_fetch, web_search, file_list, browser_navigate) to understand the problem before generating code. Output brief status text only after all work in a turn is done.
 - **Write production-quality content.** Each file you create should be complete, detailed, and polished. A landing page component needs real headings, real paragraphs, real structure — not 3-line placeholders. Write as if this is shipping to a real client. If you can't fit everything in one turn, write fewer files but make each one excellent — the system will loop back for more.
 - **Explore first.** Discover project structure (file_list, file_find) before writing code. Don't guess paths.
+- **Research before building.** When the user provides a URL or references an existing website/service/repo, ALWAYS fetch and study it first with `http_fetch` or `browser_navigate` + `browser_screenshot` before writing any code. Understand the source material (layout, sections, content, style) so your output is informed, not invented. When rebuilding or cloning a site, capture its structure, navigation, copy, color palette, and key sections. Never skip this step — the user gave you the URL for a reason.
 - **Be thorough.** Complex tasks need many tool calls across many turns. Don't stop early. Finish the job.
 - **Brief text, rich code.** Keep explanatory text under 100 words. Pour the detail into your code and file content instead.
 - **Diagnose and retry on errors.** Read error messages, fix the cause, try again.
 - **Scaffolding is step 1, not the finish line.** After `npx create-*` or `npm init`, explore what it created, then write the real application code on top of the skeleton.
 - **Shell first for native apps.** You are running on {os}. Use OS-native shell commands to control installed applications (e.g. `osascript` on macOS, `dbus-send`/`playerctl` on Linux, PowerShell on Windows). Only fall back to opening a browser URL when a native approach doesn't exist.
 - **Check before you act.** Before running a tool command, verify the target is available: use `which <binary>`, `command -v`, `pgrep`, or `ls` to confirm an app/tool is installed and running. If a device tool (android_*, ios_*) is needed, check connectivity first (e.g. `adb devices`, `xcrun simctl list`). Don't blindly run commands that will fail.
-- **Use mesh delegation** for tasks requiring capabilities you don't have.
+- **Use mesh delegation** for tasks requiring capabilities on remote peers you don't have locally.
+- **Sub-agents ARE your task delegation system.** When the user asks you to "delegate", "split work", "test task delegation", or any complex multi-step project, use `sub_agent_spawn` to assign work to specialized sub-agents (planner, coder, reviewer, tester, devops, researcher). Sub-agents are independent AI workers that run in parallel on this machine — they are NOT mesh peers. This is how you delegate work.
+- **Default to delegation for complex work.** For any task with 2+ distinct parts (e.g., "build a website", "set up a project", "research and implement"), spawn sub-agents for each part rather than doing everything sequentially. Each sub-agent gets its own session, tools, and role. Use `depends_on` to chain agents that need each other's output. You are an **orchestrator** — your job is to decompose, delegate, and synthesize results.\n- **Research → Build → Verify pipeline.** When a task involves a reference URL, existing site, or docs that need studying: always start by spawning a `researcher` sub-agent to fetch and analyze the reference material FIRST. Then chain `coder` sub-agents (depends_on the researcher) that receive the research findings as context. Finally spawn a `reviewer` or `tester` to verify the output. Never skip the research phase.
+- **Always link sub-agents to goal steps.** When you have a goal with steps AND you spawn sub-agents, pass `goal_id` and `step_id` to `sub_agent_spawn` so the step is automatically marked completed (or failed) when the sub-agent finishes. First call `goal_list` to get the UUIDs, then pass them in the spawn call. This closes the loop between delegation and progress tracking — never leave goal steps unchecked when a sub-agent did the work.
+- **When testing or demonstrating capabilities**, use sub-agents for real work — not just echo tests. For example, to test task delegation, spawn a researcher + coder + tester pipeline that produces actual output, not a sub-agent that just says "it works".
 - **You have full local filesystem access.** Screenshots you take are saved to ~/.claw/screenshots/ as PNG files with absolute paths shown in the tool result. You can use those paths directly with browser_upload_file, as email attachments, or anywhere a file path is needed. Use shell_exec, file_list, or file_find to discover any file on the system. Never ask the user to "send" or "upload" a file — find or create it yourself.
 - **Sending files to users.** When the user asks you to send, share, or deliver a file (audio, document, image, video), use the `channel_send_file` tool with the absolute file path. This uploads the file as a native attachment in the chat. Always verify the file exists first (e.g. with `shell_exec` or `file_list`). Never say you "can't send files" — you can, use `channel_send_file`.
 
@@ -166,6 +174,42 @@ pub struct MeshTaskResult {
     pub result: String,
 }
 
+/// Pending sub-agent tasks — awaiting completion from spawned sub-agents.
+pub type PendingSubTasks = Arc<TokioMutex<HashMap<Uuid, SubTaskState>>>;
+
+/// The state of a sub-agent task.
+#[derive(Debug, Clone)]
+pub struct SubTaskState {
+    pub task_id: Uuid,
+    pub role: String,
+    pub task_description: String,
+    pub status: SubTaskStatus,
+    pub result: Option<String>,
+    pub error: Option<String>,
+    pub parent_session_id: Uuid,
+    pub depends_on: Vec<Uuid>,
+    pub created_at: std::time::Instant,
+    /// If this sub-agent is linked to a goal step, auto-complete it on finish.
+    pub goal_id: Option<Uuid>,
+    pub step_id: Option<Uuid>,
+}
+
+/// Status of a sub-agent task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubTaskStatus {
+    /// Waiting for dependency tasks to complete.
+    WaitingForDeps,
+    /// Queued and ready to run.
+    Pending,
+    /// Currently executing.
+    Running,
+    /// Finished successfully.
+    Completed,
+    /// Finished with error.
+    Failed,
+}
+
 /// Shared agent state — cheaply cloneable for concurrent task spawning.
 /// Components with interior mutability (SessionManager, BudgetTracker, EventBus) clone directly.
 /// Heavy-mutation components (MemoryStore, GoalPlanner) are behind Arc<TokioMutex<>>.
@@ -188,6 +232,8 @@ pub struct SharedAgentState {
     pub embedder: Option<Arc<dyn claw_llm::EmbeddingProvider>>,
     pub mesh: Arc<TokioMutex<MeshNode>>,
     pub pending_mesh_tasks: PendingMeshTasks,
+    pub pending_sub_tasks: PendingSubTasks,
+    pub scheduler: Option<SchedulerHandle>,
     pub device_tools: Arc<DeviceTools>,
     /// Current channel context for tool calls that need to send back to the user.
     /// Set at the start of process_message_streaming_shared, cleared at the end.
@@ -215,6 +261,8 @@ pub enum QueryKind {
     AuditLog(usize),
     MeshPeers,
     MeshStatus,
+    SubTasks,
+    ScheduledTasks,
 }
 
 /// A handle for sending messages into the running agent runtime.
@@ -640,6 +688,8 @@ impl AgentRuntime {
             embedder: None,
             mesh: Arc::new(TokioMutex::new(mesh_node)),
             pending_mesh_tasks: Arc::new(TokioMutex::new(HashMap::new())),
+            pending_sub_tasks: Arc::new(TokioMutex::new(HashMap::new())),
+            scheduler: None, // Set after scheduler is created below
             device_tools: Arc::new(DeviceTools::new()),
             reply_context: Arc::new(TokioMutex::new(None)),
         };
@@ -668,6 +718,22 @@ impl AgentRuntime {
                 }
             }
         }
+
+        // ── Start scheduler ─────────────────────────────────────────
+        let (scheduler, mut scheduler_rx) = crate::scheduler::CronScheduler::new();
+        let scheduler_handle = scheduler.handle();
+
+        // Load scheduled tasks from config (heartbeat_cron, goal crons)
+        scheduler.load_from_config(&self.config).await;
+
+        // Store the handle in shared state so tools can schedule tasks
+        let mut state = state;
+        state.scheduler = Some(scheduler_handle);
+
+        // Spawn the scheduler background loop
+        tokio::spawn(async move {
+            scheduler.run().await;
+        });
 
         // Publish the RuntimeHandle so the server can use it
         let handle = RuntimeHandle {
@@ -944,6 +1010,33 @@ impl AgentRuntime {
                         process_mesh_message(s, mesh_msg).await;
                     });
                 }
+                // Handle scheduled tasks from the cron/one-shot scheduler
+                Some(sched_event) = scheduler_rx.recv() => {
+                    let s = state.clone();
+                    tokio::spawn(async move {
+                        info!(
+                            task_id = %sched_event.task_id,
+                            label = ?sched_event.label,
+                            "scheduler fired — processing scheduled task"
+                        );
+                        // Create or reuse a session for this scheduled task
+                        let session_id_str = if let Some(sid) = sched_event.session_id {
+                            sid.to_string()
+                        } else {
+                            // Create a new session for scheduled tasks
+                            let sid = s.sessions.create().await;
+                            let label = sched_event.label.unwrap_or_else(|| "scheduled task".to_string());
+                            s.sessions.set_name(sid, &label).await;
+                            sid.to_string()
+                        };
+                        // Process as a regular API message
+                        let _resp = process_api_message(
+                            s,
+                            sched_event.description,
+                            Some(session_id_str),
+                        ).await;
+                    });
+                }
                 // Both channels closed — shut down
                 else => {
                     break;
@@ -1046,15 +1139,20 @@ async fn handle_query(
         QueryKind::Goals => {
             let planner = state.planner.lock().await;
             let goals: Vec<serde_json::Value> = planner
-                .active_goals()
+                .all()
                 .iter()
                 .map(|g| {
                     serde_json::json!({
                         "id": g.id.to_string(),
+                        "title": g.description,
                         "description": g.description,
+                        "status": format!("{:?}", g.status),
                         "priority": g.priority,
                         "progress": g.progress,
+                        "created_at": g.created_at.to_rfc3339(),
+                        "updated_at": g.updated_at.to_rfc3339(),
                         "steps": g.steps.iter().map(|s| serde_json::json!({
+                            "id": s.id.to_string(),
                             "description": s.description,
                             "status": format!("{:?}", s.status),
                         })).collect::<Vec<_>>(),
@@ -1309,6 +1407,68 @@ async fn handle_query(
                 "capabilities": &state.config.mesh.capabilities,
                 "p2p": true,
             })
+        }
+        QueryKind::SubTasks => {
+            let tasks = state.pending_sub_tasks.lock().await;
+            let list: Vec<serde_json::Value> = tasks
+                .values()
+                .map(|t| {
+                    serde_json::json!({
+                        "task_id": t.task_id.to_string(),
+                        "role": t.role,
+                        "task_description": t.task_description,
+                        "status": t.status,
+                        "result": t.result,
+                        "error": t.error,
+                        "depends_on": t.depends_on.iter().map(|d| d.to_string()).collect::<Vec<_>>(),
+                        "elapsed_secs": t.created_at.elapsed().as_secs(),
+                    })
+                })
+                .collect();
+            let count = list.len();
+            let running = list.iter().filter(|t| t["status"] == "running").count();
+            let completed = list.iter().filter(|t| t["status"] == "completed").count();
+            let failed = list.iter().filter(|t| t["status"] == "failed").count();
+            serde_json::json!({
+                "sub_tasks": list,
+                "count": count,
+                "running": running,
+                "completed": completed,
+                "failed": failed,
+            })
+        }
+        QueryKind::ScheduledTasks => {
+            if let Some(ref scheduler) = state.scheduler {
+                let tasks = scheduler.list_all().await;
+                let list: Vec<serde_json::Value> = tasks
+                    .iter()
+                    .map(|t| {
+                        serde_json::json!({
+                            "id": t.id.to_string(),
+                            "label": t.label,
+                            "description": t.description,
+                            "kind": t.kind,
+                            "active": t.active,
+                            "fire_count": t.fire_count,
+                            "last_fired": t.last_fired.map(|d| d.to_rfc3339()),
+                            "created_at": t.created_at.to_rfc3339(),
+                        })
+                    })
+                    .collect();
+                let active = list.iter().filter(|t| t["active"] == true).count();
+                serde_json::json!({
+                    "scheduled_tasks": list,
+                    "count": list.len(),
+                    "active": active,
+                })
+            } else {
+                serde_json::json!({
+                    "scheduled_tasks": [],
+                    "count": 0,
+                    "active": 0,
+                    "scheduler_enabled": false,
+                })
+            }
         }
     };
     Ok(result)
@@ -2457,7 +2617,85 @@ async fn process_message_shared(
         }
 
         // 4. GUARD + ACT — execute tool calls with guardrail checks
-        for tool_call in &response.message.tool_calls {
+        // Partition into parallel-safe and sequential tool calls
+        let tool_calls_ref = &response.message.tool_calls;
+        let parallel_enabled = state.config.agent.parallel_tool_calls;
+        let can_parallelize = parallel_enabled && tool_calls_ref.len() > 1;
+
+        if can_parallelize && tool_calls_ref.iter().all(|tc| is_parallel_safe(&tc.tool_name)) {
+            // All tool calls are parallel-safe — run them all concurrently
+            let mut join_set = tokio::task::JoinSet::new();
+            for tool_call in tool_calls_ref.clone() {
+                state.budget.record_tool_call()?;
+                state.event_bus.publish(Event::AgentToolCall {
+                    session_id,
+                    tool_name: tool_call.tool_name.clone(),
+                    tool_call_id: tool_call.id.clone(),
+                });
+                let tool_def = all_tools
+                    .iter()
+                    .find(|t| t.name == tool_call.tool_name)
+                    .cloned()
+                    .unwrap_or_else(|| Tool {
+                        name: tool_call.tool_name.clone(),
+                        description: String::new(),
+                        parameters: serde_json::Value::Null,
+                        capabilities: vec![],
+                        is_mutating: true,
+                        risk_level: 5,
+                        provider: None,
+                    });
+                let verdict = state.guardrails.evaluate(&tool_def, &tool_call, autonomy_level);
+                let s = state.clone();
+                let tc = tool_call.clone();
+                let tc_id = tool_call.id.clone();
+                join_set.spawn(async move {
+                    let result = match verdict {
+                        GuardrailVerdict::Approve => execute_tool_shared(&s, &tc).await,
+                        GuardrailVerdict::Deny(reason) => ToolResult {
+                            tool_call_id: tc_id.clone(),
+                            content: format!("DENIED: {}", reason),
+                            is_error: true,
+                            data: None,
+                        },
+                        _ => execute_tool_shared(&s, &tc).await,
+                    };
+                    (tc_id, tc.tool_name.clone(), result)
+                });
+            }
+
+            // Collect results as they complete
+            while let Some(join_result) = join_set.join_next().await {
+                if let Ok((tc_id, _tool_name, tool_result)) = join_result {
+                    let is_error = tool_result.is_error;
+                    state.event_bus.publish(Event::AgentToolResult {
+                        session_id,
+                        tool_call_id: tc_id.clone(),
+                        is_error,
+                    });
+                    let truncated_content = truncate_tool_result(&tool_result.content, tool_result_max_tokens);
+                    {
+                        let mut mem = state.memory.lock().await;
+                        let result_msg = Message {
+                            id: Uuid::new_v4(),
+                            session_id,
+                            role: Role::Tool,
+                            content: vec![claw_core::MessageContent::ToolResult {
+                                tool_call_id: tc_id,
+                                content: truncated_content,
+                                is_error: tool_result.is_error,
+                            }],
+                            timestamp: chrono::Utc::now(),
+                            tool_calls: vec![],
+                            metadata: Default::default(),
+                        };
+                        mem.working.push(result_msg);
+                    }
+                }
+            }
+        } else {
+            // Sequential execution (original path) — either parallel disabled or has mutating tools
+            for tool_call in &response.message.tool_calls {
             state.budget.record_tool_call()?;
 
             state.event_bus.publish(Event::AgentToolCall {
@@ -2567,6 +2805,7 @@ async fn process_message_shared(
                 };
                 mem.working.push(result_msg);
             }
+            }
         }
 
         // Try LLM-powered compaction if context is getting large
@@ -2579,6 +2818,43 @@ async fn process_message_shared(
             .iter()
             .map(|tc| tc.tool_name.clone())
             .collect();
+    }
+
+    // Auto-resume: if we hit max_iterations or timeout with active goals, schedule a resume
+    if state.config.agent.auto_resume {
+        let was_interrupted = iteration > max_iterations
+            || deadline.is_some_and(|dl| std::time::Instant::now() >= dl);
+        if was_interrupted {
+            let has_active_goals = {
+                let planner = state.planner.lock().await;
+                !planner.active_goals().is_empty()
+            };
+            if has_active_goals {
+                if let Some(ref scheduler) = state.scheduler {
+                    let resume_desc = format!(
+                        "Auto-resume: Continue working on unfinished tasks from session {}. \
+                         Review active goals with goal_list and continue where you left off.",
+                        session_id
+                    );
+                    let task_id = scheduler
+                        .add_one_shot(
+                            resume_desc,
+                            60, // Resume in 60 seconds
+                            Some(format!("auto-resume:{}", session_id)),
+                            Some(session_id),
+                        )
+                        .await;
+                    info!(
+                        task_id = %task_id,
+                        session = %session_id,
+                        "scheduled auto-resume in 60s for interrupted task"
+                    );
+                    final_response.push_str(
+                        "\n\n⏱️ I'll automatically resume this work in about 1 minute.",
+                    );
+                }
+            }
+        }
     }
 
     // 5. REMEMBER — record episodic memory + audit
@@ -3118,8 +3394,81 @@ async fn process_message_streaming_shared(
             }
         }
 
-        // 4. Execute tool calls with guardrails
-        for tool_call in &tool_calls {
+        // 4. Execute tool calls with guardrails — parallel when safe
+        let parallel_enabled = state.config.agent.parallel_tool_calls;
+        let can_parallelize = parallel_enabled && tool_calls.len() > 1;
+
+        if can_parallelize && tool_calls.iter().all(|tc| is_parallel_safe(&tc.tool_name)) {
+            // All tool calls are parallel-safe — run them all concurrently
+            let mut join_set = tokio::task::JoinSet::new();
+            for tool_call in tool_calls.clone() {
+                state.budget.record_tool_call()?;
+                let tool_def = all_tools
+                    .iter()
+                    .find(|t| t.name == tool_call.tool_name)
+                    .cloned()
+                    .unwrap_or_else(|| Tool {
+                        name: tool_call.tool_name.clone(),
+                        description: String::new(),
+                        parameters: serde_json::Value::Null,
+                        capabilities: vec![],
+                        is_mutating: true,
+                        risk_level: 5,
+                        provider: None,
+                    });
+                let verdict = state.guardrails.evaluate(&tool_def, &tool_call, autonomy_level);
+                let s = state.clone();
+                let tc = tool_call.clone();
+                let tc_id = tool_call.id.clone();
+                join_set.spawn(async move {
+                    let result = match verdict {
+                        GuardrailVerdict::Approve => execute_tool_shared(&s, &tc).await,
+                        GuardrailVerdict::Deny(reason) => ToolResult {
+                            tool_call_id: tc_id.clone(),
+                            content: format!("DENIED: {}", reason),
+                            is_error: true,
+                            data: None,
+                        },
+                        _ => execute_tool_shared(&s, &tc).await,
+                    };
+                    (tc_id, result)
+                });
+            }
+
+            // Collect results as they complete and stream them back
+            while let Some(join_result) = join_set.join_next().await {
+                if let Ok((tc_id, tool_result)) = join_result {
+                    let _ = tx
+                        .send(StreamEvent::ToolResult {
+                            id: tc_id.clone(),
+                            content: tool_result.content.clone(),
+                            is_error: tool_result.is_error,
+                            data: tool_result.data.clone(),
+                        })
+                        .await;
+                    let truncated_content = truncate_tool_result(&tool_result.content, tool_result_max_tokens);
+                    {
+                        let mut mem = state.memory.lock().await;
+                        let result_msg = Message {
+                            id: Uuid::new_v4(),
+                            session_id,
+                            role: Role::Tool,
+                            content: vec![claw_core::MessageContent::ToolResult {
+                                tool_call_id: tc_id,
+                                content: truncated_content,
+                                is_error: tool_result.is_error,
+                            }],
+                            timestamp: chrono::Utc::now(),
+                            tool_calls: vec![],
+                            metadata: Default::default(),
+                        };
+                        mem.working.push(result_msg);
+                    }
+                }
+            }
+        } else {
+            // Sequential execution (original path)
+            for tool_call in &tool_calls {
             state.budget.record_tool_call()?;
 
             let tool_def = all_tools
@@ -3222,6 +3571,7 @@ async fn process_message_streaming_shared(
                 };
                 mem.working.push(result_msg);
             }
+            }
         }
 
         // Try LLM-powered compaction if context is getting large
@@ -3229,6 +3579,45 @@ async fn process_message_streaming_shared(
 
         // Record this turn's tool names for next iteration's lazy-stop check
         last_turn_tool_names = tool_calls.iter().map(|tc| tc.tool_name.clone()).collect();
+    }
+
+    // Auto-resume: if we hit max_iterations or timeout with active goals, schedule a resume
+    if state.config.agent.auto_resume {
+        let was_interrupted = iteration > max_iterations
+            || deadline.is_some_and(|dl| std::time::Instant::now() >= dl);
+        if was_interrupted {
+            let has_active_goals = {
+                let planner = state.planner.lock().await;
+                !planner.active_goals().is_empty()
+            };
+            if has_active_goals {
+                if let Some(ref scheduler) = state.scheduler {
+                    let resume_desc = format!(
+                        "Auto-resume: Continue working on unfinished tasks from session {}. \
+                         Review active goals with goal_list and continue where you left off.",
+                        session_id
+                    );
+                    let task_id = scheduler
+                        .add_one_shot(
+                            resume_desc,
+                            60, // Resume in 60 seconds
+                            Some(format!("auto-resume:{}", session_id)),
+                            Some(session_id),
+                        )
+                        .await;
+                    info!(
+                        task_id = %task_id,
+                        session = %session_id,
+                        "scheduled auto-resume in 60s for interrupted streaming task"
+                    );
+                    let _ = tx
+                        .send(StreamEvent::TextDelta {
+                            content: "\n\n⏱️ I'll automatically resume this work in about 1 minute.".to_string(),
+                        })
+                        .await;
+                }
+            }
+        }
     }
 
     // 5. REMEMBER — record episodic memory + audit
@@ -3307,6 +3696,10 @@ async fn execute_tool_shared(state: &SharedAgentState, call: &ToolCall) -> ToolR
         "mesh_delegate" => return exec_mesh_delegate_shared(state, call).await,
         "mesh_status" => return exec_mesh_status_shared(state, call).await,
         "channel_send_file" => return exec_channel_send_file(state, call).await,
+        "sub_agent_spawn" => return exec_sub_agent_spawn(state, call).await,
+        "sub_agent_wait" => return exec_sub_agent_wait(state, call).await,
+        "sub_agent_status" => return exec_sub_agent_status(state, call).await,
+        "cron_schedule" => return exec_cron_schedule(state, call).await,
         _ => {}
     }
 
@@ -4212,24 +4605,30 @@ async fn exec_goal_create_shared(state: &SharedAgentState, call: &ToolCall) -> T
 
 async fn exec_goal_list_shared(state: &SharedAgentState, call: &ToolCall) -> ToolResult {
     let planner = state.planner.lock().await;
-    let goals = planner.active_goals();
+    let goals = planner.all();
     if goals.is_empty() {
         return ToolResult {
             tool_call_id: call.id.clone(),
-            content: "No active goals.".to_string(),
+            content: "No goals.".to_string(),
             is_error: false,
             data: None,
         };
     }
 
     let mut lines = Vec::new();
-    for goal in &goals {
+    for goal in goals {
+        let status_tag = match goal.status {
+            claw_autonomy::planner::GoalStatus::Completed => " ✅ COMPLETED",
+            claw_autonomy::planner::GoalStatus::Cancelled => " ❌ CANCELLED",
+            _ => "",
+        };
         lines.push(format!(
-            "• [{}] {} (priority: {}, progress: {:.0}%)",
+            "• [{}] {} (priority: {}, progress: {:.0}%{})",
             goal.id,
             goal.description,
             goal.priority,
-            goal.progress * 100.0
+            goal.progress * 100.0,
+            status_tag
         ));
         for step in &goal.steps {
             let icon = match step.status {
@@ -4238,7 +4637,7 @@ async fn exec_goal_list_shared(state: &SharedAgentState, call: &ToolCall) -> Too
                 claw_autonomy::planner::StepStatus::Failed => "❌",
                 _ => "⬜",
             };
-            lines.push(format!("    {} {}", icon, step.description));
+            lines.push(format!("    {} [step:{}] {}", icon, step.id, step.description));
         }
     }
 
@@ -4289,9 +4688,15 @@ async fn exec_goal_complete_step_shared(state: &SharedAgentState, call: &ToolCal
 
     // Persist updated goal to SQLite
     {
+        let goal_desc = planner.get(goal_id).map(|g| g.description.clone()).unwrap_or_default();
+        let goal_priority = planner.get(goal_id).map(|g| g.priority).unwrap_or(5);
+        let step_desc = planner.get(goal_id)
+            .and_then(|g| g.steps.iter().find(|s| s.id == step_id))
+            .map(|s| s.description.clone())
+            .unwrap_or_default();
         let mem = state.memory.lock().await;
-        let _ = mem.persist_goal(&goal_id, "", &status.to_lowercase(), 5, progress, None);
-        let _ = mem.persist_goal_step(&step_id, &goal_id, "", "completed", Some(&result));
+        let _ = mem.persist_goal(&goal_id, &goal_desc, &status.to_lowercase(), goal_priority, progress, None);
+        let _ = mem.persist_goal_step(&step_id, &goal_id, &step_desc, "completed", Some(&result));
     }
 
     ToolResult {
@@ -4364,10 +4769,13 @@ async fn exec_goal_update_status_shared(state: &SharedAgentState, call: &ToolCal
         };
     }
 
-    // Persist updated goal to SQLite
+    // Persist updated goal to SQLite — read current values so we don't clobber description/priority/progress
     {
+        let goal_desc = planner.get(goal_id).map(|g| g.description.clone()).unwrap_or_default();
+        let goal_priority = planner.get(goal_id).map(|g| g.priority).unwrap_or(5);
+        let goal_progress = planner.get(goal_id).map(|g| g.progress).unwrap_or(0.0);
         let mem = state.memory.lock().await;
-        let _ = mem.persist_goal(&goal_id, "", status_str, 5, 0.0, None);
+        let _ = mem.persist_goal(&goal_id, &goal_desc, status_str, goal_priority, goal_progress, None);
     }
 
     ToolResult {
@@ -4546,6 +4954,661 @@ async fn exec_channel_send_file(state: &SharedAgentState, call: &ToolCall) -> To
         content: format!("Error: channel '{}' not found", channel_id),
         is_error: true,
         data: None,
+    }
+}
+
+/// Check if a tool can safely be executed in parallel with other tools.
+/// Tools that don't mutate shared state or that operate on independent resources are parallel-safe.
+fn is_parallel_safe(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "http_fetch"
+            | "web_search"
+            | "file_read"
+            | "file_list"
+            | "file_find"
+            | "file_grep"
+            | "memory_search"
+            | "memory_list"
+            | "mesh_peers"
+            | "mesh_delegate"
+            | "mesh_status"
+            | "goal_list"
+            | "sub_agent_spawn"
+            | "sub_agent_status"
+            | "process_list"
+            | "process_output"
+            | "terminal_view"
+    )
+}
+
+// ─── Sub-Agent Tool Implementations ─────────────────────────────────────────
+
+/// Role-specific system prompt prefixes for sub-agents.
+fn sub_agent_system_prompt(role: &str) -> String {
+    let role_instruction = match role {
+        "planner" => "You are a planning agent. Your job is to analyze the task, break it down into clear steps, identify required files and dependencies, and create a detailed project plan. Output a structured plan with specific file paths, technologies, and implementation order. Do NOT write code — only plan.",
+        "coder" | "developer" => "You are a coding agent. Your job is to write production-quality code based on the task description. When research findings are provided from a preceding agent, use them thoroughly — match the structure, content, styling, and details described. Write complete, well-structured files with proper imports, error handling, and documentation. Use your tools to create files and test that they compile/run correctly. After writing code, run the build and fix any errors before finishing.",
+        "reviewer" => "You are a code review agent. Your job is to review the code that was written, check for bugs, security issues, missing error handling, and style problems. Run tests and linters if available. Report issues clearly with file paths and line numbers. Suggest specific fixes.",
+        "tester" | "qa" => "You are a testing agent. Your job is to write and run tests for the code. Create unit tests, integration tests, and end-to-end tests as appropriate. Verify that the application works correctly. Report any failures with details.",
+        "researcher" => "You are a research agent. Your job is to gather information needed for the task. When given URLs, ALWAYS fetch them with http_fetch first — read the actual content, structure, and details before summarizing. Search the web, read documentation, find examples, and compile your findings into a clear, structured summary. Focus on finding practical, actionable information. For website rebuilds: extract page structure, navigation items, section headings, key copy, feature lists, and design notes.",
+        "devops" | "deployer" => "You are a DevOps agent. Your job is to set up build systems, CI/CD, deployment configurations, Docker files, and infrastructure. Ensure the project can be built, tested, and deployed reliably.",
+        "debugger" | "fixer" => "You are a debugging agent. Your job is to find and fix errors in the code. Read error messages carefully, trace the root cause, and apply fixes. Run the code again to verify the fix works.",
+        _ => "You are a specialized agent. Execute the assigned task thoroughly using your tools.",
+    };
+
+    format!(
+        "You are a Claw 🦞 sub-agent with the role: {}.\n\n{}\n\n\
+         Work autonomously — complete the task using your tools without asking for clarification.\n\
+         When done, output a clear summary of what you accomplished and any important findings.",
+        role, role_instruction
+    )
+}
+
+/// Spawn a sub-agent to work on a task concurrently.
+async fn exec_sub_agent_spawn(state: &SharedAgentState, call: &ToolCall) -> ToolResult {
+    let role = match call.arguments.get("role").and_then(|v| v.as_str()) {
+        Some(r) => r.to_string(),
+        None => {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                content: "Error: missing 'role' argument".into(),
+                is_error: true,
+                data: None,
+            };
+        }
+    };
+
+    let task = match call.arguments.get("task").and_then(|v| v.as_str()) {
+        Some(t) => t.to_string(),
+        None => {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                content: "Error: missing 'task' argument".into(),
+                is_error: true,
+                data: None,
+            };
+        }
+    };
+
+    let context_summary = call
+        .arguments
+        .get("context_summary")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let depends_on: Vec<Uuid> = call
+        .arguments
+        .get("depends_on")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().and_then(|s| s.parse::<Uuid>().ok()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let _model_override = call
+        .arguments
+        .get("model")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    // Optional goal/step linking — auto-complete goal step when sub-agent finishes
+    let goal_id: Option<Uuid> = call
+        .arguments
+        .get("goal_id")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<Uuid>().ok());
+
+    let step_id: Option<Uuid> = call
+        .arguments
+        .get("step_id")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<Uuid>().ok());
+
+    let task_id = Uuid::new_v4();
+    let parent_session_id = Uuid::new_v4();
+
+    // Determine initial status based on dependencies
+    let initial_status = if depends_on.is_empty() {
+        SubTaskStatus::Pending
+    } else {
+        SubTaskStatus::WaitingForDeps
+    };
+
+    // If linked to a goal step, mark it as in-progress in the planner
+    if let (Some(gid), Some(sid)) = (goal_id, step_id) {
+        let mut planner = state.planner.lock().await;
+        planner.assign_to_sub_agent(gid, sid, task_id, Some(role.clone()));
+        info!(task_id = %task_id, goal_id = %gid, step_id = %sid, "linked sub-agent to goal step");
+    }
+
+    // Register the sub-task
+    {
+        let sub_task_state = SubTaskState {
+            task_id,
+            role: role.clone(),
+            task_description: task.clone(),
+            status: initial_status,
+            result: None,
+            error: None,
+            parent_session_id,
+            depends_on: depends_on.clone(),
+            created_at: std::time::Instant::now(),
+            goal_id,
+            step_id,
+        };
+        state
+            .pending_sub_tasks
+            .lock()
+            .await
+            .insert(task_id, sub_task_state);
+    }
+
+    // Spawn the sub-agent task (uses boxed future to break async type cycle)
+    let s = state.clone();
+    tokio::spawn(run_sub_agent_task(
+        s,
+        task_id,
+        role.clone(),
+        task.clone(),
+        context_summary,
+        depends_on.clone(),
+    ));
+
+    info!(
+        task_id = %task_id,
+        role = %role,
+        deps = ?depends_on,
+        "spawned sub-agent"
+    );
+
+    ToolResult {
+        tool_call_id: call.id.clone(),
+        content: format!(
+            "Sub-agent spawned successfully.\n\
+             Task ID: {}\n\
+             Role: {}\n\
+             Status: {}\n\
+             Dependencies: {}\n\n\
+             Use sub_agent_wait with this task_id to collect the result when ready.",
+            task_id,
+            role,
+            if depends_on.is_empty() {
+                "running"
+            } else {
+                "waiting for dependencies"
+            },
+            if depends_on.is_empty() {
+                "none".to_string()
+            } else {
+                depends_on
+                    .iter()
+                    .map(|d| d.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        ),
+        is_error: false,
+        data: Some(serde_json::json!({
+            "task_id": task_id.to_string(),
+            "role": role,
+            "status": if depends_on.is_empty() { "running" } else { "waiting_for_deps" },
+        })),
+    }
+}
+
+/// Internal: run the sub-agent task through a fresh agent loop.
+/// Returns a boxed future to break the async type recursion cycle
+/// (process_message_shared → exec_sub_agent_spawn → run_sub_agent_task → process_api_message → process_message_shared).
+fn run_sub_agent_task(
+    state: SharedAgentState,
+    task_id: Uuid,
+    role: String,
+    task_description: String,
+    context_summary: Option<String>,
+    depends_on: Vec<Uuid>,
+) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    Box::pin(async move {
+        // Wait for dependencies if needed
+        let effective_task = if !depends_on.is_empty() {
+            info!(task_id = %task_id, deps = ?depends_on, "sub-agent waiting for dependencies");
+            loop {
+                let all_done = {
+                    let tasks = state.pending_sub_tasks.lock().await;
+                    depends_on.iter().all(|dep_id| {
+                        tasks
+                            .get(dep_id)
+                            .map(|t| {
+                                t.status == SubTaskStatus::Completed
+                                    || t.status == SubTaskStatus::Failed
+                            })
+                            .unwrap_or(true)
+                    })
+                };
+                if all_done {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+
+            // Collect dependency results to provide context
+            let dep_results: Vec<String> = {
+                let tasks = state.pending_sub_tasks.lock().await;
+                depends_on
+                    .iter()
+                    .filter_map(|dep_id| {
+                        tasks.get(dep_id).map(|t| {
+                            format!(
+                                "[{} agent ({})] {}",
+                                t.role,
+                                if t.status == SubTaskStatus::Completed {
+                                    "completed"
+                                } else {
+                                    "failed"
+                                },
+                                t.result
+                                    .as_deref()
+                                    .or(t.error.as_deref())
+                                    .unwrap_or("no output")
+                            )
+                        })
+                    })
+                    .collect()
+            };
+
+            // Build the task message with dependency results
+            let mut full_task = task_description.clone();
+            if !dep_results.is_empty() {
+                full_task.push_str("\n\n## Results from preceding agents:\n");
+                for dr in &dep_results {
+                    full_task.push_str(dr);
+                    full_task.push('\n');
+                }
+            }
+            full_task
+        } else {
+            task_description.clone()
+        };
+
+        // Update status to running
+        {
+            let mut tasks = state.pending_sub_tasks.lock().await;
+            if let Some(t) = tasks.get_mut(&task_id) {
+                t.status = SubTaskStatus::Running;
+            }
+        }
+
+        // Create a fresh session for this sub-agent
+        let session_id = state.sessions.create().await;
+        let label = format!("sub-agent:{}", role);
+        state.sessions.set_name(session_id, &label).await;
+
+        // Build the task message with context
+        let mut prompt = String::new();
+        if let Some(ref ctx) = context_summary {
+            prompt.push_str("## Context from parent agent:\n");
+            prompt.push_str(ctx);
+            prompt.push_str("\n\n");
+        }
+        prompt.push_str("## Your Task:\n");
+        prompt.push_str(&effective_task);
+
+        // Inject role-specific system prompt
+        let mut sub_state = state.clone();
+        let mut sub_config = sub_state.config.clone();
+        sub_config.agent.system_prompt = Some(sub_agent_system_prompt(&role));
+        if sub_config.agent.max_iterations < 100 {
+            sub_config.agent.max_iterations = 100;
+        }
+        sub_state.config = sub_config;
+
+        // Run through the normal API message path
+        let result = process_api_message(sub_state, prompt, Some(session_id.to_string())).await;
+
+        // Update the sub-task state with the result
+        let result_text = result.text.clone();
+        let result_error = result.error.clone();
+        let (is_error, goal_link) = {
+            let mut tasks = state.pending_sub_tasks.lock().await;
+            if let Some(t) = tasks.get_mut(&task_id) {
+                if result.error.is_some() {
+                    t.status = SubTaskStatus::Failed;
+                    t.error = result.error;
+                    t.result = Some(result.text);
+                    (true, (t.goal_id, t.step_id))
+                } else {
+                    t.status = SubTaskStatus::Completed;
+                    t.result = Some(result.text);
+                    (false, (t.goal_id, t.step_id))
+                }
+            } else {
+                (false, (None, None))
+            }
+        };
+
+        // Auto-update linked goal step if goal_id/step_id were provided
+        if let (Some(gid), Some(sid)) = goal_link {
+            let mut planner = state.planner.lock().await;
+            if is_error {
+                let err_msg = result_error.unwrap_or_else(|| "Sub-agent failed".into());
+                let updated = planner.fail_sub_agent_task(task_id, err_msg.clone());
+                if updated {
+                    info!(task_id = %task_id, role = %role, "auto-failed linked goal step");
+                    // Persist updated goal + step to SQLite
+                    if let Some(goal) = planner.get(gid) {
+                        let mem = state.memory.lock().await;
+                        let _ = mem.persist_goal(
+                            &gid, &goal.description, &format!("{:?}", goal.status).to_lowercase(),
+                            goal.priority, goal.progress, None,
+                        );
+                        let _ = mem.persist_goal_step(&sid, &gid, "", "failed", Some(&err_msg));
+                    }
+                }
+            } else {
+                let summary = result_text.chars().take(500).collect::<String>();
+                let updated = planner.complete_sub_agent_task(task_id, summary.clone());
+                if updated {
+                    info!(task_id = %task_id, role = %role, "auto-completed linked goal step");
+                    // Persist updated goal + step to SQLite
+                    if let Some(goal) = planner.get(gid) {
+                        let mem = state.memory.lock().await;
+                        let _ = mem.persist_goal(
+                            &gid, &goal.description, &format!("{:?}", goal.status).to_lowercase(),
+                            goal.priority, goal.progress, None,
+                        );
+                        let _ = mem.persist_goal_step(&sid, &gid, "", "completed", Some(&summary));
+                    }
+                }
+            }
+        }
+
+        info!(task_id = %task_id, role = %role, "sub-agent task completed");
+    })
+}
+
+/// Wait for one or more sub-agent tasks to complete.
+async fn exec_sub_agent_wait(state: &SharedAgentState, call: &ToolCall) -> ToolResult {
+    let task_ids: Vec<Uuid> = call
+        .arguments
+        .get("task_ids")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().and_then(|s| s.parse::<Uuid>().ok()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if task_ids.is_empty() {
+        return ToolResult {
+            tool_call_id: call.id.clone(),
+            content: "Error: 'task_ids' must contain at least one task ID".into(),
+            is_error: true,
+            data: None,
+        };
+    }
+
+    let timeout_secs = call
+        .arguments
+        .get("timeout_secs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
+    let started = std::time::Instant::now();
+
+    // Poll until all tasks are done
+    loop {
+        let all_done = {
+            let tasks = state.pending_sub_tasks.lock().await;
+            task_ids.iter().all(|id| {
+                tasks
+                    .get(id)
+                    .map(|t| {
+                        t.status == SubTaskStatus::Completed || t.status == SubTaskStatus::Failed
+                    })
+                    .unwrap_or(true)
+            })
+        };
+
+        if all_done {
+            break;
+        }
+
+        // Check timeout
+        if timeout_secs > 0 && started.elapsed().as_secs() >= timeout_secs {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                content: format!(
+                    "Timeout: waited {}s but not all sub-agent tasks completed.",
+                    timeout_secs
+                ),
+                is_error: true,
+                data: None,
+            };
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+
+    // Collect results
+    let tasks = state.pending_sub_tasks.lock().await;
+    let mut results = Vec::new();
+    let mut result_data = Vec::new();
+
+    for id in &task_ids {
+        if let Some(t) = tasks.get(id) {
+            let status_str = match t.status {
+                SubTaskStatus::Completed => "completed",
+                SubTaskStatus::Failed => "failed",
+                _ => "unknown",
+            };
+            results.push(format!(
+                "## {} agent [{}] — {}\n{}",
+                t.role,
+                id,
+                status_str,
+                t.result
+                    .as_deref()
+                    .or(t.error.as_deref())
+                    .unwrap_or("no output"),
+            ));
+            result_data.push(serde_json::json!({
+                "task_id": id.to_string(),
+                "role": t.role,
+                "status": status_str,
+                "result": t.result,
+                "error": t.error,
+            }));
+        } else {
+            results.push(format!("## Task {} — not found", id));
+        }
+    }
+
+    ToolResult {
+        tool_call_id: call.id.clone(),
+        content: results.join("\n\n"),
+        is_error: false,
+        data: Some(serde_json::json!({ "tasks": result_data })),
+    }
+}
+
+/// Check the status of sub-agent tasks without blocking.
+async fn exec_sub_agent_status(state: &SharedAgentState, call: &ToolCall) -> ToolResult {
+    let task_ids: Vec<Uuid> = call
+        .arguments
+        .get("task_ids")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().and_then(|s| s.parse::<Uuid>().ok()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let tasks = state.pending_sub_tasks.lock().await;
+
+    let entries: Vec<&SubTaskState> = if task_ids.is_empty() {
+        tasks.values().collect()
+    } else {
+        task_ids.iter().filter_map(|id| tasks.get(id)).collect()
+    };
+
+    if entries.is_empty() {
+        return ToolResult {
+            tool_call_id: call.id.clone(),
+            content: "No sub-agent tasks found.".into(),
+            is_error: false,
+            data: None,
+        };
+    }
+
+    let mut lines = vec![format!("Sub-agent tasks ({}):", entries.len())];
+    let mut data = Vec::new();
+
+    for t in &entries {
+        let status_str = match t.status {
+            SubTaskStatus::WaitingForDeps => "waiting_for_deps",
+            SubTaskStatus::Pending => "pending",
+            SubTaskStatus::Running => "running",
+            SubTaskStatus::Completed => "completed",
+            SubTaskStatus::Failed => "failed",
+        };
+        let elapsed = t.created_at.elapsed().as_secs();
+        lines.push(format!(
+            "  • {} ({}) — {} [{}s elapsed]{}",
+            t.role,
+            &t.task_id.to_string()[..8],
+            status_str,
+            elapsed,
+            if let Some(ref r) = t.result {
+                format!(" — result: {}...", &r[..r.len().min(100)])
+            } else {
+                String::new()
+            }
+        ));
+        data.push(serde_json::json!({
+            "task_id": t.task_id.to_string(),
+            "role": t.role,
+            "status": status_str,
+            "elapsed_secs": elapsed,
+            "has_result": t.result.is_some(),
+            "depends_on": t.depends_on.iter().map(|d| d.to_string()).collect::<Vec<_>>(),
+        }));
+    }
+
+    ToolResult {
+        tool_call_id: call.id.clone(),
+        content: lines.join("\n"),
+        is_error: false,
+        data: Some(serde_json::json!({ "tasks": data })),
+    }
+}
+
+// ─── Scheduler Tool Implementation ─────────────────────────────────────────
+
+/// Schedule a recurring cron or one-shot delayed task.
+async fn exec_cron_schedule(state: &SharedAgentState, call: &ToolCall) -> ToolResult {
+    let description = match call.arguments.get("description").and_then(|v| v.as_str()) {
+        Some(d) => d.to_string(),
+        None => {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                content: "Error: missing 'description' argument".into(),
+                is_error: true,
+                data: None,
+            };
+        }
+    };
+
+    let cron_expr = call
+        .arguments
+        .get("cron_expr")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let delay_seconds = call
+        .arguments
+        .get("delay_seconds")
+        .and_then(|v| v.as_u64());
+    let label = call
+        .arguments
+        .get("label")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let scheduler = match &state.scheduler {
+        Some(s) => s,
+        None => {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                content: "Error: scheduler is not available".into(),
+                is_error: true,
+                data: None,
+            };
+        }
+    };
+
+    if let Some(cron) = cron_expr {
+        // Recurring cron task
+        match scheduler.add_cron(description.clone(), &cron, label.clone(), None).await {
+            Ok(task_id) => ToolResult {
+                tool_call_id: call.id.clone(),
+                content: format!(
+                    "Recurring task scheduled.\n\
+                     Task ID: {}\n\
+                     Cron: {}\n\
+                     Label: {}\n\
+                     Description: {}",
+                    task_id,
+                    cron,
+                    label.unwrap_or_else(|| "none".to_string()),
+                    description,
+                ),
+                is_error: false,
+                data: Some(serde_json::json!({
+                    "task_id": task_id.to_string(),
+                    "type": "cron",
+                    "cron_expr": cron,
+                })),
+            },
+            Err(e) => ToolResult {
+                tool_call_id: call.id.clone(),
+                content: format!("Error scheduling cron task: {}", e),
+                is_error: true,
+                data: None,
+            },
+        }
+    } else if let Some(delay) = delay_seconds {
+        // One-shot delayed task
+        let task_id = scheduler.add_one_shot(description.clone(), delay, label.clone(), None).await;
+        ToolResult {
+            tool_call_id: call.id.clone(),
+            content: format!(
+                "One-shot task scheduled.\n\
+                 Task ID: {}\n\
+                 Fires in: {}s\n\
+                 Label: {}\n\
+                 Description: {}",
+                task_id,
+                delay,
+                label.unwrap_or_else(|| "none".to_string()),
+                description,
+            ),
+            is_error: false,
+            data: Some(serde_json::json!({
+                "task_id": task_id.to_string(),
+                "type": "one_shot",
+                "delay_seconds": delay,
+            })),
+        }
+    } else {
+        ToolResult {
+            tool_call_id: call.id.clone(),
+            content: "Error: must provide either 'cron_expr' or 'delay_seconds'".into(),
+            is_error: true,
+            data: None,
+        }
     }
 }
 
@@ -4864,6 +5927,8 @@ pub fn build_test_state_with_router(
         embedder: None,
         mesh: Arc::new(TokioMutex::new(MeshNode::new().unwrap())),
         pending_mesh_tasks: Arc::new(TokioMutex::new(HashMap::new())),
+        pending_sub_tasks: Arc::new(TokioMutex::new(HashMap::new())),
+        scheduler: None,
         device_tools: Arc::new(DeviceTools::new()),
         reply_context: Arc::new(TokioMutex::new(None)),
     })

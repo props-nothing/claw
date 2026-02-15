@@ -54,8 +54,12 @@ pub struct AgentConfig {
     /// Default: 0.75 (compact at 75% full).
     pub compaction_threshold: f64,
     /// Maximum wall-clock seconds per request before the agent loop is terminated.
-    /// 0 = no timeout (rely only on max_iterations). Default: 300 (5 minutes).
+    /// 0 = no timeout (rely only on max_iterations). Default: 0 (unlimited).
     pub request_timeout_secs: u64,
+    /// Enable parallel execution of independent tool calls. Default: true.
+    pub parallel_tool_calls: bool,
+    /// Automatically resume interrupted tasks via the scheduler. Default: true.
+    pub auto_resume: bool,
 }
 
 impl Default for AgentConfig {
@@ -69,13 +73,15 @@ impl Default for AgentConfig {
             system_prompt_file: None,
             max_tokens: 16384,
             temperature: 0.7,
-            max_iterations: 50,
+            max_iterations: 200,
             max_parallel_tools: 8,
             thinking_level: "medium".into(),
             context_window: 0,
             tool_result_max_tokens: 12_000,
             compaction_threshold: 0.75,
-            request_timeout_secs: 300,
+            request_timeout_secs: 0,
+            parallel_tool_calls: true,
+            auto_resume: true,
         }
     }
 }
@@ -112,7 +118,7 @@ impl Default for AutonomyConfig {
         Self {
             level: 1,
             daily_budget_usd: 10.0,
-            max_tool_calls_per_loop: 100,
+            max_tool_calls_per_loop: 500,
             max_delete_files: 5,
             tool_allowlist: vec![],
             tool_denylist: vec![],

@@ -345,6 +345,11 @@ body {
   color: var(--error);
 }
 
+.badge-danger {
+  background: var(--error-dim);
+  color: var(--error);
+}
+
 .badge-info {
   background: var(--info-dim);
   color: var(--info);
@@ -885,6 +890,10 @@ td.mono {
   margin-bottom: 12px;
 }
 
+.goal-card.goal-inactive {
+  opacity: 0.6;
+}
+
 .goal-header {
   display: flex;
   align-items: center;
@@ -920,6 +929,123 @@ td.mono {
 .step-icon {
   font-size: 14px;
   flex-shrink: 0;
+}
+
+/* ── Sub-Agent Cards ───────────────────────────────────────── */
+
+.agent-card {
+  padding: 20px;
+  border-left: 3px solid var(--border);
+  transition: border-color 0.2s;
+}
+
+.agent-card.agent-status-running {
+  border-left-color: var(--warning);
+}
+
+.agent-card.agent-status-completed {
+  border-left-color: var(--success);
+}
+
+.agent-card.agent-status-failed {
+  border-left-color: var(--error);
+}
+
+.agent-card.agent-status-pending {
+  border-left-color: var(--info);
+}
+
+.agent-card.agent-status-waiting_for_deps {
+  border-left-color: var(--accent);
+}
+
+.agent-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.agent-role {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.agent-task-desc {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.agent-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.agent-id {
+  font-family: var(--font-mono);
+}
+
+.agent-deps {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.deps-label,
+.result-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.agent-result {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid var(--border);
+}
+
+.result-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.agent-error {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid rgba(248, 81, 73, 0.25);
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--error);
+  font-size: 13px;
+}
+
+/* ── Scheduler Table ───────────────────────────────────────── */
+
+.sched-label {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.sched-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  line-height: 1.4;
 }
 
 /* ── Settings / Code Block ─────────────────────────────────── */

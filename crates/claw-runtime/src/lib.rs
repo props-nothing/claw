@@ -33,6 +33,7 @@
 //! ```
 
 pub mod agent;
+pub mod scheduler;
 pub mod session;
 pub mod terminal;
 pub mod tools;
@@ -42,4 +43,6 @@ pub use agent::{
     ApiResponse, QueryKind, RuntimeHandle, StreamEvent, get_runtime_handle, set_runtime_handle,
 };
 pub use agent::{SharedAgentState, build_test_state, build_test_state_with_router};
+pub use agent::{PendingSubTasks, SubTaskState, SubTaskStatus};
+pub use scheduler::{CronScheduler, SchedulerHandle, ScheduledTask};
 pub use session::Session;

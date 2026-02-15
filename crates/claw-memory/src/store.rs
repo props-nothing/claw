@@ -333,9 +333,9 @@ impl MemoryStore {
             "INSERT INTO goals (id, description, status, priority, progress, parent_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
              ON CONFLICT(id) DO UPDATE SET
-                description = excluded.description,
+                description = CASE WHEN excluded.description = '' THEN goals.description ELSE excluded.description END,
                 status = excluded.status,
-                priority = excluded.priority,
+                priority = CASE WHEN excluded.priority = 0 THEN goals.priority ELSE excluded.priority END,
                 progress = excluded.progress,
                 updated_at = excluded.updated_at",
             rusqlite::params![

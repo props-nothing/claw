@@ -12,7 +12,7 @@ mod tests {
         assert_eq!(config.agent.model, "anthropic/claude-sonnet-4-20250514");
         assert_eq!(config.agent.max_tokens, 16384);
         assert_eq!(config.agent.temperature, 0.7);
-        assert_eq!(config.agent.max_iterations, 50);
+        assert_eq!(config.agent.max_iterations, 200);
         assert_eq!(config.agent.thinking_level, "medium");
     }
 
@@ -21,7 +21,7 @@ mod tests {
         let config = AutonomyConfig::default();
         assert_eq!(config.level, 1);
         assert_eq!(config.daily_budget_usd, 10.0);
-        assert_eq!(config.max_tool_calls_per_loop, 100);
+        assert_eq!(config.max_tool_calls_per_loop, 500);
         assert_eq!(config.approval_threshold, 7);
         assert!(!config.proactive);
     }

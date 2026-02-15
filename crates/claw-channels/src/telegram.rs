@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
@@ -194,6 +194,15 @@ fn screenshots_dir() -> PathBuf {
         .join("screenshots")
 }
 
+/// Get the Telegram downloads directory path.
+fn telegram_downloads_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(".claw")
+        .join("downloads")
+        .join("telegram")
+}
+
 /// Strip screenshot URL references, image paths, and file paths from text.
 fn strip_file_references(text: &str, _api_filenames: &[String], disk_paths: &[String]) -> String {
     let mut result = text.to_string();
@@ -259,6 +268,20 @@ pub struct TelegramChannel {
 }
 
 impl TelegramChannel {
+    /// Create a lightweight clone for use inside the polling task.
+    /// We avoid deriving Clone for the whole struct to keep intent explicit.
+    fn clone_for_poll(&self) -> TelegramChannel {
+        TelegramChannel {
+            id: self.id.clone(),
+            token: self.token.clone(),
+            client: self.client.clone(),
+            connected: Arc::clone(&self.connected),
+            shutdown_tx: None,
+        }
+    }
+}
+
+impl TelegramChannel {
     pub fn new(id: String, token: String) -> Self {
         // Build client with timeouts to prevent stalled connections from
         // hanging the long-poll loop indefinitely.  The Telegram long-poll
@@ -282,6 +305,119 @@ impl TelegramChannel {
 
     fn api_url(&self, method: &str) -> String {
         format!("https://api.telegram.org/bot{}/{}", self.token, method)
+    }
+
+    fn file_url(&self, file_path: &str) -> String {
+        // Telegram file download URL
+        format!(
+            "https://api.telegram.org/file/bot{}/{}",
+            self.token, file_path
+        )
+    }
+
+    /// Resolve a Telegram `file_id` into a downloadable `file_path`.
+    async fn get_file_path(&self, base_url: &str, file_id: &str) -> claw_core::Result<String> {
+        let url = format!("{}/getFile", base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .json(&serde_json::json!({ "file_id": file_id }))
+            .send()
+            .await
+            .map_err(|e| claw_core::ClawError::Channel {
+                channel: "telegram".into(),
+                reason: format!("getFile failed: {}", e),
+            })?;
+
+        let status = resp.status();
+        let json: serde_json::Value = resp.json().await.unwrap_or_default();
+        if !status.is_success() || json["ok"].as_bool() != Some(true) {
+            let desc = json["description"].as_str().unwrap_or("unknown error");
+            return Err(claw_core::ClawError::Channel {
+                channel: "telegram".into(),
+                reason: format!("getFile error: {}", desc),
+            });
+        }
+
+        let file_path = json["result"]["file_path"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        if file_path.is_empty() {
+            return Err(claw_core::ClawError::Channel {
+                channel: "telegram".into(),
+                reason: "getFile returned empty file_path".into(),
+            });
+        }
+        Ok(file_path)
+    }
+
+    /// Download a Telegram file to disk. Returns the local path.
+    async fn download_file_by_id(
+        &self,
+        base_url: &str,
+        file_id: &str,
+        preferred_filename: Option<&str>,
+    ) -> claw_core::Result<PathBuf> {
+        let file_path = self.get_file_path(base_url, file_id).await?;
+
+        let filename = preferred_filename
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                Path::new(&file_path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| format!("telegram-{}", file_id));
+
+        let dir = telegram_downloads_dir();
+        tokio::fs::create_dir_all(&dir)
+            .await
+            .map_err(|e| claw_core::ClawError::Channel {
+                channel: "telegram".into(),
+                reason: format!("failed to create downloads dir {}: {}", dir.display(), e),
+            })?;
+
+        // Avoid collisions
+        let mut out_path = dir.join(&filename);
+        if out_path.exists() {
+            let stem = Path::new(&filename)
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| filename.clone());
+            let ext = Path::new(&filename)
+                .extension()
+                .map(|s| format!(".{}", s.to_string_lossy()))
+                .unwrap_or_default();
+            out_path = dir.join(format!("{}-{}{}", stem, file_id, ext));
+        }
+
+        let bytes = self
+            .client
+            .get(&self.file_url(&file_path))
+            .send()
+            .await
+            .map_err(|e| claw_core::ClawError::Channel {
+                channel: "telegram".into(),
+                reason: format!("file download failed: {}", e),
+            })?
+            .bytes()
+            .await
+            .map_err(|e| claw_core::ClawError::Channel {
+                channel: "telegram".into(),
+                reason: format!("file download bytes failed: {}", e),
+            })?;
+
+        tokio::fs::write(&out_path, &bytes)
+            .await
+            .map_err(|e| claw_core::ClawError::Channel {
+                channel: "telegram".into(),
+                reason: format!("failed to write {}: {}", out_path.display(), e),
+            })?;
+
+        debug!(file_id, path = %out_path.display(), "downloaded Telegram attachment");
+        Ok(out_path)
     }
 
     /// Upload a photo from disk to a Telegram chat using multipart form data.
@@ -360,6 +496,7 @@ impl Channel for TelegramChannel {
         let client = self.client.clone();
         let token = self.token.clone();
         let connected = Arc::clone(&self.connected);
+        let channel = self.clone_for_poll();
 
         // Spawn long-polling loop
         tokio::spawn(async move {
@@ -515,7 +652,7 @@ impl Channel for TelegramChannel {
                                                 }
                                                 // Dispatch the update — break early if receiver gone
                                                 if !dispatch_update(
-                                                    update, &event_tx, &client, &base_url,
+                                                    update, &event_tx, &client, &base_url, &channel,
                                                 ).await {
                                                     info!("Telegram poll loop: event receiver dropped during dispatch");
                                                     connected.store(false, Ordering::SeqCst);
@@ -974,6 +1111,7 @@ async fn dispatch_update(
     event_tx: &mpsc::Sender<ChannelEvent>,
     client: &reqwest::Client,
     base_url: &str,
+    channel: &TelegramChannel,
 ) -> bool {
     // Parse callback_query (inline keyboard button press)
     if let Some(cbq) = update.get("callback_query") {
@@ -1010,6 +1148,124 @@ async fn dispatch_update(
 
     // Parse message
     if let Some(msg) = update.get("message") {
+        let mut attachments: Vec<Attachment> = Vec::new();
+
+        // Telegram can send media as `photo`, `document`, `video`, `audio`, etc.
+        // We auto-download these to ~/.claw/downloads/telegram and attach the local path.
+        //
+        // NOTE: We download inside dispatch_update to ensure the agent receives a real
+        // filesystem path it can pass to vision/OCR/tools.
+
+        if let Some(photos) = msg.get("photo").and_then(|v| v.as_array()) {
+            // pick the largest photo (Telegram sends multiple sizes)
+            if let Some((_size, best_file_id)) = photos
+                .iter()
+                .filter_map(|p| {
+                    let file_id = p.get("file_id")?.as_str()?.to_string();
+                    let size = p.get("file_size").and_then(|s| s.as_i64()).unwrap_or(0);
+                    Some((size, file_id))
+                })
+                .max_by_key(|(size, _)| *size)
+            {
+                match channel
+                    .download_file_by_id(&base_url, &best_file_id, Some("telegram-photo.jpg"))
+                    .await
+                {
+                    Ok(path) => attachments.push(Attachment {
+                        filename: path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string(),
+                        media_type: "image/jpeg".to_string(),
+                        data: path.to_string_lossy().to_string(),
+                    }),
+                    Err(e) => warn!(error = %e, file_id = %best_file_id, "failed to download Telegram photo"),
+                }
+            }
+        }
+
+        if let Some(doc) = msg.get("document") {
+            let file_id = doc.get("file_id").and_then(|v| v.as_str()).unwrap_or("");
+            if !file_id.is_empty() {
+                let filename = doc
+                    .get("file_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("telegram-document");
+                let mime = doc
+                    .get("mime_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("application/octet-stream");
+
+                match channel
+                    .download_file_by_id(&base_url, file_id, Some(filename))
+                    .await
+                {
+                    Ok(path) => attachments.push(Attachment {
+                        filename: path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string(),
+                        media_type: mime.to_string(),
+                        data: path.to_string_lossy().to_string(),
+                    }),
+                    Err(e) => warn!(error = %e, file_id = %file_id, "failed to download Telegram document"),
+                }
+            }
+        }
+
+        if let Some(video) = msg.get("video") {
+            let file_id = video.get("file_id").and_then(|v| v.as_str()).unwrap_or("");
+            if !file_id.is_empty() {
+                match channel
+                    .download_file_by_id(&base_url, file_id, Some("telegram-video.mp4"))
+                    .await
+                {
+                    Ok(path) => attachments.push(Attachment {
+                        filename: path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string(),
+                        media_type: "video/mp4".to_string(),
+                        data: path.to_string_lossy().to_string(),
+                    }),
+                    Err(e) => warn!(error = %e, file_id = %file_id, "failed to download Telegram video"),
+                }
+            }
+        }
+
+        if let Some(audio) = msg.get("audio") {
+            let file_id = audio.get("file_id").and_then(|v| v.as_str()).unwrap_or("");
+            if !file_id.is_empty() {
+                let filename = audio
+                    .get("file_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("telegram-audio");
+                let mime = audio
+                    .get("mime_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("audio/mpeg");
+
+                match channel
+                    .download_file_by_id(&base_url, file_id, Some(filename))
+                    .await
+                {
+                    Ok(path) => attachments.push(Attachment {
+                        filename: path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string(),
+                        media_type: mime.to_string(),
+                        data: path.to_string_lossy().to_string(),
+                    }),
+                    Err(e) => warn!(error = %e, file_id = %file_id, "failed to download Telegram audio"),
+                }
+            }
+        }
+
         let incoming = IncomingMessage {
             id: msg["message_id"].to_string(),
             channel: "telegram".into(),
@@ -1017,7 +1273,7 @@ async fn dispatch_update(
             sender_name: msg["from"]["first_name"].as_str().map(String::from),
             group: msg["chat"]["id"].as_i64().map(|id| id.to_string()),
             text: msg["text"].as_str().map(String::from),
-            attachments: vec![],
+            attachments,
             is_mention: false,
             is_reply_to_bot: false,
             metadata: update.clone(),

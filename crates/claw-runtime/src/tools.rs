@@ -68,6 +68,10 @@ impl BuiltinTools {
                 | "terminal_input"
                 | "terminal_close"
                 | "channel_send_file"
+                | "sub_agent_spawn"
+                | "sub_agent_wait"
+                | "sub_agent_status"
+                | "cron_schedule"
         )
     }
 
@@ -433,7 +437,7 @@ impl BuiltinTools {
             },
             Tool {
                 name: "goal_create".into(),
-                description: "Create a new goal for the agent to pursue".into(),
+                description: "Create a new goal for the agent to pursue. IMPORTANT: Always run goal_list first to check for existing goals before creating a new one — do NOT create duplicate goals. If a matching goal already exists, use its ID instead of creating a new one.".into(),
                 parameters: json!({
                     "type": "object",
                     "properties": {
@@ -472,7 +476,7 @@ impl BuiltinTools {
             },
             Tool {
                 name: "goal_complete_step".into(),
-                description: "Mark a goal step as completed with a result. Automatically updates goal progress.".into(),
+                description: "Mark a goal step as completed with a result. Automatically updates goal progress. Use goal_list first to get the goal_id and step_id UUIDs.".into(),
                 parameters: json!({
                     "type": "object",
                     "properties": {
@@ -539,6 +543,28 @@ impl BuiltinTools {
                         }
                     },
                     "required": ["query"]
+                }),
+                capabilities: vec!["network".into()],
+                is_mutating: false,
+                risk_level: 1,
+                provider: None,
+            },
+            Tool {
+                name: "http_fetch".into(),
+                description: "Fetch a URL and return its content as text. Use this to read web pages, API responses, documentation, or any HTTP resource. Essential for researching reference URLs the user provides (e.g., 'rebuild this website'). Strips HTML to readable text by default. Use max_bytes to limit response size.".into(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "The URL to fetch"
+                        },
+                        "max_bytes": {
+                            "type": "integer",
+                            "description": "Maximum response size in bytes (default: 50000)"
+                        }
+                    },
+                    "required": ["url"]
                 }),
                 capabilities: vec!["network".into()],
                 is_mutating: false,
@@ -778,6 +804,122 @@ impl BuiltinTools {
                 capabilities: vec![],
                 is_mutating: false,
                 risk_level: 1,
+                provider: None,
+            },
+            // ── Sub-Agent Tools ───────────────────────────────────────
+            Tool {
+                name: "sub_agent_spawn".into(),
+                description: "Spawn a sub-agent to work on a specific task concurrently. The sub-agent runs in its own session with a role-specific system prompt. Returns immediately with a task_id — use sub_agent_wait to collect results. Before spawning, generate a context_summary describing what the sub-agent needs to know from the current conversation. For complex projects, spawn multiple sub-agents with depends_on to create a task pipeline (e.g., coder depends on planner, reviewer depends on coder).".into(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "role": {
+                            "type": "string",
+                            "description": "Role for the sub-agent (e.g., 'planner', 'coder', 'reviewer', 'researcher', 'tester', 'devops'). Determines the system prompt personality."
+                        },
+                        "task": {
+                            "type": "string",
+                            "description": "Detailed task description for the sub-agent to execute"
+                        },
+                        "context_summary": {
+                            "type": "string",
+                            "description": "Summary of relevant context from the parent conversation that the sub-agent needs to know"
+                        },
+                        "depends_on": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "List of sub-agent task_ids that must complete before this sub-agent starts. The sub-agent will wait for all dependencies and receive their results."
+                        },
+                        "model": {
+                            "type": "string",
+                            "description": "Optional model override for this sub-agent (e.g., use a faster model for simple tasks)"
+                        },
+                        "goal_id": {
+                            "type": "string",
+                            "description": "Optional goal UUID to link this sub-agent to. When provided with step_id, the goal step will be automatically marked as completed when the sub-agent finishes (or failed if it errors). Get goal/step IDs from goal_list."
+                        },
+                        "step_id": {
+                            "type": "string",
+                            "description": "Optional step UUID within the goal to link this sub-agent to. Must be used together with goal_id."
+                        }
+                    },
+                    "required": ["role", "task"]
+                }),
+                capabilities: vec![],
+                is_mutating: true,
+                risk_level: 2,
+                provider: None,
+            },
+            Tool {
+                name: "sub_agent_wait".into(),
+                description: "Wait for one or more sub-agent tasks to complete and return their results. Blocks until all specified tasks are done. Use this after spawning sub-agents to collect their output before proceeding.".into(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "task_ids": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "List of sub-agent task_ids to wait for"
+                        },
+                        "timeout_secs": {
+                            "type": "integer",
+                            "description": "Maximum seconds to wait (default: 0 = unlimited)"
+                        }
+                    },
+                    "required": ["task_ids"]
+                }),
+                capabilities: vec![],
+                is_mutating: false,
+                risk_level: 0,
+                provider: None,
+            },
+            Tool {
+                name: "sub_agent_status".into(),
+                description: "Check the status of sub-agent tasks without blocking. Returns the current status (pending, running, waiting_for_deps, completed, failed) and result if available.".into(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "task_ids": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "List of sub-agent task_ids to check (if empty, returns all)"
+                        }
+                    }
+                }),
+                capabilities: vec![],
+                is_mutating: false,
+                risk_level: 0,
+                provider: None,
+            },
+            // ── Scheduler Tools ───────────────────────────────────────
+            Tool {
+                name: "cron_schedule".into(),
+                description: "Schedule a task to run later. Supports recurring cron expressions (e.g., '*/5 * * * *' for every 5 minutes) or one-shot delayed execution. Use this for: recurring health checks, auto-resuming interrupted work, reminders, scheduled builds, periodic monitoring. The scheduled task will create a new agent session and execute the description as a prompt.".into(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "description": {
+                            "type": "string",
+                            "description": "The task description / prompt that will be executed when the schedule fires"
+                        },
+                        "cron_expr": {
+                            "type": "string",
+                            "description": "Cron expression for recurring tasks (e.g., '0 */6 * * *' for every 6 hours). Mutually exclusive with delay_seconds."
+                        },
+                        "delay_seconds": {
+                            "type": "integer",
+                            "description": "Fire once after this many seconds (e.g., 300 for 5 minutes). Mutually exclusive with cron_expr."
+                        },
+                        "label": {
+                            "type": "string",
+                            "description": "Optional human-readable label for this scheduled task"
+                        }
+                    },
+                    "required": ["description"]
+                }),
+                capabilities: vec![],
+                is_mutating: true,
+                risk_level: 2,
                 provider: None,
             },
 

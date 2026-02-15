@@ -16,7 +16,7 @@ max_iterations = 50
 [autonomy]
 level = 1  # 0=manual, 1=assisted, 2=supervised, 3=autonomous, 4=full_auto
 daily_budget_usd = 10.0
-max_tool_calls_per_loop = 100
+max_tool_calls_per_loop = 500
 max_delete_files = 5
 approval_threshold = 7
 proactive = false

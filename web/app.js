@@ -171,6 +171,8 @@ const routes = {
   "/chat": renderChat,
   "/sessions": renderSessions,
   "/goals": renderGoals,
+  "/agents": renderSubAgents,
+  "/scheduler": renderScheduler,
   "/memory": renderMemory,
   "/tools": renderTools,
   "/hub": renderHub,
@@ -846,33 +848,41 @@ async function renderGoals(el) {
   try {
     const data = await api("/api/v1/goals");
     const goals = data.goals || [];
+    const active = goals.filter((g) => g.status === "Active");
+    const completed = goals.filter((g) => g.status === "Completed");
+    const other = goals.filter(
+      (g) => g.status !== "Active" && g.status !== "Completed",
+    );
 
-    el.innerHTML = `
-        <div class="page">
-            <div class="page-header">
-                <div>
-                    <h1 class="page-title">Goals</h1>
-                    <p class="page-subtitle">${goals.length} active goal${goals.length !== 1 ? "s" : ""}</p>
-                </div>
-            </div>
-            ${
-              goals.length === 0
-                ? `
-                <div class="empty-state">
-                    <div class="empty-icon">🎯</div>
-                    <div class="empty-text">No active goals — ask Claw to create one in chat</div>
-                </div>
-            `
-                : goals
-                    .map((g) => {
-                      const pct = Math.round(g.progress * 100);
-                      const color =
-                        pct >= 100 ? "success" : pct > 50 ? "accent" : "";
-                      return `
-                <div class="goal-card">
+    function goalStatusBadge(status) {
+      switch (status) {
+        case "Completed":
+          return '<span class="badge badge-success">✅ Completed</span>';
+        case "Failed":
+          return '<span class="badge badge-danger">❌ Failed</span>';
+        case "Cancelled":
+          return '<span class="badge badge-danger">❌ Cancelled</span>';
+        case "Paused":
+          return '<span class="badge" style="background:var(--surface-hover);color:var(--text-secondary);">⏸ Paused</span>';
+        default:
+          return '<span class="badge badge-accent">Active</span>';
+      }
+    }
+
+    function renderGoalCard(g) {
+      const pct = Math.round(g.progress * 100);
+      const color = pct >= 100 ? "success" : pct > 50 ? "accent" : "";
+      const title = g.title || g.description || "(untitled)";
+      const isInactive =
+        g.status === "Completed" ||
+        g.status === "Cancelled" ||
+        g.status === "Failed";
+      return `
+                <div class="goal-card${isInactive ? " goal-inactive" : ""}">
                     <div class="goal-header">
-                        <span class="goal-title">${escHtml(g.description)}</span>
+                        <span class="goal-title">${escHtml(title)}</span>
                         <div style="display:flex; gap:8px; align-items:center;">
+                            ${goalStatusBadge(g.status)}
                             <span class="badge badge-accent">P${g.priority}</span>
                             <span style="font-size:13px; color:var(--text-secondary);">${pct}%</span>
                         </div>
@@ -902,8 +912,29 @@ async function renderGoals(el) {
                         : ""
                     }
                 </div>`;
-                    })
-                    .join("")
+    }
+
+    el.innerHTML = `
+        <div class="page">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Goals</h1>
+                    <p class="page-subtitle">${goals.length} goal${goals.length !== 1 ? "s" : ""} · ${active.length} active · ${completed.length} completed</p>
+                </div>
+            </div>
+            ${
+              goals.length === 0
+                ? `
+                <div class="empty-state">
+                    <div class="empty-icon">🎯</div>
+                    <div class="empty-text">No goals yet — ask Claw to create one in chat</div>
+                </div>
+            `
+                : `
+                ${active.length > 0 ? `<h3 style="margin:16px 0 8px;color:var(--text-secondary);font-size:13px;text-transform:uppercase;letter-spacing:1px;">Active</h3>` + active.map(renderGoalCard).join("") : ""}
+                ${completed.length > 0 ? `<h3 style="margin:16px 0 8px;color:var(--text-secondary);font-size:13px;text-transform:uppercase;letter-spacing:1px;">Completed</h3>` + completed.map(renderGoalCard).join("") : ""}
+                ${other.length > 0 ? `<h3 style="margin:16px 0 8px;color:var(--text-secondary);font-size:13px;text-transform:uppercase;letter-spacing:1px;">Other</h3>` + other.map(renderGoalCard).join("") : ""}
+                `
             }
         </div>`;
   } catch (err) {
@@ -1641,6 +1672,186 @@ async function renderLogs(el) {
   // Initial load
   await loadLogs();
 }
+
+// ── Sub-Agents Page ───────────────────────────────────────────
+
+async function renderSubAgents(el) {
+  try {
+    const data = await api("/api/v1/sub-tasks");
+    const tasks = data.sub_tasks || [];
+    const running = data.running || 0;
+    const completed = data.completed || 0;
+    const failed = data.failed || 0;
+
+    function statusBadge(status) {
+      switch (status) {
+        case "completed":
+          return '<span class="badge badge-success">Completed</span>';
+        case "running":
+          return '<span class="badge badge-warning">Running</span>';
+        case "failed":
+          return '<span class="badge badge-error">Failed</span>';
+        case "pending":
+          return '<span class="badge badge-info">Pending</span>';
+        case "waiting_for_deps":
+          return '<span class="badge badge-accent">Waiting</span>';
+        default:
+          return `<span class="badge">${escHtml(status)}</span>`;
+      }
+    }
+
+    function formatElapsed(secs) {
+      if (secs == null) return "—";
+      if (secs < 60) return `${secs.toFixed(1)}s`;
+      return `${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s`;
+    }
+
+    el.innerHTML = `
+        <div class="page">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Sub-Agents</h1>
+                    <p class="page-subtitle">${tasks.length} task${tasks.length !== 1 ? "s" : ""} — ${running} running, ${completed} completed, ${failed} failed</p>
+                </div>
+                <button class="btn btn-primary" onclick="refreshSubAgents()">↻ Refresh</button>
+            </div>
+
+            ${tasks.length === 0 ? `
+                <div class="empty-state">
+                    <div class="empty-icon">🤖</div>
+                    <div class="empty-text">No sub-agent tasks — delegate work in chat with "spawn agents to…"</div>
+                </div>
+            ` : `
+                <div class="card-grid">
+                    ${tasks.map(t => {
+                      const depList = (t.depends_on && t.depends_on.length > 0)
+                        ? `<div class="agent-deps"><span class="deps-label">Depends on:</span> ${t.depends_on.map(d => `<span class="badge">${escHtml(d).slice(0,8)}…</span>`).join(" ")}</div>`
+                        : "";
+                      const resultPreview = t.result
+                        ? `<div class="agent-result"><span class="result-label">Result:</span> <span class="result-text">${escHtml(t.result.length > 200 ? t.result.slice(0, 200) + "…" : t.result)}</span></div>`
+                        : "";
+                      const errorMsg = t.error
+                        ? `<div class="agent-error">${escHtml(t.error)}</div>`
+                        : "";
+
+                      return `
+                    <div class="card agent-card agent-status-${escHtml(t.status)}">
+                        <div class="agent-card-header">
+                            <span class="agent-role">${escHtml(t.role || "agent")}</span>
+                            ${statusBadge(t.status)}
+                        </div>
+                        <div class="agent-task-desc">${escHtml(t.task_description)}</div>
+                        <div class="agent-meta">
+                            <span class="agent-id" title="${escHtml(t.task_id)}">ID: ${escHtml(t.task_id).slice(0,8)}…</span>
+                            <span class="agent-elapsed">⏱ ${formatElapsed(t.elapsed_secs)}</span>
+                        </div>
+                        ${depList}
+                        ${resultPreview}
+                        ${errorMsg}
+                    </div>`;
+                    }).join("")}
+                </div>
+            `}
+        </div>`;
+  } catch (err) {
+    el.innerHTML = `<div class="page"><div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${escHtml(err.message)}</div></div></div>`;
+  }
+}
+
+window.refreshSubAgents = function () {
+  const content = $("#content");
+  content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  renderSubAgents(content);
+};
+
+// ── Scheduler Page ────────────────────────────────────────────
+
+async function renderScheduler(el) {
+  try {
+    const data = await api("/api/v1/scheduled-tasks");
+    const tasks = data.scheduled_tasks || [];
+    const activeCount = data.active || 0;
+
+    function kindBadge(kind) {
+      if (!kind) return '<span class="badge">Unknown</span>';
+      if (kind.type === "cron") {
+        return `<span class="badge badge-accent" title="Cron expression: ${escHtml(kind.expression || "")}">⏰ Cron</span>`;
+      }
+      if (kind.type === "one_shot") {
+        return `<span class="badge badge-info" title="Fires at: ${kind.fire_at || ""}">🎯 One-Shot</span>`;
+      }
+      return `<span class="badge">${escHtml(kind.type)}</span>`;
+    }
+
+    function scheduleDetail(kind) {
+      if (!kind) return "—";
+      if (kind.type === "cron") return `<code>${escHtml(kind.expression || "")}</code>`;
+      if (kind.type === "one_shot") return formatDate(kind.fire_at);
+      return "—";
+    }
+
+    el.innerHTML = `
+        <div class="page">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Scheduler</h1>
+                    <p class="page-subtitle">${tasks.length} task${tasks.length !== 1 ? "s" : ""} — ${activeCount} active</p>
+                </div>
+                <button class="btn btn-primary" onclick="refreshScheduler()">↻ Refresh</button>
+            </div>
+
+            ${tasks.length === 0 ? `
+                <div class="empty-state">
+                    <div class="empty-icon">⏰</div>
+                    <div class="empty-text">No scheduled tasks — ask Claw to "remind me every…" or "run X in 5 minutes"</div>
+                </div>
+            ` : `
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Label</th>
+                                <th>Type</th>
+                                <th>Schedule</th>
+                                <th>Status</th>
+                                <th>Fires</th>
+                                <th>Last Fired</th>
+                                <th>Created</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${tasks.map(t => `
+                                <tr>
+                                    <td>
+                                        <div class="sched-label">${escHtml(t.label)}</div>
+                                        ${t.description ? `<div class="sched-desc">${escHtml(t.description.length > 80 ? t.description.slice(0,80) + "…" : t.description)}</div>` : ""}
+                                    </td>
+                                    <td>${kindBadge(t.kind)}</td>
+                                    <td class="mono">${scheduleDetail(t.kind)}</td>
+                                    <td>${t.active
+                                      ? '<span class="badge badge-success">Active</span>'
+                                      : '<span class="badge badge-error">Inactive</span>'
+                                    }</td>
+                                    <td class="mono">${t.fire_count ?? 0}</td>
+                                    <td>${formatDate(t.last_fired)}</td>
+                                    <td>${formatDate(t.created_at)}</td>
+                                </tr>
+                            `).join("")}
+                        </tbody>
+                    </table>
+                </div>
+            `}
+        </div>`;
+  } catch (err) {
+    el.innerHTML = `<div class="page"><div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${escHtml(err.message)}</div></div></div>`;
+  }
+}
+
+window.refreshScheduler = function () {
+  const content = $("#content");
+  content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  renderScheduler(content);
+};
 
 // ── Settings Page ─────────────────────────────────────────────
 

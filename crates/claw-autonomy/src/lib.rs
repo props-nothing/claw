@@ -14,4 +14,4 @@ pub use approval::{ApprovalGate, ApprovalRequest, ApprovalResponse};
 pub use budget::BudgetTracker;
 pub use guardrail::{Guardrail, GuardrailEngine, GuardrailVerdict};
 pub use level::AutonomyLevel;
-pub use planner::{Goal, GoalPlanner, GoalStatus, Step};
+pub use planner::{Goal, GoalPlanner, GoalStatus, Step, StepStatus};

@@ -127,7 +127,9 @@ pub fn build_router(config: ServerConfig, hub_url: Option<String>) -> Router {
         .route("/api/v1/approvals/{id}/deny", post(approval_deny_handler))
         .route("/api/v1/mesh/status", get(mesh_status_handler))
         .route("/api/v1/mesh/peers", get(mesh_peers_handler))
-        .route("/api/v1/mesh/send", post(mesh_send_handler));
+        .route("/api/v1/mesh/send", post(mesh_send_handler))
+        .route("/api/v1/sub-tasks", get(sub_tasks_handler))
+        .route("/api/v1/scheduled-tasks", get(scheduled_tasks_handler));
 
     // Apply API key auth if configured
     let api_routes = if config.api_key.is_some() {
@@ -623,6 +625,30 @@ async fn mesh_send_handler(
             warn!(error = %e, "failed to send mesh message");
             Err(StatusCode::BAD_REQUEST)
         }
+    }
+}
+
+async fn sub_tasks_handler(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    match handle.query(QueryKind::SubTasks).await {
+        Ok(data) => Ok(Json(data)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn scheduled_tasks_handler(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    match handle.query(QueryKind::ScheduledTasks).await {
+        Ok(data) => Ok(Json(data)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }
 

@@ -55,7 +55,7 @@ level = 2
 daily_budget_usd = 10.0
 
 # Maximum tool calls allowed in a single agent loop
-max_tool_calls_per_loop = 100
+max_tool_calls_per_loop = 500
 
 # Maximum files that can be deleted in a single action
 max_delete_files = 5
