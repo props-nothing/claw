@@ -144,23 +144,18 @@ pub async fn rate_limit_middleware(
 /// to the connection info, and finally to 127.0.0.1.
 fn extract_client_ip(req: &Request<axum::body::Body>) -> IpAddr {
     // Check X-Forwarded-For header
-    if let Some(forwarded) = req.headers().get("x-forwarded-for") {
-        if let Ok(val) = forwarded.to_str() {
-            if let Some(first) = val.split(',').next() {
-                if let Ok(ip) = first.trim().parse::<IpAddr>() {
+    if let Some(forwarded) = req.headers().get("x-forwarded-for")
+        && let Ok(val) = forwarded.to_str()
+            && let Some(first) = val.split(',').next()
+                && let Ok(ip) = first.trim().parse::<IpAddr>() {
                     return ip;
                 }
-            }
-        }
-    }
     // Check X-Real-IP header
-    if let Some(real_ip) = req.headers().get("x-real-ip") {
-        if let Ok(val) = real_ip.to_str() {
-            if let Ok(ip) = val.trim().parse::<IpAddr>() {
+    if let Some(real_ip) = req.headers().get("x-real-ip")
+        && let Ok(val) = real_ip.to_str()
+            && let Ok(ip) = val.trim().parse::<IpAddr>() {
                 return ip;
             }
-        }
-    }
     // Fallback to ConnectInfo if available (would need Axum's ConnectInfo extractor)
     // For now, use localhost as default
     IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)

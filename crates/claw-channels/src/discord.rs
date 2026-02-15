@@ -404,11 +404,10 @@ async fn handle_discord_dispatch(
             // Ignore our own messages
             {
                 let lock = bot_user_id.read().await;
-                if let Some(ref my_id) = *lock {
-                    if author_id == my_id {
+                if let Some(ref my_id) = *lock
+                    && author_id == my_id {
                         return;
                     }
-                }
             }
             // Also ignore bot messages
             if data["author"]["bot"].as_bool().unwrap_or(false) {

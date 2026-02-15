@@ -340,11 +340,10 @@ async fn slack_socket_mode_loop(
                                             // Skip our own messages
                                             {
                                                 let lock = bot_user_id.read().await;
-                                                if let Some(ref my_id) = *lock {
-                                                    if user == my_id {
+                                                if let Some(ref my_id) = *lock
+                                                    && user == my_id {
                                                         continue;
                                                     }
-                                                }
                                             }
 
                                             let text = event["text"].as_str().unwrap_or("");

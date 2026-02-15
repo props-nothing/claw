@@ -245,9 +245,9 @@ impl ModelRouter {
         }
 
         // Try fallback with retries
-        if let Some(fallback) = fallback_model {
-            if let Some((provider, model_name)) = self.resolve(fallback) {
-                if self.is_available(provider.name()) {
+        if let Some(fallback) = fallback_model
+            && let Some((provider, model_name)) = self.resolve(fallback)
+                && self.is_available(provider.name()) {
                     let mut req = request.clone();
                     req.model = model_name;
                     match self.complete_with_retry(&*provider, &req).await {
@@ -261,8 +261,6 @@ impl ModelRouter {
                         }
                     }
                 }
-            }
-        }
 
         Err(claw_core::ClawError::ModelNotFound(request.model.clone()))
     }
@@ -302,9 +300,9 @@ impl ModelRouter {
         }
 
         // Try fallback with retries
-        if let Some(fallback) = fallback_model {
-            if let Some((provider, model_name)) = self.resolve(fallback) {
-                if self.is_available(provider.name()) {
+        if let Some(fallback) = fallback_model
+            && let Some((provider, model_name)) = self.resolve(fallback)
+                && self.is_available(provider.name()) {
                     let mut req = request.clone();
                     req.model = model_name;
                     match self.stream_with_retry(&*provider, &req).await {
@@ -318,8 +316,6 @@ impl ModelRouter {
                         }
                     }
                 }
-            }
-        }
 
         Err(claw_core::ClawError::ModelNotFound(request.model.clone()))
     }

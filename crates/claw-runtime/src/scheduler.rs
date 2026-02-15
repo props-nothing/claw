@@ -103,18 +103,16 @@ impl CronScheduler {
             if !existing.active {
                 continue;
             }
-            if let (Some(existing_label), Some(new_label)) = (&existing.label, &label) {
-                if existing_label == new_label {
+            if let (Some(existing_label), Some(new_label)) = (&existing.label, &label)
+                && existing_label == new_label {
                     info!(task_id = %existing.id, label = %new_label, "cron task already exists — skipping");
                     return Ok(existing.id);
                 }
-            }
-            if let ScheduleKind::Cron { expression: expr } = &existing.kind {
-                if expr == cron_expr && existing.description == description {
+            if let ScheduleKind::Cron { expression: expr } = &existing.kind
+                && expr == cron_expr && existing.description == description {
                     info!(task_id = %existing.id, cron = cron_expr, "cron task already exists — skipping");
                     return Ok(existing.id);
                 }
-            }
         }
 
         let task = ScheduledTask {
@@ -188,8 +186,8 @@ impl CronScheduler {
     /// Load tasks from config (heartbeat_cron, goal crons).
     pub async fn load_from_config(&self, config: &claw_config::ClawConfig) {
         // Load heartbeat cron
-        if let Some(ref cron_expr) = config.autonomy.heartbeat_cron {
-            if config.autonomy.proactive {
+        if let Some(ref cron_expr) = config.autonomy.heartbeat_cron
+            && config.autonomy.proactive {
                 match self
                     .add_cron(
                         "Heartbeat: Check status of all active goals and continue any unfinished work. Review pending tasks, check for errors, and make progress on outstanding objectives.".to_string(),
@@ -203,7 +201,6 @@ impl CronScheduler {
                     Err(e) => warn!(error = %e, cron = cron_expr, "failed to load heartbeat cron from config"),
                 }
             }
-        }
 
         // Load per-goal crons
         for goal_config in &config.autonomy.goals {
@@ -344,8 +341,8 @@ impl SchedulerHandle {
                 continue;
             }
             // Match by label if both have one
-            if let (Some(existing_label), Some(new_label)) = (&existing.label, &label) {
-                if existing_label == new_label {
+            if let (Some(existing_label), Some(new_label)) = (&existing.label, &label)
+                && existing_label == new_label {
                     info!(
                         task_id = %existing.id,
                         label = %new_label,
@@ -353,10 +350,9 @@ impl SchedulerHandle {
                     );
                     return Ok(existing.id);
                 }
-            }
             // Match by cron expression + description
-            if let ScheduleKind::Cron { expression: expr } = &existing.kind {
-                if expr == cron_expr && existing.description == description {
+            if let ScheduleKind::Cron { expression: expr } = &existing.kind
+                && expr == cron_expr && existing.description == description {
                     info!(
                         task_id = %existing.id,
                         cron = cron_expr,
@@ -364,7 +360,6 @@ impl SchedulerHandle {
                     );
                     return Ok(existing.id);
                 }
-            }
         }
 
         let task = ScheduledTask {

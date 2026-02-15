@@ -1020,8 +1020,8 @@ pub(crate) async fn process_message_shared(
         }
 
         // Check wall-clock timeout
-        if let Some(dl) = deadline {
-            if std::time::Instant::now() >= dl {
+        if let Some(dl) = deadline
+            && std::time::Instant::now() >= dl {
                 warn!(session = %session_id, elapsed_secs = started_at.elapsed().as_secs(), "request timeout reached");
                 final_response = format!(
                     "I ran out of time ({}s limit reached after {} iterations). Here's what I accomplished so far. \
@@ -1031,7 +1031,6 @@ pub(crate) async fn process_message_shared(
                 );
                 break;
             }
-        }
 
         state.event_bus.publish(Event::AgentThinking { session_id });
         state.budget.check()?;
@@ -1400,8 +1399,8 @@ pub(crate) async fn process_message_shared(
                 let planner = state.planner.lock().await;
                 !planner.active_goals().is_empty()
             };
-            if has_active_goals {
-                if let Some(ref scheduler) = state.scheduler {
+            if has_active_goals
+                && let Some(ref scheduler) = state.scheduler {
                     let resume_desc = format!(
                         "Auto-resume: Continue working on unfinished tasks from session {session_id}. \
                          Review active goals with goal_list and continue where you left off."
@@ -1422,7 +1421,6 @@ pub(crate) async fn process_message_shared(
                     final_response
                         .push_str("\n\n⏱️ I'll automatically resume this work in about 1 minute.");
                 }
-            }
         }
     }
 
@@ -1457,8 +1455,8 @@ pub(crate) async fn process_message_shared(
     maybe_extract_lessons(state, session_id).await;
 
     // Auto-set session label from first user message if not yet set
-    if let Some(session) = state.sessions.get(session_id).await {
-        if session.name.is_none() && !user_text.is_empty() {
+    if let Some(session) = state.sessions.get(session_id).await
+        && session.name.is_none() && !user_text.is_empty() {
             let label: String = user_text.chars().take(60).collect();
             let label = label
                 .split('\n')
@@ -1468,7 +1466,6 @@ pub(crate) async fn process_message_shared(
                 .to_string();
             state.sessions.set_name(session_id, &label).await;
         }
-    }
 
     Ok(final_response)
 }
@@ -1765,8 +1762,8 @@ pub(crate) async fn process_message_streaming_shared(
         }
 
         // Check wall-clock timeout
-        if let Some(dl) = deadline {
-            if std::time::Instant::now() >= dl {
+        if let Some(dl) = deadline
+            && std::time::Instant::now() >= dl {
                 warn!(session = %session_id, elapsed_secs = started_at.elapsed().as_secs(), "request timeout reached in streaming loop");
                 let _ = tx.send(StreamEvent::TextDelta {
                     content: format!(
@@ -1776,7 +1773,6 @@ pub(crate) async fn process_message_streaming_shared(
                 }).await;
                 break;
             }
-        }
 
         state.budget.check()?;
 
@@ -2170,8 +2166,8 @@ pub(crate) async fn process_message_streaming_shared(
                 let planner = state.planner.lock().await;
                 !planner.active_goals().is_empty()
             };
-            if has_active_goals {
-                if let Some(ref scheduler) = state.scheduler {
+            if has_active_goals
+                && let Some(ref scheduler) = state.scheduler {
                     let resume_desc = format!(
                         "Auto-resume: Continue working on unfinished tasks from session {session_id}. \
                          Review active goals with goal_list and continue where you left off."
@@ -2197,7 +2193,6 @@ pub(crate) async fn process_message_streaming_shared(
                         })
                         .await;
                 }
-            }
         }
     }
 
@@ -2235,8 +2230,8 @@ pub(crate) async fn process_message_streaming_shared(
     maybe_extract_lessons(state, session_id).await;
 
     // Auto-set session label from first user message if not yet set
-    if let Some(session) = state.sessions.get(session_id).await {
-        if session.name.is_none() && !user_text.is_empty() {
+    if let Some(session) = state.sessions.get(session_id).await
+        && session.name.is_none() && !user_text.is_empty() {
             let label: String = user_text.chars().take(60).collect();
             let label = label
                 .split('\n')
@@ -2246,7 +2241,6 @@ pub(crate) async fn process_message_streaming_shared(
                 .to_string();
             state.sessions.set_name(session_id, &label).await;
         }
-    }
 
     // Clear reply context — this streaming session is done
     {

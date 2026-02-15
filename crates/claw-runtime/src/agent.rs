@@ -622,11 +622,10 @@ impl AgentRuntime {
                     continue;
                 }
                 let path = skill_dir.join("SKILL.md");
-                if !path.exists() {
-                    if let Err(e) = std::fs::write(&path, content) {
+                if !path.exists()
+                    && let Err(e) = std::fs::write(&path, content) {
                         warn!(error = %e, skill = name, "failed to write bundled skill");
                     }
-                }
             }
         }
 
@@ -1100,12 +1099,11 @@ impl AgentRuntime {
                         );
 
                         // Persist updated fire_count/last_fired to DB
-                        if let Some(ref sched_handle) = s.scheduler {
-                            if let Some(task) = sched_handle.get(sched_event.task_id).await {
+                        if let Some(ref sched_handle) = s.scheduler
+                            && let Some(task) = sched_handle.get(sched_event.task_id).await {
                                 let mem = s.memory.lock().await;
                                 persist_task_to_db(&mem, &task);
                             }
-                        }
 
                         // Create or reuse a session for this scheduled task
                         let session_id_str = if let Some(sid) = sched_event.session_id {

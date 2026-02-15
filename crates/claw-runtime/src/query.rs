@@ -70,14 +70,12 @@ pub(crate) async fn handle_query(
 
                 // If working memory is empty, try loading from SQLite
                 let persisted;
-                if messages_slice.is_empty() {
-                    if let Ok(msgs) = mem.load_session_messages(&sid) {
-                        if !msgs.is_empty() {
+                if messages_slice.is_empty()
+                    && let Ok(msgs) = mem.load_session_messages(&sid)
+                        && !msgs.is_empty() {
                             persisted = msgs;
                             messages_slice = &persisted;
                         }
-                    }
-                }
 
                 let list: Vec<serde_json::Value> = messages_slice
                     .iter()

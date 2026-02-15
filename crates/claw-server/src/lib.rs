@@ -208,14 +208,13 @@ fn find_web_dir() -> Option<std::path::PathBuf> {
         }
     }
     // 2. Check next to the binary
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent() {
             let p = dir.join("web");
             if p.join("index.html").exists() {
                 return Some(p);
             }
         }
-    }
     // 3. Check ~/.claw/web/ (installed fallback)
     if let Some(home) = dirs::home_dir() {
         let p = home.join(".claw").join("web");

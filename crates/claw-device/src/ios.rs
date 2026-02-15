@@ -134,9 +134,9 @@ impl IosBridge {
         }
 
         // 2. Simulators via xcrun simctl
-        if let Ok(output) = Self::run_cmd("xcrun", &["simctl", "list", "devices", "-j"]).await {
-            if let Ok(parsed) = serde_json::from_str::<Value>(&output) {
-                if let Some(device_map) = parsed["devices"].as_object() {
+        if let Ok(output) = Self::run_cmd("xcrun", &["simctl", "list", "devices", "-j"]).await
+            && let Ok(parsed) = serde_json::from_str::<Value>(&output)
+                && let Some(device_map) = parsed["devices"].as_object() {
                     for (runtime, devs) in device_map {
                         if let Some(arr) = devs.as_array() {
                             for dev in arr {
@@ -165,8 +165,6 @@ impl IosBridge {
                         }
                     }
                 }
-            }
-        }
 
         Ok(devices)
     }

@@ -277,8 +277,8 @@ async fn run_swarm_loop(
                     capabilities: capabilities.clone(),
                     os: std::env::consts::OS.to_string(),
                 };
-                if let Ok(data) = serde_json::to_vec(&announce) {
-                    if let Err(e) = swarm
+                if let Ok(data) = serde_json::to_vec(&announce)
+                    && let Err(e) = swarm
                         .behaviour_mut()
                         .gossipsub
                         .publish(topic.clone(), data)
@@ -286,7 +286,6 @@ async fn run_swarm_loop(
                         // PublishError::InsufficientPeers is normal when alone
                         debug!(error = %e, "periodic announce publish failed (may be alone on network)");
                     }
-                }
             }
         }
     }
@@ -454,11 +453,10 @@ async fn handle_swarm_event(
                 capabilities: capabilities.to_vec(),
                 os: std::env::consts::OS.to_string(),
             };
-            if let Ok(data) = serde_json::to_vec(&announce) {
-                if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), data) {
+            if let Ok(data) = serde_json::to_vec(&announce)
+                && let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), data) {
                     debug!(error = %e, "connection announce publish failed");
                 }
-            }
         }
         SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
             info!(peer = %peer_id, cause = ?cause, "mesh connection closed");

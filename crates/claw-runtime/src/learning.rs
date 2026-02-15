@@ -168,13 +168,12 @@ fn detect_lesson_patterns(messages: &[Message]) -> bool {
         match msg.role {
             Role::Tool => {
                 for content in &msg.content {
-                    if let claw_core::MessageContent::ToolResult { is_error, .. } = content {
-                        if *is_error {
+                    if let claw_core::MessageContent::ToolResult { is_error, .. } = content
+                        && *is_error {
                             saw_error_or_refusal = true;
                             saw_user_correction_after = false;
                             saw_success_after = false;
                         }
-                    }
                 }
             }
             Role::Assistant => {

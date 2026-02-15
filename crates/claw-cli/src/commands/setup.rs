@@ -110,7 +110,7 @@ pub(super) fn cmd_setup(local: bool, reset: bool, section: Option<String>) -> cl
     if config_path.exists() && !reset {
         let action = Select::with_theme(&theme)
             .with_prompt(format!("{} already exists", config_path.display()))
-            .items(&[
+            .items([
                 "Keep existing config (edit individual sections)",
                 "Overwrite with a fresh config",
                 "Cancel setup",

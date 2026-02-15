@@ -214,11 +214,10 @@ impl CdpClient {
             })?;
 
         for tab in &tabs {
-            if tab["id"].as_str() == Some(tab_id) {
-                if let Some(ws) = tab["webSocketDebuggerUrl"].as_str() {
+            if tab["id"].as_str() == Some(tab_id)
+                && let Some(ws) = tab["webSocketDebuggerUrl"].as_str() {
                     return Ok(ws.to_string());
                 }
-            }
         }
 
         Err(ClawError::ToolExecution {
@@ -254,12 +253,11 @@ impl CdpClient {
             while let Some(msg) = ws.next().await {
                 match msg {
                     Ok(Message::Text(text)) => {
-                        if let Ok(resp) = serde_json::from_str::<Value>(&text) {
-                            if resp.get("id").and_then(|v| v.as_i64()) == Some(expected_id) {
+                        if let Ok(resp) = serde_json::from_str::<Value>(&text)
+                            && resp.get("id").and_then(|v| v.as_i64()) == Some(expected_id) {
                                 return Ok(resp);
                             }
                             // else: this is an event notification, skip it
-                        }
                     }
                     Ok(_) => continue,
                     Err(e) => {
@@ -1204,11 +1202,10 @@ fn find_chrome_binary() -> claw_core::Result<String> {
             return Ok(candidate.to_string());
         }
         // Check PATH
-        if let Ok(output) = std::process::Command::new("which").arg(candidate).output() {
-            if output.status.success() {
+        if let Ok(output) = std::process::Command::new("which").arg(candidate).output()
+            && output.status.success() {
                 return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
             }
-        }
     }
 
     Err(ClawError::ToolExecution {
