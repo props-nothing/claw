@@ -10,8 +10,8 @@ use claw_mesh::MeshMessage;
 use crate::agent::{MeshTaskResult, SharedAgentState};
 use crate::learning::extract_search_keywords;
 use crate::sub_agent::{
-    exec_sub_agent_spawn, exec_sub_agent_wait, exec_sub_agent_status,
-    exec_cron_schedule, exec_cron_list, exec_cron_cancel,
+    exec_cron_cancel, exec_cron_list, exec_cron_schedule, exec_sub_agent_spawn,
+    exec_sub_agent_status, exec_sub_agent_wait,
 };
 
 pub(crate) async fn execute_tool_shared(state: &SharedAgentState, call: &ToolCall) -> ToolResult {
@@ -1153,7 +1153,10 @@ async fn exec_goal_update_status_shared(state: &SharedAgentState, call: &ToolCal
 }
 
 /// Execute channel_send_file — send a file through the active chat channel.
-pub(crate) async fn exec_channel_send_file(state: &SharedAgentState, call: &ToolCall) -> ToolResult {
+pub(crate) async fn exec_channel_send_file(
+    state: &SharedAgentState,
+    call: &ToolCall,
+) -> ToolResult {
     use claw_channels::adapter::{Attachment, OutgoingMessage};
 
     let file_path_raw = match call.arguments["file_path"].as_str() {

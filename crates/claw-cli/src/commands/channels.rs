@@ -411,8 +411,7 @@ pub(super) async fn cmd_channels(
                                 })?;
 
                             doc["channels"]["slack"]["type"] = toml_edit::value("slack");
-                            doc["channels"]["slack"]["bot_token"] =
-                                toml_edit::value(&bot_token);
+                            doc["channels"]["slack"]["bot_token"] = toml_edit::value(&bot_token);
 
                             std::fs::write(&config_path, doc.to_string())?;
                             println!("\n   ✅ Slack bot configured!");
@@ -432,9 +431,7 @@ pub(super) async fn cmd_channels(
             "whatsapp" | "wa" => {
                 let wa = claw_channels::whatsapp::WhatsAppChannel::new("whatsapp".into(), None);
                 wa.logout()?;
-                println!(
-                    "✅ WhatsApp session cleared. Re-link with: claw channels login whatsapp"
-                );
+                println!("✅ WhatsApp session cleared. Re-link with: claw channels login whatsapp");
             }
             other => {
                 println!("Channel '{other}' logout: removing config entry.");

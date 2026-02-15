@@ -3,28 +3,25 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use claw_autonomy::{
-    ApprovalResponse, AutonomyLevel,
-    guardrail::GuardrailVerdict,
-};
+use claw_autonomy::{ApprovalResponse, AutonomyLevel, guardrail::GuardrailVerdict};
 use claw_channels::adapter::IncomingMessage;
 use claw_core::{Event, Message, Role, Tool, ToolResult};
+use claw_device::DeviceTools;
 use claw_llm::{LlmRequest, StopReason};
 use claw_mesh::MeshMessage;
-use claw_device::DeviceTools;
 
 use crate::agent::{
-    SharedAgentState, ApiResponse, StreamEvent,
-    MeshTaskResult,
-    build_default_system_prompt,
+    ApiResponse, MeshTaskResult, SharedAgentState, StreamEvent, build_default_system_prompt,
+};
+use crate::channel_helpers::{
+    describe_tool_call, edit_channel_message, extract_result_summary, send_approval_prompt_shared,
+    send_channel_message_returning_id, send_response_shared, send_typing_to_channel,
+    tool_progress_emoji,
+};
+use crate::learning::{
+    build_episode_summary, extract_episode_tags, extract_search_keywords, maybe_extract_lessons,
 };
 use crate::tool_dispatch::{execute_tool_shared, is_parallel_safe};
-use crate::learning::{build_episode_summary, extract_episode_tags, extract_search_keywords, maybe_extract_lessons};
-use crate::channel_helpers::{
-    send_response_shared, send_typing_to_channel, tool_progress_emoji,
-    describe_tool_call, extract_result_summary, send_channel_message_returning_id,
-    edit_channel_message, send_approval_prompt_shared,
-};
 
 pub(crate) async fn process_mesh_message(state: SharedAgentState, message: MeshMessage) {
     let our_peer_id = {
@@ -1021,16 +1018,17 @@ pub(crate) async fn process_message_shared(
 
         // Check wall-clock timeout
         if let Some(dl) = deadline
-            && std::time::Instant::now() >= dl {
-                warn!(session = %session_id, elapsed_secs = started_at.elapsed().as_secs(), "request timeout reached");
-                final_response = format!(
-                    "I ran out of time ({}s limit reached after {} iterations). Here's what I accomplished so far. \
+            && std::time::Instant::now() >= dl
+        {
+            warn!(session = %session_id, elapsed_secs = started_at.elapsed().as_secs(), "request timeout reached");
+            final_response = format!(
+                "I ran out of time ({}s limit reached after {} iterations). Here's what I accomplished so far. \
                      You can send another message to continue where I left off.",
-                    timeout_secs,
-                    iteration - 1
-                );
-                break;
-            }
+                timeout_secs,
+                iteration - 1
+            );
+            break;
+        }
 
         state.event_bus.publish(Event::AgentThinking { session_id });
         state.budget.check()?;
@@ -1399,28 +1397,27 @@ pub(crate) async fn process_message_shared(
                 let planner = state.planner.lock().await;
                 !planner.active_goals().is_empty()
             };
-            if has_active_goals
-                && let Some(ref scheduler) = state.scheduler {
-                    let resume_desc = format!(
-                        "Auto-resume: Continue working on unfinished tasks from session {session_id}. \
+            if has_active_goals && let Some(ref scheduler) = state.scheduler {
+                let resume_desc = format!(
+                    "Auto-resume: Continue working on unfinished tasks from session {session_id}. \
                          Review active goals with goal_list and continue where you left off."
-                    );
-                    let task_id = scheduler
-                        .add_one_shot(
-                            resume_desc,
-                            60, // Resume in 60 seconds
-                            Some(format!("auto-resume:{session_id}")),
-                            Some(session_id),
-                        )
-                        .await;
-                    info!(
-                        task_id = %task_id,
-                        session = %session_id,
-                        "scheduled auto-resume in 60s for interrupted task"
-                    );
-                    final_response
-                        .push_str("\n\n⏱️ I'll automatically resume this work in about 1 minute.");
-                }
+                );
+                let task_id = scheduler
+                    .add_one_shot(
+                        resume_desc,
+                        60, // Resume in 60 seconds
+                        Some(format!("auto-resume:{session_id}")),
+                        Some(session_id),
+                    )
+                    .await;
+                info!(
+                    task_id = %task_id,
+                    session = %session_id,
+                    "scheduled auto-resume in 60s for interrupted task"
+                );
+                final_response
+                    .push_str("\n\n⏱️ I'll automatically resume this work in about 1 minute.");
+            }
         }
     }
 
@@ -1456,16 +1453,18 @@ pub(crate) async fn process_message_shared(
 
     // Auto-set session label from first user message if not yet set
     if let Some(session) = state.sessions.get(session_id).await
-        && session.name.is_none() && !user_text.is_empty() {
-            let label: String = user_text.chars().take(60).collect();
-            let label = label
-                .split('\n')
-                .next()
-                .unwrap_or(&label)
-                .trim()
-                .to_string();
-            state.sessions.set_name(session_id, &label).await;
-        }
+        && session.name.is_none()
+        && !user_text.is_empty()
+    {
+        let label: String = user_text.chars().take(60).collect();
+        let label = label
+            .split('\n')
+            .next()
+            .unwrap_or(&label)
+            .trim()
+            .to_string();
+        state.sessions.set_name(session_id, &label).await;
+    }
 
     Ok(final_response)
 }
@@ -1763,16 +1762,17 @@ pub(crate) async fn process_message_streaming_shared(
 
         // Check wall-clock timeout
         if let Some(dl) = deadline
-            && std::time::Instant::now() >= dl {
-                warn!(session = %session_id, elapsed_secs = started_at.elapsed().as_secs(), "request timeout reached in streaming loop");
-                let _ = tx.send(StreamEvent::TextDelta {
+            && std::time::Instant::now() >= dl
+        {
+            warn!(session = %session_id, elapsed_secs = started_at.elapsed().as_secs(), "request timeout reached in streaming loop");
+            let _ = tx.send(StreamEvent::TextDelta {
                     content: format!(
                         "\n\n⏱️ Time limit reached ({}s, {} iterations). Send another message to continue.",
                         timeout_secs, iteration - 1
                     ),
                 }).await;
-                break;
-            }
+            break;
+        }
 
         state.budget.check()?;
 
@@ -2166,33 +2166,31 @@ pub(crate) async fn process_message_streaming_shared(
                 let planner = state.planner.lock().await;
                 !planner.active_goals().is_empty()
             };
-            if has_active_goals
-                && let Some(ref scheduler) = state.scheduler {
-                    let resume_desc = format!(
-                        "Auto-resume: Continue working on unfinished tasks from session {session_id}. \
+            if has_active_goals && let Some(ref scheduler) = state.scheduler {
+                let resume_desc = format!(
+                    "Auto-resume: Continue working on unfinished tasks from session {session_id}. \
                          Review active goals with goal_list and continue where you left off."
-                    );
-                    let task_id = scheduler
-                        .add_one_shot(
-                            resume_desc,
-                            60, // Resume in 60 seconds
-                            Some(format!("auto-resume:{session_id}")),
-                            Some(session_id),
-                        )
-                        .await;
-                    info!(
-                        task_id = %task_id,
-                        session = %session_id,
-                        "scheduled auto-resume in 60s for interrupted streaming task"
-                    );
-                    let _ = tx
-                        .send(StreamEvent::TextDelta {
-                            content:
-                                "\n\n⏱️ I'll automatically resume this work in about 1 minute."
-                                    .to_string(),
-                        })
-                        .await;
-                }
+                );
+                let task_id = scheduler
+                    .add_one_shot(
+                        resume_desc,
+                        60, // Resume in 60 seconds
+                        Some(format!("auto-resume:{session_id}")),
+                        Some(session_id),
+                    )
+                    .await;
+                info!(
+                    task_id = %task_id,
+                    session = %session_id,
+                    "scheduled auto-resume in 60s for interrupted streaming task"
+                );
+                let _ = tx
+                    .send(StreamEvent::TextDelta {
+                        content: "\n\n⏱️ I'll automatically resume this work in about 1 minute."
+                            .to_string(),
+                    })
+                    .await;
+            }
         }
     }
 
@@ -2231,16 +2229,18 @@ pub(crate) async fn process_message_streaming_shared(
 
     // Auto-set session label from first user message if not yet set
     if let Some(session) = state.sessions.get(session_id).await
-        && session.name.is_none() && !user_text.is_empty() {
-            let label: String = user_text.chars().take(60).collect();
-            let label = label
-                .split('\n')
-                .next()
-                .unwrap_or(&label)
-                .trim()
-                .to_string();
-            state.sessions.set_name(session_id, &label).await;
-        }
+        && session.name.is_none()
+        && !user_text.is_empty()
+    {
+        let label: String = user_text.chars().take(60).collect();
+        let label = label
+            .split('\n')
+            .next()
+            .unwrap_or(&label)
+            .trim()
+            .to_string();
+        state.sessions.set_name(session_id, &label).await;
+    }
 
     // Clear reply context — this streaming session is done
     {

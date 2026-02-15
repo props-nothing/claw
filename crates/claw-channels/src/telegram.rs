@@ -39,9 +39,10 @@ fn extract_screenshot_filenames(text: &str) -> Vec<String> {
 #[allow(dead_code)]
 fn expand_home(path: &str) -> String {
     if (path == "~" || path.starts_with("~/"))
-        && let Some(home) = dirs::home_dir() {
-            return format!("{}{}", home.display(), &path[1..]);
-        }
+        && let Some(home) = dirs::home_dir()
+    {
+        return format!("{}{}", home.display(), &path[1..]);
+    }
     path.to_string()
 }
 

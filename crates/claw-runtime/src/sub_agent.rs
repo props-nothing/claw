@@ -8,10 +8,7 @@ use uuid::Uuid;
 use claw_channels::adapter::IncomingMessage;
 use claw_core::{ToolCall, ToolResult};
 
-use crate::agent::{
-    SharedAgentState, StreamEvent,
-    SubTaskState, SubTaskStatus,
-};
+use crate::agent::{SharedAgentState, StreamEvent, SubTaskState, SubTaskStatus};
 use crate::agent_loop::{process_api_message, process_message_streaming_shared};
 
 fn sub_agent_system_prompt(role: &str) -> String {
@@ -680,7 +677,10 @@ pub(crate) async fn exec_sub_agent_status(state: &SharedAgentState, call: &ToolC
 // ─── Scheduler Tool Implementation ─────────────────────────────────────────
 
 /// Persist a ScheduledTask to the memory database.
-pub(crate) fn persist_task_to_db(mem: &claw_memory::MemoryStore, task: &crate::scheduler::ScheduledTask) {
+pub(crate) fn persist_task_to_db(
+    mem: &claw_memory::MemoryStore,
+    task: &crate::scheduler::ScheduledTask,
+) {
     let kind_json = serde_json::to_string(&task.kind).unwrap_or_default();
     let created_at = task.created_at.to_rfc3339();
     let last_fired = task.last_fired.map(|t| t.to_rfc3339());

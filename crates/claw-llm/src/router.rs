@@ -247,20 +247,21 @@ impl ModelRouter {
         // Try fallback with retries
         if let Some(fallback) = fallback_model
             && let Some((provider, model_name)) = self.resolve(fallback)
-                && self.is_available(provider.name()) {
-                    let mut req = request.clone();
-                    req.model = model_name;
-                    match self.complete_with_retry(&*provider, &req).await {
-                        Ok(resp) => {
-                            self.record_success(provider.name());
-                            return Ok(resp);
-                        }
-                        Err(e) => {
-                            self.record_failure(provider.name());
-                            return Err(e);
-                        }
-                    }
+            && self.is_available(provider.name())
+        {
+            let mut req = request.clone();
+            req.model = model_name;
+            match self.complete_with_retry(&*provider, &req).await {
+                Ok(resp) => {
+                    self.record_success(provider.name());
+                    return Ok(resp);
                 }
+                Err(e) => {
+                    self.record_failure(provider.name());
+                    return Err(e);
+                }
+            }
+        }
 
         Err(claw_core::ClawError::ModelNotFound(request.model.clone()))
     }
@@ -302,20 +303,21 @@ impl ModelRouter {
         // Try fallback with retries
         if let Some(fallback) = fallback_model
             && let Some((provider, model_name)) = self.resolve(fallback)
-                && self.is_available(provider.name()) {
-                    let mut req = request.clone();
-                    req.model = model_name;
-                    match self.stream_with_retry(&*provider, &req).await {
-                        Ok(rx) => {
-                            self.record_success(provider.name());
-                            return Ok(rx);
-                        }
-                        Err(e) => {
-                            self.record_failure(provider.name());
-                            return Err(e);
-                        }
-                    }
+            && self.is_available(provider.name())
+        {
+            let mut req = request.clone();
+            req.model = model_name;
+            match self.stream_with_retry(&*provider, &req).await {
+                Ok(rx) => {
+                    self.record_success(provider.name());
+                    return Ok(rx);
                 }
+                Err(e) => {
+                    self.record_failure(provider.name());
+                    return Err(e);
+                }
+            }
+        }
 
         Err(claw_core::ClawError::ModelNotFound(request.model.clone()))
     }

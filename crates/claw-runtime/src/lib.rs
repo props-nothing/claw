@@ -46,8 +46,7 @@ pub mod tools;
 
 pub use agent::AgentRuntime;
 pub use agent::{
-    ApiResponse, Notification, RuntimeHandle, StreamEvent, get_runtime_handle,
-    set_runtime_handle,
+    ApiResponse, Notification, RuntimeHandle, StreamEvent, get_runtime_handle, set_runtime_handle,
 };
 pub use agent::{PendingSubTasks, SubTaskState, SubTaskStatus};
 pub use agent::{SharedAgentState, build_test_state, build_test_state_with_router};

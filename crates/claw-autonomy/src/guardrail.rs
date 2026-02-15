@@ -139,13 +139,14 @@ impl Guardrail for DestructiveActionGuardrail {
             // Check if it's operating on multiple targets
             if let Some(paths) = call.arguments.get("paths")
                 && let Some(arr) = paths.as_array()
-                    && arr.len() > self.max_deletes as usize {
-                        return GuardrailVerdict::Deny(format!(
-                            "attempting to delete {} files, max allowed is {}",
-                            arr.len(),
-                            self.max_deletes
-                        ));
-                    }
+                && arr.len() > self.max_deletes as usize
+            {
+                return GuardrailVerdict::Deny(format!(
+                    "attempting to delete {} files, max allowed is {}",
+                    arr.len(),
+                    self.max_deletes
+                ));
+            }
             // Single deletes in lower autonomy levels need approval
             if _level < AutonomyLevel::Supervised {
                 return GuardrailVerdict::Escalate("delete operation requires approval".into());
@@ -166,16 +167,16 @@ impl Guardrail for NetworkExfiltrationGuardrail {
     fn evaluate(&self, tool: &Tool, call: &ToolCall, _level: AutonomyLevel) -> GuardrailVerdict {
         // If a shell command is piping file content to curl/wget, that's suspicious
         if (tool.name == "shell_exec" || tool.name == "system_run")
-            && let Some(cmd) = call.arguments.get("command").and_then(|v| v.as_str()) {
-                let suspicious = cmd.contains("curl")
-                    && (cmd.contains("cat ") || cmd.contains("< /"))
-                    || cmd.contains("wget") && cmd.contains("--post-file");
-                if suspicious {
-                    return GuardrailVerdict::Escalate(
-                        "command may be exfiltrating data via network".into(),
-                    );
-                }
+            && let Some(cmd) = call.arguments.get("command").and_then(|v| v.as_str())
+        {
+            let suspicious = cmd.contains("curl") && (cmd.contains("cat ") || cmd.contains("< /"))
+                || cmd.contains("wget") && cmd.contains("--post-file");
+            if suspicious {
+                return GuardrailVerdict::Escalate(
+                    "command may be exfiltrating data via network".into(),
+                );
             }
+        }
         GuardrailVerdict::Approve
     }
 }

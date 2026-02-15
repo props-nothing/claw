@@ -454,9 +454,10 @@ async fn handle_swarm_event(
                 os: std::env::consts::OS.to_string(),
             };
             if let Ok(data) = serde_json::to_vec(&announce)
-                && let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), data) {
-                    debug!(error = %e, "connection announce publish failed");
-                }
+                && let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), data)
+            {
+                debug!(error = %e, "connection announce publish failed");
+            }
         }
         SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
             info!(peer = %peer_id, cause = ?cause, "mesh connection closed");

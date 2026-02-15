@@ -104,15 +104,18 @@ impl CronScheduler {
                 continue;
             }
             if let (Some(existing_label), Some(new_label)) = (&existing.label, &label)
-                && existing_label == new_label {
-                    info!(task_id = %existing.id, label = %new_label, "cron task already exists — skipping");
-                    return Ok(existing.id);
-                }
+                && existing_label == new_label
+            {
+                info!(task_id = %existing.id, label = %new_label, "cron task already exists — skipping");
+                return Ok(existing.id);
+            }
             if let ScheduleKind::Cron { expression: expr } = &existing.kind
-                && expr == cron_expr && existing.description == description {
-                    info!(task_id = %existing.id, cron = cron_expr, "cron task already exists — skipping");
-                    return Ok(existing.id);
-                }
+                && expr == cron_expr
+                && existing.description == description
+            {
+                info!(task_id = %existing.id, cron = cron_expr, "cron task already exists — skipping");
+                return Ok(existing.id);
+            }
         }
 
         let task = ScheduledTask {
@@ -187,8 +190,9 @@ impl CronScheduler {
     pub async fn load_from_config(&self, config: &claw_config::ClawConfig) {
         // Load heartbeat cron
         if let Some(ref cron_expr) = config.autonomy.heartbeat_cron
-            && config.autonomy.proactive {
-                match self
+            && config.autonomy.proactive
+        {
+            match self
                     .add_cron(
                         "Heartbeat: Check status of all active goals and continue any unfinished work. Review pending tasks, check for errors, and make progress on outstanding objectives.".to_string(),
                         cron_expr,
@@ -200,7 +204,7 @@ impl CronScheduler {
                     Ok(id) => info!(task_id = %id, cron = cron_expr, "loaded heartbeat cron from config"),
                     Err(e) => warn!(error = %e, cron = cron_expr, "failed to load heartbeat cron from config"),
                 }
-            }
+        }
 
         // Load per-goal crons
         for goal_config in &config.autonomy.goals {
@@ -342,24 +346,27 @@ impl SchedulerHandle {
             }
             // Match by label if both have one
             if let (Some(existing_label), Some(new_label)) = (&existing.label, &label)
-                && existing_label == new_label {
-                    info!(
-                        task_id = %existing.id,
-                        label = %new_label,
-                        "cron task with same label already exists — skipping duplicate"
-                    );
-                    return Ok(existing.id);
-                }
+                && existing_label == new_label
+            {
+                info!(
+                    task_id = %existing.id,
+                    label = %new_label,
+                    "cron task with same label already exists — skipping duplicate"
+                );
+                return Ok(existing.id);
+            }
             // Match by cron expression + description
             if let ScheduleKind::Cron { expression: expr } = &existing.kind
-                && expr == cron_expr && existing.description == description {
-                    info!(
-                        task_id = %existing.id,
-                        cron = cron_expr,
-                        "cron task with same expression and description already exists — skipping duplicate"
-                    );
-                    return Ok(existing.id);
-                }
+                && expr == cron_expr
+                && existing.description == description
+            {
+                info!(
+                    task_id = %existing.id,
+                    cron = cron_expr,
+                    "cron task with same expression and description already exists — skipping duplicate"
+                );
+                return Ok(existing.id);
+            }
         }
 
         let task = ScheduledTask {

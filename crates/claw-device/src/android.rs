@@ -152,9 +152,10 @@ impl AndroidBridge {
         // Fetch Android version for connected devices
         for device in &mut devices {
             if device.state == "device"
-                && let Ok(ver) = self.shell("getprop ro.build.version.release").await {
-                    device.android_version = Some(ver.trim().to_string());
-                }
+                && let Ok(ver) = self.shell("getprop ro.build.version.release").await
+            {
+                device.android_version = Some(ver.trim().to_string());
+            }
         }
 
         Ok(devices)

@@ -130,19 +130,20 @@ impl AnthropicProvider {
 
         // Extended thinking
         if let Some(ref level) = request.thinking_level
-            && level != "off" {
-                let budget = match level.as_str() {
-                    "low" => 2048,
-                    "medium" => 8192,
-                    "high" => 16384,
-                    "xhigh" => 32768,
-                    _ => 8192,
-                };
-                body["thinking"] = serde_json::json!({
-                    "type": "enabled",
-                    "budget_tokens": budget,
-                });
-            }
+            && level != "off"
+        {
+            let budget = match level.as_str() {
+                "low" => 2048,
+                "medium" => 8192,
+                "high" => 16384,
+                "xhigh" => 32768,
+                _ => 8192,
+            };
+            body["thinking"] = serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": budget,
+            });
+        }
 
         body
     }
@@ -340,9 +341,9 @@ impl LlmProvider for AnthropicProvider {
                                                 && let Some(it) = usage
                                                     .get("input_tokens")
                                                     .and_then(|v| v.as_u64())
-                                                {
-                                                    input_tokens = it as u32;
-                                                }
+                                            {
+                                                input_tokens = it as u32;
+                                            }
                                         }
                                         Some("content_block_start") => {
                                             let cb = &event["content_block"];
@@ -418,9 +419,9 @@ impl LlmProvider for AnthropicProvider {
                                                 && let Some(ot) = usage
                                                     .get("output_tokens")
                                                     .and_then(|v| v.as_u64())
-                                                {
-                                                    output_tokens = ot as u32;
-                                                }
+                                            {
+                                                output_tokens = ot as u32;
+                                            }
                                         }
                                         Some("message_stop") => {
                                             let cost = estimate_anthropic_cost(

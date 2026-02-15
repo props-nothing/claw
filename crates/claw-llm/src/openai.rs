@@ -447,13 +447,12 @@ impl LlmProvider for OpenAiProvider {
                                             let delta = &event["choices"][0]["delta"];
                                             // Text content
                                             if let Some(text) = delta["content"].as_str()
-                                                && !text.is_empty() {
-                                                    let _ = tx
-                                                        .send(StreamChunk::TextDelta(
-                                                            text.to_string(),
-                                                        ))
-                                                        .await;
-                                                }
+                                                && !text.is_empty()
+                                            {
+                                                let _ = tx
+                                                    .send(StreamChunk::TextDelta(text.to_string()))
+                                                    .await;
+                                            }
                                             // Tool call deltas
                                             if let Some(tcs) = delta["tool_calls"].as_array() {
                                                 for tc in tcs {

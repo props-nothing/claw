@@ -182,13 +182,12 @@ impl LlmProvider for LocalProvider {
                                     {
                                         // Content delta
                                         if let Some(content) = event["message"]["content"].as_str()
-                                            && !content.is_empty() {
-                                                let _ = tx
-                                                    .send(StreamChunk::TextDelta(
-                                                        content.to_string(),
-                                                    ))
-                                                    .await;
-                                            }
+                                            && !content.is_empty()
+                                        {
+                                            let _ = tx
+                                                .send(StreamChunk::TextDelta(content.to_string()))
+                                                .await;
+                                        }
                                         // Final message has "done": true
                                         if event["done"].as_bool() == Some(true) {
                                             if let Some(pt) = event["prompt_eval_count"].as_u64() {

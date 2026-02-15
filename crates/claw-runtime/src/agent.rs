@@ -21,9 +21,7 @@ pub async fn set_runtime_handle(handle: RuntimeHandle) {
 use claw_autonomy::{
     ApprovalGate, ApprovalResponse, AutonomyLevel, BudgetTracker, GoalPlanner, GuardrailEngine,
 };
-use claw_channels::adapter::{
-    Channel, ChannelEvent, OutgoingMessage,
-};
+use claw_channels::adapter::{Channel, ChannelEvent, OutgoingMessage};
 use claw_config::ClawConfig;
 use claw_core::{Event, EventBus};
 use claw_llm::{LlmProvider, ModelRouter};
@@ -38,7 +36,9 @@ use crate::tools::BuiltinTools;
 use claw_device::DeviceTools;
 
 // Re-import functions extracted to sub-modules so call sites in run() and tests compile.
-use crate::agent_loop::{process_api_message, process_channel_message, process_mesh_message, process_stream_message};
+use crate::agent_loop::{
+    process_api_message, process_channel_message, process_mesh_message, process_stream_message,
+};
 use crate::channel_helpers::{resolve_approval, send_response_shared};
 use crate::sub_agent::persist_task_to_db;
 
@@ -623,9 +623,10 @@ impl AgentRuntime {
                 }
                 let path = skill_dir.join("SKILL.md");
                 if !path.exists()
-                    && let Err(e) = std::fs::write(&path, content) {
-                        warn!(error = %e, skill = name, "failed to write bundled skill");
-                    }
+                    && let Err(e) = std::fs::write(&path, content)
+                {
+                    warn!(error = %e, skill = name, "failed to write bundled skill");
+                }
             }
         }
 
@@ -1279,9 +1280,9 @@ pub fn build_test_state_with_router(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tool_dispatch::execute_tool_shared;
     use claw_core::ToolCall;
     use claw_llm::mock::MockProvider;
-    use crate::tool_dispatch::execute_tool_shared;
 
     fn test_config() -> ClawConfig {
         let mut config = ClawConfig::default();

@@ -261,9 +261,10 @@ async fn list_skills(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let skills: Vec<HubSkill> = stmt
-        .query_map(rusqlite::params![params.limit as i64, params.offset as i64], |row| {
-            Ok(row_to_skill(row))
-        })
+        .query_map(
+            rusqlite::params![params.limit as i64, params.offset as i64],
+            |row| Ok(row_to_skill(row)),
+        )
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .filter_map(|r| r.ok())
         .collect();

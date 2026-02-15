@@ -72,10 +72,11 @@ pub(crate) async fn handle_query(
                 let persisted;
                 if messages_slice.is_empty()
                     && let Ok(msgs) = mem.load_session_messages(&sid)
-                        && !msgs.is_empty() {
-                            persisted = msgs;
-                            messages_slice = &persisted;
-                        }
+                    && !msgs.is_empty()
+                {
+                    persisted = msgs;
+                    messages_slice = &persisted;
+                }
 
                 let list: Vec<serde_json::Value> = messages_slice
                     .iter()

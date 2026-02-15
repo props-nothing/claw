@@ -4,7 +4,7 @@ use uuid::Uuid;
 use claw_autonomy::ApprovalResponse;
 use claw_channels::adapter::{ApprovalPrompt, OutgoingMessage};
 
-use crate::agent::{SharedAgentState, PendingApprovals};
+use crate::agent::{PendingApprovals, SharedAgentState};
 
 pub(crate) async fn send_response_shared(
     state: &SharedAgentState,
@@ -32,7 +32,11 @@ pub(crate) async fn send_response_shared(
 }
 
 /// Send a typing indicator to a specific channel target.
-pub(crate) async fn send_typing_to_channel(state: &SharedAgentState, channel_id: &str, target: &str) {
+pub(crate) async fn send_typing_to_channel(
+    state: &SharedAgentState,
+    channel_id: &str,
+    target: &str,
+) {
     let channels = state.channels.lock().await;
     for channel in channels.iter() {
         if channel.id() == channel_id {

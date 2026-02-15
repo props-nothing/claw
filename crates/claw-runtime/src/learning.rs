@@ -1,12 +1,16 @@
-use uuid::Uuid;
-use tracing::{debug, info, warn};
+use crate::agent::SharedAgentState;
 use claw_core::{Message, Role};
 use claw_llm::LlmRequest;
 use claw_mesh::MeshMessage;
-use crate::agent::SharedAgentState;
+use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 /// Build a brief episodic summary from the conversation messages.
-pub(crate) fn build_episode_summary(messages: &[Message], user_text: &str, final_response: &str) -> String {
+pub(crate) fn build_episode_summary(
+    messages: &[Message],
+    user_text: &str,
+    final_response: &str,
+) -> String {
     // Count tool calls across all messages
     let tool_names: Vec<String> = messages
         .iter()
@@ -169,11 +173,12 @@ fn detect_lesson_patterns(messages: &[Message]) -> bool {
             Role::Tool => {
                 for content in &msg.content {
                     if let claw_core::MessageContent::ToolResult { is_error, .. } = content
-                        && *is_error {
-                            saw_error_or_refusal = true;
-                            saw_user_correction_after = false;
-                            saw_success_after = false;
-                        }
+                        && *is_error
+                    {
+                        saw_error_or_refusal = true;
+                        saw_user_correction_after = false;
+                        saw_success_after = false;
+                    }
                 }
             }
             Role::Assistant => {

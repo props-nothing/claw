@@ -80,7 +80,11 @@ level = "info"
 }
 
 /// Interactive setup wizard for claw configuration.
-pub(super) fn cmd_setup(local: bool, reset: bool, section: Option<String>) -> claw_core::Result<()> {
+pub(super) fn cmd_setup(
+    local: bool,
+    reset: bool,
+    section: Option<String>,
+) -> claw_core::Result<()> {
     use dialoguer::{Confirm, Input, MultiSelect, Select, theme::ColorfulTheme};
 
     let theme = ColorfulTheme::default();
@@ -424,9 +428,7 @@ pub(super) fn cmd_setup(local: bool, reset: bool, section: Option<String>) -> cl
                     if claw_channels::signal::SignalChannel::is_signal_cli_available() {
                         println!("   ✅ signal-cli found!");
                     } else {
-                        println!(
-                            "   ⚠️  signal-cli not found. Install it before using Signal."
-                        );
+                        println!("   ⚠️  signal-cli not found. Install it before using Signal.");
                     }
 
                     let phone: String = Input::with_theme(&theme)
@@ -447,9 +449,7 @@ pub(super) fn cmd_setup(local: bool, reset: bool, section: Option<String>) -> cl
                 }
                 "webchat" => {
                     println!("\n   \x1b[1m🌐 Web Chat\x1b[0m");
-                    println!(
-                        "   The built-in web UI will be available when you run 'claw start'."
-                    );
+                    println!("   The built-in web UI will be available when you run 'claw start'.");
                     println!("   Access it at http://localhost:3700 in your browser.\n");
                 }
                 _ => {}
@@ -605,9 +605,7 @@ pub(super) fn cmd_setup(local: bool, reset: bool, section: Option<String>) -> cl
         if !api_key_value.is_empty() {
             config.push_str(&format!("anthropic_api_key = \"{api_key_value}\"\n"));
         } else {
-            config.push_str(
-                "# anthropic_api_key = \"sk-ant-...\"   # or env: ANTHROPIC_API_KEY\n",
-            );
+            config.push_str("# anthropic_api_key = \"sk-ant-...\"   # or env: ANTHROPIC_API_KEY\n");
         }
         config.push_str("# openai_api_key = \"sk-...\"          # or env: OPENAI_API_KEY\n");
     } else if provider_prefix == "openai" {
@@ -615,8 +613,7 @@ pub(super) fn cmd_setup(local: bool, reset: bool, section: Option<String>) -> cl
         if !api_key_value.is_empty() {
             config.push_str(&format!("openai_api_key = \"{api_key_value}\"\n"));
         } else {
-            config
-                .push_str("# openai_api_key = \"sk-...\"          # or env: OPENAI_API_KEY\n");
+            config.push_str("# openai_api_key = \"sk-...\"          # or env: OPENAI_API_KEY\n");
         }
     } else {
         config.push_str("# anthropic_api_key = \"sk-ant-...\"   # or env: ANTHROPIC_API_KEY\n");
@@ -625,9 +622,8 @@ pub(super) fn cmd_setup(local: bool, reset: bool, section: Option<String>) -> cl
     if !brave_key.is_empty() {
         config.push_str(&format!("brave_api_key = \"{brave_key}\"\n"));
     } else {
-        config.push_str(
-            "# brave_api_key = \"\"    # Get one free: https://api.search.brave.com/\n",
-        );
+        config
+            .push_str("# brave_api_key = \"\"    # Get one free: https://api.search.brave.com/\n");
     }
     config.push_str(
         "# hub_url = \"\"          # Skills Hub URL — run 'claw hub serve' to host one\n",
@@ -661,8 +657,7 @@ pub(super) fn cmd_setup(local: bool, reset: bool, section: Option<String>) -> cl
         if ch.channel_type == "whatsapp" || ch.channel_type == "signal" {
             config.push_str(&format!("dm_policy = \"{}\"\n", ch.dm_policy));
             if !ch.allow_from.is_empty() {
-                let nums: Vec<String> =
-                    ch.allow_from.iter().map(|n| format!("\"{n}\"")).collect();
+                let nums: Vec<String> = ch.allow_from.iter().map(|n| format!("\"{n}\"")).collect();
                 config.push_str(&format!("allow_from = [{}]\n", nums.join(", ")));
             }
         }
@@ -816,10 +811,7 @@ pub(super) fn cmd_setup(local: bool, reset: bool, section: Option<String>) -> cl
                                         .collect();
                                     let quiet = 1i32;
                                     let at = |x: i32, y: i32| -> bool {
-                                        if x < 0
-                                            || y < 0
-                                            || x >= width as i32
-                                            || y >= width as i32
+                                        if x < 0 || y < 0 || x >= width as i32 || y >= width as i32
                                         {
                                             false
                                         } else {

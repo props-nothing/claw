@@ -35,9 +35,7 @@ pub(super) async fn cmd_chat(
         if !is_local {
             eprintln!("⚠️  No LLM API keys found.");
             if model.starts_with("anthropic/") {
-                eprintln!(
-                    "   Add to [services] in claw.toml:  anthropic_api_key = \"sk-ant-...\""
-                );
+                eprintln!("   Add to [services] in claw.toml:  anthropic_api_key = \"sk-ant-...\"");
                 eprintln!("   Or set env var: export ANTHROPIC_API_KEY=sk-ant-...");
             } else if model.starts_with("openai/") {
                 eprintln!("   Add to [services] in claw.toml:  openai_api_key = \"sk-...\"");
@@ -135,10 +133,7 @@ pub(super) async fn cmd_chat(
                                     truncate_output(&content, 200)
                                 );
                             } else {
-                                eprintln!(
-                                    "\x1b[90m   ✓ {}\x1b[0m",
-                                    truncate_output(&content, 200)
-                                );
+                                eprintln!("\x1b[90m   ✓ {}\x1b[0m", truncate_output(&content, 200));
                             }
                         }
                         StreamEvent::ApprovalRequired {

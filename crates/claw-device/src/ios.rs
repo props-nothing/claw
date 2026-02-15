@@ -136,35 +136,36 @@ impl IosBridge {
         // 2. Simulators via xcrun simctl
         if let Ok(output) = Self::run_cmd("xcrun", &["simctl", "list", "devices", "-j"]).await
             && let Ok(parsed) = serde_json::from_str::<Value>(&output)
-                && let Some(device_map) = parsed["devices"].as_object() {
-                    for (runtime, devs) in device_map {
-                        if let Some(arr) = devs.as_array() {
-                            for dev in arr {
-                                let state = dev["state"].as_str().unwrap_or("Shutdown");
-                                // Only show booted simulators unless no physical devices
-                                let udid = dev["udid"].as_str().unwrap_or("").to_string();
-                                let name = dev["name"].as_str().unwrap_or("").to_string();
+            && let Some(device_map) = parsed["devices"].as_object()
+        {
+            for (runtime, devs) in device_map {
+                if let Some(arr) = devs.as_array() {
+                    for dev in arr {
+                        let state = dev["state"].as_str().unwrap_or("Shutdown");
+                        // Only show booted simulators unless no physical devices
+                        let udid = dev["udid"].as_str().unwrap_or("").to_string();
+                        let name = dev["name"].as_str().unwrap_or("").to_string();
 
-                                // Extract iOS version from runtime string
-                                let ios_ver = runtime
-                                    .rsplit('.')
-                                    .next()
-                                    .unwrap_or("")
-                                    .replace("iOS-", "")
-                                    .replace('-', ".");
+                        // Extract iOS version from runtime string
+                        let ios_ver = runtime
+                            .rsplit('.')
+                            .next()
+                            .unwrap_or("")
+                            .replace("iOS-", "")
+                            .replace('-', ".");
 
-                                devices.push(IosDevice {
-                                    udid,
-                                    name,
-                                    model: "Simulator".into(),
-                                    ios_version: ios_ver,
-                                    device_type: "simulator".into(),
-                                    state: state.to_string(),
-                                });
-                            }
-                        }
+                        devices.push(IosDevice {
+                            udid,
+                            name,
+                            model: "Simulator".into(),
+                            ios_version: ios_ver,
+                            device_type: "simulator".into(),
+                            state: state.to_string(),
+                        });
                     }
                 }
+            }
+        }
 
         Ok(devices)
     }

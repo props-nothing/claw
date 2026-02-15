@@ -122,10 +122,8 @@ pub(super) async fn cmd_start(
                     .get("token")
                     .and_then(|v| v.as_str())
                 {
-                    let channel = claw_channels::discord::DiscordChannel::new(
-                        id.clone(),
-                        token.to_string(),
-                    );
+                    let channel =
+                        claw_channels::discord::DiscordChannel::new(id.clone(), token.to_string());
                     runtime.add_channel(Box::new(channel));
                 } else {
                     tracing::warn!("discord channel '{}' has no token configured", id);
@@ -159,10 +157,8 @@ pub(super) async fn cmd_start(
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 if !phone.is_empty() {
-                    let channel = claw_channels::signal::SignalChannel::new(
-                        id.clone(),
-                        phone.to_string(),
-                    );
+                    let channel =
+                        claw_channels::signal::SignalChannel::new(id.clone(), phone.to_string());
                     runtime.add_channel(Box::new(channel));
                 } else {
                     tracing::warn!("signal channel '{}' has no phone number configured", id);
