@@ -86,10 +86,10 @@ impl ConfigLoader {
         if let Ok(v) = std::env::var("CLAW_AGENT_MODEL") {
             config.agent.model = v;
         }
-        if let Ok(v) = std::env::var("CLAW_AUTONOMY_LEVEL") {
-            if let Ok(level) = v.parse::<u8>() {
-                config.autonomy.level = level;
-            }
+        if let Ok(v) = std::env::var("CLAW_AUTONOMY_LEVEL")
+            && let Ok(level) = v.parse::<u8>()
+        {
+            config.autonomy.level = level;
         }
         if let Ok(v) = std::env::var("CLAW_SERVER_LISTEN") {
             config.server.listen = v;
@@ -97,33 +97,33 @@ impl ConfigLoader {
         if let Ok(v) = std::env::var("CLAW_LOG_LEVEL") {
             config.logging.level = v;
         }
-        if let Ok(v) = std::env::var("CLAW_DAILY_BUDGET") {
-            if let Ok(budget) = v.parse::<f64>() {
-                config.autonomy.daily_budget_usd = budget;
-            }
+        if let Ok(v) = std::env::var("CLAW_DAILY_BUDGET")
+            && let Ok(budget) = v.parse::<f64>()
+        {
+            config.autonomy.daily_budget_usd = budget;
         }
         // API keys: env var fills in when config file doesn't have the key set.
         // This means config file takes priority, env is the fallback.
-        if config.services.anthropic_api_key.is_none() {
-            if let Ok(v) = std::env::var("ANTHROPIC_API_KEY") {
-                config.services.anthropic_api_key = Some(v);
-            }
+        if config.services.anthropic_api_key.is_none()
+            && let Ok(v) = std::env::var("ANTHROPIC_API_KEY")
+        {
+            config.services.anthropic_api_key = Some(v);
         }
-        if config.services.openai_api_key.is_none() {
-            if let Ok(v) = std::env::var("OPENAI_API_KEY") {
-                config.services.openai_api_key = Some(v);
-            }
+        if config.services.openai_api_key.is_none()
+            && let Ok(v) = std::env::var("OPENAI_API_KEY")
+        {
+            config.services.openai_api_key = Some(v);
         }
-        if config.services.brave_api_key.is_none() {
-            if let Ok(v) = std::env::var("BRAVE_API_KEY") {
-                config.services.brave_api_key = Some(v);
-            }
+        if config.services.brave_api_key.is_none()
+            && let Ok(v) = std::env::var("BRAVE_API_KEY")
+        {
+            config.services.brave_api_key = Some(v);
         }
         // 1Password service account token: config file takes priority, env var is fallback.
-        if config.credentials.service_account_token.is_none() {
-            if let Ok(v) = std::env::var("OP_SERVICE_ACCOUNT_TOKEN") {
-                config.credentials.service_account_token = Some(v);
-            }
+        if config.credentials.service_account_token.is_none()
+            && let Ok(v) = std::env::var("OP_SERVICE_ACCOUNT_TOKEN")
+        {
+            config.credentials.service_account_token = Some(v);
         }
         config
     }
