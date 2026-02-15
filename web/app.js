@@ -1716,25 +1716,30 @@ async function renderSubAgents(el) {
                 <button class="btn btn-primary" onclick="refreshSubAgents()">↻ Refresh</button>
             </div>
 
-            ${tasks.length === 0 ? `
+            ${
+              tasks.length === 0
+                ? `
                 <div class="empty-state">
                     <div class="empty-icon">🤖</div>
                     <div class="empty-text">No sub-agent tasks — delegate work in chat with "spawn agents to…"</div>
                 </div>
-            ` : `
+            `
+                : `
                 <div class="card-grid">
-                    ${tasks.map(t => {
-                      const depList = (t.depends_on && t.depends_on.length > 0)
-                        ? `<div class="agent-deps"><span class="deps-label">Depends on:</span> ${t.depends_on.map(d => `<span class="badge">${escHtml(d).slice(0,8)}…</span>`).join(" ")}</div>`
-                        : "";
-                      const resultPreview = t.result
-                        ? `<div class="agent-result"><span class="result-label">Result:</span> <span class="result-text">${escHtml(t.result.length > 200 ? t.result.slice(0, 200) + "…" : t.result)}</span></div>`
-                        : "";
-                      const errorMsg = t.error
-                        ? `<div class="agent-error">${escHtml(t.error)}</div>`
-                        : "";
+                    ${tasks
+                      .map((t) => {
+                        const depList =
+                          t.depends_on && t.depends_on.length > 0
+                            ? `<div class="agent-deps"><span class="deps-label">Depends on:</span> ${t.depends_on.map((d) => `<span class="badge">${escHtml(d).slice(0, 8)}…</span>`).join(" ")}</div>`
+                            : "";
+                        const resultPreview = t.result
+                          ? `<div class="agent-result"><span class="result-label">Result:</span> <span class="result-text">${escHtml(t.result.length > 200 ? t.result.slice(0, 200) + "…" : t.result)}</span></div>`
+                          : "";
+                        const errorMsg = t.error
+                          ? `<div class="agent-error">${escHtml(t.error)}</div>`
+                          : "";
 
-                      return `
+                        return `
                     <div class="card agent-card agent-status-${escHtml(t.status)}">
                         <div class="agent-card-header">
                             <span class="agent-role">${escHtml(t.role || "agent")}</span>
@@ -1742,16 +1747,18 @@ async function renderSubAgents(el) {
                         </div>
                         <div class="agent-task-desc">${escHtml(t.task_description)}</div>
                         <div class="agent-meta">
-                            <span class="agent-id" title="${escHtml(t.task_id)}">ID: ${escHtml(t.task_id).slice(0,8)}…</span>
+                            <span class="agent-id" title="${escHtml(t.task_id)}">ID: ${escHtml(t.task_id).slice(0, 8)}…</span>
                             <span class="agent-elapsed">⏱ ${formatElapsed(t.elapsed_secs)}</span>
                         </div>
                         ${depList}
                         ${resultPreview}
                         ${errorMsg}
                     </div>`;
-                    }).join("")}
+                      })
+                      .join("")}
                 </div>
-            `}
+            `
+            }
         </div>`;
   } catch (err) {
     el.innerHTML = `<div class="page"><div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${escHtml(err.message)}</div></div></div>`;
@@ -1785,7 +1792,8 @@ async function renderScheduler(el) {
 
     function scheduleDetail(kind) {
       if (!kind) return "—";
-      if (kind.type === "cron") return `<code>${escHtml(kind.expression || "")}</code>`;
+      if (kind.type === "cron")
+        return `<code>${escHtml(kind.expression || "")}</code>`;
       if (kind.type === "one_shot") return formatDate(kind.fire_at);
       return "—";
     }
@@ -1800,12 +1808,15 @@ async function renderScheduler(el) {
                 <button class="btn btn-primary" onclick="refreshScheduler()">↻ Refresh</button>
             </div>
 
-            ${tasks.length === 0 ? `
+            ${
+              tasks.length === 0
+                ? `
                 <div class="empty-state">
                     <div class="empty-icon">⏰</div>
                     <div class="empty-text">No scheduled tasks — ask Claw to "remind me every…" or "run X in 5 minutes"</div>
                 </div>
-            ` : `
+            `
+                : `
                 <div class="table-wrap">
                     <table>
                         <thead>
@@ -1820,27 +1831,33 @@ async function renderScheduler(el) {
                             </tr>
                         </thead>
                         <tbody>
-                            ${tasks.map(t => `
+                            ${tasks
+                              .map(
+                                (t) => `
                                 <tr>
                                     <td>
                                         <div class="sched-label">${escHtml(t.label)}</div>
-                                        ${t.description ? `<div class="sched-desc">${escHtml(t.description.length > 80 ? t.description.slice(0,80) + "…" : t.description)}</div>` : ""}
+                                        ${t.description ? `<div class="sched-desc">${escHtml(t.description.length > 80 ? t.description.slice(0, 80) + "…" : t.description)}</div>` : ""}
                                     </td>
                                     <td>${kindBadge(t.kind)}</td>
                                     <td class="mono">${scheduleDetail(t.kind)}</td>
-                                    <td>${t.active
-                                      ? '<span class="badge badge-success">Active</span>'
-                                      : '<span class="badge badge-error">Inactive</span>'
+                                    <td>${
+                                      t.active
+                                        ? '<span class="badge badge-success">Active</span>'
+                                        : '<span class="badge badge-error">Inactive</span>'
                                     }</td>
                                     <td class="mono">${t.fire_count ?? 0}</td>
                                     <td>${formatDate(t.last_fired)}</td>
                                     <td>${formatDate(t.created_at)}</td>
                                 </tr>
-                            `).join("")}
+                            `,
+                              )
+                              .join("")}
                         </tbody>
                     </table>
                 </div>
-            `}
+            `
+            }
         </div>`;
   } catch (err) {
     el.innerHTML = `<div class="page"><div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${escHtml(err.message)}</div></div></div>`;
