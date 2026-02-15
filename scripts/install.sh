@@ -12,7 +12,7 @@
 #
 set -eu
 
-REPO="claw/claw"
+REPO="props-nothing/claw"
 CLAW_DIR="${CLAW_DIR:-$HOME/.claw}"
 BIN_DIR="${CLAW_DIR}/bin"
 VERSION="${CLAW_VERSION:-latest}"
@@ -80,10 +80,12 @@ get_target() {
 resolve_version() {
     if [ "$VERSION" = "latest" ]; then
         info "Fetching latest release..."
-        VERSION=$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" \
-            | grep '"tag_name"' | head -1 | sed 's/.*"v\?\([^"]*\)".*/\1/')
+        VERSION=$(curl -sS "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
+            | grep '"tag_name"' | head -1 | sed 's/.*"v\?\([^"]*\)".*/\1/' || true)
         if [ -z "$VERSION" ]; then
-            die "Could not determine latest version. Set CLAW_VERSION=x.y.z manually."
+            warn "No published releases found. Will build from source."
+            VERSION=""
+            return
         fi
     fi
     # Strip leading 'v' if present
@@ -231,10 +233,16 @@ main() {
     info "Target:   ${TARGET}"
 
     resolve_version
-    info "Version:  ${VERSION}"
-    echo ""
 
-    install_binary
+    if [ -n "$VERSION" ]; then
+        info "Version:  ${VERSION}"
+        echo ""
+        install_binary
+    else
+        echo ""
+        try_build_from_source
+    fi
+
     setup_path
     init_config
 
