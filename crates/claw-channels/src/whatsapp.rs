@@ -460,9 +460,7 @@ impl WhatsAppChannel {
 
     /// Generate a short pairing code for an unknown sender.
     fn generate_pairing_code() -> String {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        let code: u32 = rng.gen_range(100_000..999_999);
+        let code: u32 = rand::random_range(100_000..999_999);
         format!("{code}")
     }
 

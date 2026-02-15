@@ -296,7 +296,7 @@ async fn slack_socket_mode_loop(
                 }
                 _ = ping_timer.tick() => {
                     let _ = write.send(
-                        tokio_tungstenite::tungstenite::Message::Ping(vec![])
+                        tokio_tungstenite::tungstenite::Message::Ping(vec![].into())
                     ).await;
                 }
                 msg = read.next() => {
@@ -321,7 +321,7 @@ async fn slack_socket_mode_loop(
                             if let Some(envelope_id) = payload["envelope_id"].as_str() {
                                 let ack = json!({ "envelope_id": envelope_id });
                                 let _ = write.send(
-                                    tokio_tungstenite::tungstenite::Message::Text(ack.to_string())
+                                    tokio_tungstenite::tungstenite::Message::Text(ack.to_string().into())
                                 ).await;
                             }
 

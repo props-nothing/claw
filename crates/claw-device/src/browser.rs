@@ -241,7 +241,7 @@ impl CdpClient {
             })?;
 
         // Send the CDP command
-        ws.send(Message::Text(msg_str))
+        ws.send(Message::Text(msg_str.into()))
             .await
             .map_err(|e| ClawError::ToolExecution {
                 tool: "browser".into(),

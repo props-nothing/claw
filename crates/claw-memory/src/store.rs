@@ -317,7 +317,7 @@ impl MemoryStore {
             Ok(s) => s,
             Err(_) => return vec![],
         };
-        stmt.query_map(rusqlite::params![limit], |row| {
+        stmt.query_map(rusqlite::params![limit as i64], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,

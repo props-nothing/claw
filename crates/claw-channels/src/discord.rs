@@ -270,7 +270,7 @@ async fn discord_gateway_loop(
 
         if let Err(e) = write
             .send(tokio_tungstenite::tungstenite::Message::Text(
-                identify.to_string(),
+                identify.to_string().into(),
             ))
             .await
         {
@@ -302,7 +302,7 @@ async fn discord_gateway_loop(
                 _ = heartbeat_timer.tick() => {
                     let hb = json!({ "op": OP_HEARTBEAT, "d": sequence });
                     if let Err(e) = write.send(
-                        tokio_tungstenite::tungstenite::Message::Text(hb.to_string())
+                        tokio_tungstenite::tungstenite::Message::Text(hb.to_string().into())
                     ).await {
                         warn!(error = %e, "Discord: heartbeat send failed");
                         break;
@@ -345,7 +345,7 @@ async fn discord_gateway_loop(
                                 OP_HEARTBEAT => {
                                     let hb = json!({ "op": OP_HEARTBEAT, "d": sequence });
                                     let _ = write.send(
-                                        tokio_tungstenite::tungstenite::Message::Text(hb.to_string())
+                                        tokio_tungstenite::tungstenite::Message::Text(hb.to_string().into())
                                     ).await;
                                 }
                                 _ => {
