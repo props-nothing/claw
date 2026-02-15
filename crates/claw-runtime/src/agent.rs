@@ -35,9 +35,9 @@ use claw_mesh::{MeshMessage, MeshNode};
 use claw_plugin::PluginHost;
 use claw_skills::SkillRegistry;
 
+use crate::scheduler::SchedulerHandle;
 use crate::session::SessionManager;
 use crate::tools::BuiltinTools;
-use crate::scheduler::SchedulerHandle;
 use claw_device::DeviceTools;
 
 /// The default system prompt — concise, principle-based. Behavioral guidance
@@ -165,6 +165,24 @@ pub type PendingApprovals = Arc<TokioMutex<HashMap<Uuid, oneshot::Sender<Approva
 /// Pending mesh task delegation — awaiting TaskResult from a peer.
 pub type PendingMeshTasks = Arc<TokioMutex<HashMap<Uuid, oneshot::Sender<MeshTaskResult>>>>;
 
+/// A server-push notification for connected web UI clients.
+/// Broadcast via `RuntimeHandle::notification_tx`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type")]
+pub enum Notification {
+    /// A scheduled task produced output.
+    #[serde(rename = "cron_result")]
+    CronResult {
+        task_id: String,
+        label: String,
+        text: String,
+        session_id: String,
+    },
+    /// A generic info message from the runtime.
+    #[serde(rename = "info")]
+    Info { message: String },
+}
+
 /// The result of a delegated mesh task.
 #[derive(Debug, Clone)]
 pub struct MeshTaskResult {
@@ -239,6 +257,9 @@ pub struct SharedAgentState {
     /// Set at the start of process_message_streaming_shared, cleared at the end.
     /// Tuple of (channel_id, target).
     pub reply_context: Arc<TokioMutex<Option<(String, String)>>>,
+    /// Active stream sender for forwarding sub-agent events to the parent stream.
+    /// Set at the start of process_message_streaming_shared or process_channel_message.
+    pub stream_tx: Arc<TokioMutex<Option<mpsc::Sender<StreamEvent>>>>,
 }
 
 /// The response sent back to the API caller.
@@ -273,17 +294,20 @@ pub struct RuntimeHandle {
     stream_tx: mpsc::Sender<StreamApiMessage>,
     pending_approvals: PendingApprovals,
     started_at: std::time::Instant,
+    notification_tx: tokio::sync::broadcast::Sender<Notification>,
 }
 
 impl RuntimeHandle {
     /// Create a RuntimeHandle for testing (no background stream processor).
     pub fn new_for_test(state: SharedAgentState) -> Self {
         let (stream_tx, _stream_rx) = mpsc::channel(64);
+        let (notification_tx, _) = tokio::sync::broadcast::channel(64);
         Self {
             state,
             stream_tx,
             pending_approvals: Arc::new(TokioMutex::new(HashMap::new())),
             started_at: std::time::Instant::now(),
+            notification_tx,
         }
     }
 
@@ -355,6 +379,16 @@ impl RuntimeHandle {
     /// Query runtime for status/sessions/goals — reads shared state directly, never blocks.
     pub async fn query(&self, kind: QueryKind) -> Result<serde_json::Value, String> {
         handle_query(&self.state, kind, self.started_at).await
+    }
+
+    /// Subscribe to server-push notifications (cron results, etc.).
+    pub fn subscribe_notifications(&self) -> tokio::sync::broadcast::Receiver<Notification> {
+        self.notification_tx.subscribe()
+    }
+
+    /// Broadcast a notification to all connected clients.
+    pub fn notify(&self, notification: Notification) {
+        let _ = self.notification_tx.send(notification);
     }
 }
 
@@ -692,6 +726,7 @@ impl AgentRuntime {
             scheduler: None, // Set after scheduler is created below
             device_tools: Arc::new(DeviceTools::new()),
             reply_context: Arc::new(TokioMutex::new(None)),
+            stream_tx: Arc::new(TokioMutex::new(None)),
         };
 
         // ── Start mesh networking (if enabled) ─────────────────────
@@ -726,6 +761,63 @@ impl AgentRuntime {
         // Load scheduled tasks from config (heartbeat_cron, goal crons)
         scheduler.load_from_config(&self.config).await;
 
+        // Restore user-created scheduled tasks from SQLite
+        {
+            let mem = state.memory.lock().await;
+            match mem.load_scheduled_tasks() {
+                Ok(rows) => {
+                    let mut restored = 0u32;
+                    for row in rows {
+                        // Skip inactive tasks (expired one-shots)
+                        if !row.active {
+                            continue;
+                        }
+                        let id = match uuid::Uuid::parse_str(&row.id) {
+                            Ok(id) => id,
+                            Err(_) => continue,
+                        };
+                        let kind: crate::scheduler::ScheduleKind =
+                            match serde_json::from_str(&row.kind_json) {
+                                Ok(k) => k,
+                                Err(_) => continue,
+                            };
+                        let created_at = chrono::DateTime::parse_from_rfc3339(&row.created_at)
+                            .map(|dt| dt.with_timezone(&chrono::Utc))
+                            .unwrap_or_else(|_| chrono::Utc::now());
+                        let last_fired = row.last_fired.as_deref().and_then(|s| {
+                            chrono::DateTime::parse_from_rfc3339(s)
+                                .map(|dt| dt.with_timezone(&chrono::Utc))
+                                .ok()
+                        });
+                        let session_id = row
+                            .session_id
+                            .as_deref()
+                            .and_then(|s| uuid::Uuid::parse_str(s).ok());
+
+                        let task = crate::scheduler::ScheduledTask {
+                            id,
+                            label: row.label,
+                            description: row.description,
+                            kind,
+                            created_at,
+                            session_id,
+                            active: true,
+                            fire_count: row.fire_count,
+                            last_fired,
+                        };
+                        scheduler_handle.restore_task(task).await;
+                        restored += 1;
+                    }
+                    if restored > 0 {
+                        info!(count = restored, "restored scheduled tasks from SQLite");
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, "failed to load scheduled tasks from SQLite");
+                }
+            }
+        }
+
         // Store the handle in shared state so tools can schedule tasks
         let mut state = state;
         state.scheduler = Some(scheduler_handle);
@@ -736,11 +828,13 @@ impl AgentRuntime {
         });
 
         // Publish the RuntimeHandle so the server can use it
+        let (notification_tx, _) = tokio::sync::broadcast::channel(64);
         let handle = RuntimeHandle {
             state: state.clone(),
             stream_tx,
             pending_approvals: pending_approvals.clone(),
             started_at,
+            notification_tx,
         };
         RUNTIME_HANDLE.lock().await.replace(handle);
 
@@ -1019,22 +1113,92 @@ impl AgentRuntime {
                             label = ?sched_event.label,
                             "scheduler fired — processing scheduled task"
                         );
+
+                        // Persist updated fire_count/last_fired to DB
+                        if let Some(ref sched_handle) = s.scheduler {
+                            if let Some(task) = sched_handle.get(sched_event.task_id).await {
+                                let mem = s.memory.lock().await;
+                                persist_task_to_db(&mem, &task);
+                            }
+                        }
+
                         // Create or reuse a session for this scheduled task
                         let session_id_str = if let Some(sid) = sched_event.session_id {
                             sid.to_string()
                         } else {
                             // Create a new session for scheduled tasks
                             let sid = s.sessions.create().await;
-                            let label = sched_event.label.unwrap_or_else(|| "scheduled task".to_string());
+                            let label = sched_event.label.clone().unwrap_or_else(|| "scheduled task".to_string());
                             s.sessions.set_name(sid, &label).await;
                             sid.to_string()
                         };
-                        // Process as a regular API message
-                        let _resp = process_api_message(
-                            s,
+
+                        // Wrap the description with a system note so the agent
+                        // doesn't re-schedule the same recurring task.
+                        let prompt = format!(
+                            "[SYSTEM: This is a scheduled task firing automatically. \
+                             Task ID: {}. Label: {}. \
+                             Do NOT create or schedule any new cron/recurring tasks — \
+                             this one is already recurring. Just execute the task below.]\n\n{}",
+                            sched_event.task_id,
+                            sched_event.label.as_deref().unwrap_or("none"),
                             sched_event.description,
+                        );
+
+                        // Process through API path
+                        let resp = process_api_message(
+                            s.clone(),
+                            prompt,
                             Some(session_id_str),
                         ).await;
+
+                        // Send the result to all active channels so users see the output
+                        if !resp.text.is_empty() {
+                            let label_str = sched_event.label.as_deref().unwrap_or("scheduled task");
+                            let msg = format!(
+                                "⏰ *{}*\n\n{}",
+                                label_str,
+                                resp.text,
+                            );
+
+                            // Broadcast to web UI via SSE notifications
+                            if let Some(handle) = get_runtime_handle().await {
+                                handle.notify(Notification::CronResult {
+                                    task_id: sched_event.task_id.to_string(),
+                                    label: label_str.to_string(),
+                                    text: resp.text.clone(),
+                                    session_id: resp.session_id.clone(),
+                                });
+                            }
+
+                            // Find the most recently active session for each channel
+                            // and send the notification to its target (chat/user).
+                            let all_sessions = s.sessions.list_sessions().await;
+                            let channels = s.channels.lock().await;
+                            for channel in channels.iter() {
+                                let channel_id = channel.id().to_string();
+                                // Find the most recent active session for this channel
+                                let target = all_sessions
+                                    .iter()
+                                    .filter(|sess| {
+                                        sess.active && sess.channel.as_deref() == Some(&channel_id)
+                                    })
+                                    .max_by_key(|sess| sess.message_count)
+                                    .and_then(|sess| sess.target.clone());
+
+                                if let Some(target) = target {
+                                    let _ = channel.send(OutgoingMessage {
+                                        channel: channel_id,
+                                        target,
+                                        text: msg.clone(),
+                                        attachments: vec![],
+                                        reply_to: None,
+                                    }).await;
+                                } else {
+                                    debug!(channel = %channel_id, "no active session found for channel — skipping notification");
+                                }
+                            }
+                        }
                     });
                 }
                 // Both channels closed — shut down
@@ -1044,7 +1208,34 @@ impl AgentRuntime {
             }
         }
 
-        info!("agent runtime shutting down");
+        info!("agent runtime shutting down — flushing sessions");
+
+        // Graceful shutdown: persist all sessions and working memory
+        {
+            let sessions = state.sessions.snapshot().await;
+            let mem = state.memory.lock().await;
+            for session in &sessions {
+                if session.message_count == 0 {
+                    continue;
+                }
+                let _ = mem.persist_session(
+                    &session.id,
+                    session.name.as_deref(),
+                    session.channel.as_deref(),
+                    session.target.as_deref(),
+                    session.active,
+                    session.message_count,
+                );
+                if session.active {
+                    let messages = mem.working.messages(session.id);
+                    if !messages.is_empty() {
+                        let _ = mem.persist_session_messages(&session.id, messages);
+                    }
+                }
+            }
+            info!("session data flushed to disk");
+        }
+
         self.event_bus.publish(Event::Shutdown);
         Ok(())
     }
@@ -1780,7 +1971,12 @@ async fn process_channel_message(
                 current_tool_ids.insert(id, idx);
                 pending_edit = true;
             }
-            StreamEvent::ToolResult { id, is_error, .. } => {
+            StreamEvent::ToolResult {
+                id,
+                is_error,
+                ref content,
+                ..
+            } => {
                 if let Some(&idx) = current_tool_ids.get(&id) {
                     if let Some(line) = progress_lines.get_mut(idx) {
                         // Replace the leading emoji with a status indicator.
@@ -1788,10 +1984,18 @@ async fn process_channel_message(
                         // double-space separator and keep everything after it.
                         if let Some(sep) = line.find("  ") {
                             let description = &line[sep + 2..]; // 2 bytes for "  "
+                            // Extract a brief result summary (first meaningful line)
+                            let summary = extract_result_summary(content, 60);
                             if is_error {
-                                *line = format!("❌  {}", description);
-                            } else {
+                                if summary.is_empty() {
+                                    *line = format!("❌  {}", description);
+                                } else {
+                                    *line = format!("❌  {} — {}", description, summary);
+                                }
+                            } else if summary.is_empty() {
                                 *line = format!("✅  {}", description);
+                            } else {
+                                *line = format!("✅  {} → {}", description, summary);
                             }
                         }
                     }
@@ -2622,7 +2826,11 @@ async fn process_message_shared(
         let parallel_enabled = state.config.agent.parallel_tool_calls;
         let can_parallelize = parallel_enabled && tool_calls_ref.len() > 1;
 
-        if can_parallelize && tool_calls_ref.iter().all(|tc| is_parallel_safe(&tc.tool_name)) {
+        if can_parallelize
+            && tool_calls_ref
+                .iter()
+                .all(|tc| is_parallel_safe(&tc.tool_name))
+        {
             // All tool calls are parallel-safe — run them all concurrently
             let mut join_set = tokio::task::JoinSet::new();
             for tool_call in tool_calls_ref.clone() {
@@ -2645,7 +2853,9 @@ async fn process_message_shared(
                         risk_level: 5,
                         provider: None,
                     });
-                let verdict = state.guardrails.evaluate(&tool_def, &tool_call, autonomy_level);
+                let verdict = state
+                    .guardrails
+                    .evaluate(&tool_def, &tool_call, autonomy_level);
                 let s = state.clone();
                 let tc = tool_call.clone();
                 let tc_id = tool_call.id.clone();
@@ -2673,7 +2883,8 @@ async fn process_message_shared(
                         tool_call_id: tc_id.clone(),
                         is_error,
                     });
-                    let truncated_content = truncate_tool_result(&tool_result.content, tool_result_max_tokens);
+                    let truncated_content =
+                        truncate_tool_result(&tool_result.content, tool_result_max_tokens);
                     {
                         let mut mem = state.memory.lock().await;
                         let result_msg = Message {
@@ -2696,115 +2907,117 @@ async fn process_message_shared(
         } else {
             // Sequential execution (original path) — either parallel disabled or has mutating tools
             for tool_call in &response.message.tool_calls {
-            state.budget.record_tool_call()?;
+                state.budget.record_tool_call()?;
 
-            state.event_bus.publish(Event::AgentToolCall {
-                session_id,
-                tool_name: tool_call.tool_name.clone(),
-                tool_call_id: tool_call.id.clone(),
-            });
-
-            let tool_def = all_tools
-                .iter()
-                .find(|t| t.name == tool_call.tool_name)
-                .cloned()
-                .unwrap_or_else(|| Tool {
-                    name: tool_call.tool_name.clone(),
-                    description: String::new(),
-                    parameters: serde_json::Value::Null,
-                    capabilities: vec![],
-                    is_mutating: true,
-                    risk_level: 5,
-                    provider: None,
+                state.event_bus.publish(Event::AgentToolCall {
+                    session_id,
+                    tool_name: tool_call.tool_name.clone(),
+                    tool_call_id: tool_call.id.clone(),
                 });
 
-            let verdict = state
-                .guardrails
-                .evaluate(&tool_def, tool_call, autonomy_level);
-            let tool_result = match verdict {
-                GuardrailVerdict::Approve => execute_tool_shared(state, tool_call).await,
-                GuardrailVerdict::Deny(reason) => ToolResult {
-                    tool_call_id: tool_call.id.clone(),
-                    content: format!("DENIED: {}", reason),
-                    is_error: true,
-                    data: None,
-                },
-                GuardrailVerdict::Escalate(reason) => {
-                    // Generate approval ID upfront so we can include it in the prompt
-                    let approval_id = Uuid::new_v4();
+                let tool_def = all_tools
+                    .iter()
+                    .find(|t| t.name == tool_call.tool_name)
+                    .cloned()
+                    .unwrap_or_else(|| Tool {
+                        name: tool_call.tool_name.clone(),
+                        description: String::new(),
+                        parameters: serde_json::Value::Null,
+                        capabilities: vec![],
+                        is_mutating: true,
+                        risk_level: 5,
+                        provider: None,
+                    });
 
-                    // Send approval prompt to the originating channel
-                    send_approval_prompt_shared(
-                        state,
-                        &channel_id_owned,
-                        &target_owned,
-                        &approval_id.to_string(),
-                        &tool_call.tool_name,
-                        &tool_call.arguments,
-                        &reason,
-                        tool_def.risk_level,
-                    )
-                    .await;
+                let verdict = state
+                    .guardrails
+                    .evaluate(&tool_def, tool_call, autonomy_level);
+                let tool_result = match verdict {
+                    GuardrailVerdict::Approve => execute_tool_shared(state, tool_call).await,
+                    GuardrailVerdict::Deny(reason) => ToolResult {
+                        tool_call_id: tool_call.id.clone(),
+                        content: format!("DENIED: {}", reason),
+                        is_error: true,
+                        data: None,
+                    },
+                    GuardrailVerdict::Escalate(reason) => {
+                        // Generate approval ID upfront so we can include it in the prompt
+                        let approval_id = Uuid::new_v4();
 
-                    // Now wait for approval (resolved via callback query, /approve command, or API)
-                    let response = state
-                        .approval
-                        .request_approval_with_id(
-                            approval_id,
+                        // Send approval prompt to the originating channel
+                        send_approval_prompt_shared(
+                            state,
+                            &channel_id_owned,
+                            &target_owned,
+                            &approval_id.to_string(),
                             &tool_call.tool_name,
                             &tool_call.arguments,
                             &reason,
                             tool_def.risk_level,
-                            120,
                         )
                         .await;
-                    match response {
-                        ApprovalResponse::Approved => execute_tool_shared(state, tool_call).await,
-                        ApprovalResponse::Denied => ToolResult {
-                            tool_call_id: tool_call.id.clone(),
-                            content: "DENIED: Human denied the action".into(),
-                            is_error: true,
-                            data: None,
-                        },
-                        ApprovalResponse::TimedOut => ToolResult {
-                            tool_call_id: tool_call.id.clone(),
-                            content: "DENIED: Approval request timed out".into(),
-                            is_error: true,
-                            data: None,
-                        },
+
+                        // Now wait for approval (resolved via callback query, /approve command, or API)
+                        let response = state
+                            .approval
+                            .request_approval_with_id(
+                                approval_id,
+                                &tool_call.tool_name,
+                                &tool_call.arguments,
+                                &reason,
+                                tool_def.risk_level,
+                                120,
+                            )
+                            .await;
+                        match response {
+                            ApprovalResponse::Approved => {
+                                execute_tool_shared(state, tool_call).await
+                            }
+                            ApprovalResponse::Denied => ToolResult {
+                                tool_call_id: tool_call.id.clone(),
+                                content: "DENIED: Human denied the action".into(),
+                                is_error: true,
+                                data: None,
+                            },
+                            ApprovalResponse::TimedOut => ToolResult {
+                                tool_call_id: tool_call.id.clone(),
+                                content: "DENIED: Approval request timed out".into(),
+                                is_error: true,
+                                data: None,
+                            },
+                        }
                     }
-                }
-            };
-
-            let is_error = tool_result.is_error;
-            state.event_bus.publish(Event::AgentToolResult {
-                session_id,
-                tool_call_id: tool_call.id.clone(),
-                is_error,
-            });
-
-            // Truncate tool result to fit context window
-            let truncated_content =
-                truncate_tool_result(&tool_result.content, tool_result_max_tokens);
-
-            // Store tool result — brief lock
-            {
-                let mut mem = state.memory.lock().await;
-                let result_msg = Message {
-                    id: Uuid::new_v4(),
-                    session_id,
-                    role: Role::Tool,
-                    content: vec![claw_core::MessageContent::ToolResult {
-                        tool_call_id: tool_call.id.clone(),
-                        content: truncated_content,
-                        is_error: tool_result.is_error,
-                    }],
-                    timestamp: chrono::Utc::now(),
-                    tool_calls: vec![],
-                    metadata: Default::default(),
                 };
-                mem.working.push(result_msg);
-            }
+
+                let is_error = tool_result.is_error;
+                state.event_bus.publish(Event::AgentToolResult {
+                    session_id,
+                    tool_call_id: tool_call.id.clone(),
+                    is_error,
+                });
+
+                // Truncate tool result to fit context window
+                let truncated_content =
+                    truncate_tool_result(&tool_result.content, tool_result_max_tokens);
+
+                // Store tool result — brief lock
+                {
+                    let mut mem = state.memory.lock().await;
+                    let result_msg = Message {
+                        id: Uuid::new_v4(),
+                        session_id,
+                        role: Role::Tool,
+                        content: vec![claw_core::MessageContent::ToolResult {
+                            tool_call_id: tool_call.id.clone(),
+                            content: truncated_content,
+                            is_error: tool_result.is_error,
+                        }],
+                        timestamp: chrono::Utc::now(),
+                        tool_calls: vec![],
+                        metadata: Default::default(),
+                    };
+                    mem.working.push(result_msg);
+                }
             }
         }
 
@@ -2849,9 +3062,8 @@ async fn process_message_shared(
                         session = %session_id,
                         "scheduled auto-resume in 60s for interrupted task"
                     );
-                    final_response.push_str(
-                        "\n\n⏱️ I'll automatically resume this work in about 1 minute.",
-                    );
+                    final_response
+                        .push_str("\n\n⏱️ I'll automatically resume this work in about 1 minute.");
                 }
             }
         }
@@ -2922,6 +3134,12 @@ async fn process_message_streaming_shared(
     {
         let mut ctx = state.reply_context.lock().await;
         *ctx = Some((channel_id.to_string(), target.to_string()));
+    }
+
+    // Store stream tx so sub-agents can forward their events to the parent stream
+    {
+        let mut stx = state.stream_tx.lock().await;
+        *stx = Some(tx.clone());
     }
 
     let user_text = incoming.text.unwrap_or_default();
@@ -3416,7 +3634,9 @@ async fn process_message_streaming_shared(
                         risk_level: 5,
                         provider: None,
                     });
-                let verdict = state.guardrails.evaluate(&tool_def, &tool_call, autonomy_level);
+                let verdict = state
+                    .guardrails
+                    .evaluate(&tool_def, &tool_call, autonomy_level);
                 let s = state.clone();
                 let tc = tool_call.clone();
                 let tc_id = tool_call.id.clone();
@@ -3446,7 +3666,8 @@ async fn process_message_streaming_shared(
                             data: tool_result.data.clone(),
                         })
                         .await;
-                    let truncated_content = truncate_tool_result(&tool_result.content, tool_result_max_tokens);
+                    let truncated_content =
+                        truncate_tool_result(&tool_result.content, tool_result_max_tokens);
                     {
                         let mut mem = state.memory.lock().await;
                         let result_msg = Message {
@@ -3469,108 +3690,110 @@ async fn process_message_streaming_shared(
         } else {
             // Sequential execution (original path)
             for tool_call in &tool_calls {
-            state.budget.record_tool_call()?;
+                state.budget.record_tool_call()?;
 
-            let tool_def = all_tools
-                .iter()
-                .find(|t| t.name == tool_call.tool_name)
-                .cloned()
-                .unwrap_or_else(|| Tool {
-                    name: tool_call.tool_name.clone(),
-                    description: String::new(),
-                    parameters: serde_json::Value::Null,
-                    capabilities: vec![],
-                    is_mutating: true,
-                    risk_level: 5,
-                    provider: None,
-                });
+                let tool_def = all_tools
+                    .iter()
+                    .find(|t| t.name == tool_call.tool_name)
+                    .cloned()
+                    .unwrap_or_else(|| Tool {
+                        name: tool_call.tool_name.clone(),
+                        description: String::new(),
+                        parameters: serde_json::Value::Null,
+                        capabilities: vec![],
+                        is_mutating: true,
+                        risk_level: 5,
+                        provider: None,
+                    });
 
-            let verdict = state
-                .guardrails
-                .evaluate(&tool_def, tool_call, autonomy_level);
-            let tool_result = match verdict {
-                GuardrailVerdict::Approve => execute_tool_shared(state, tool_call).await,
-                GuardrailVerdict::Deny(reason) => ToolResult {
-                    tool_call_id: tool_call.id.clone(),
-                    content: format!("DENIED: {}", reason),
-                    is_error: true,
-                    data: None,
-                },
-                GuardrailVerdict::Escalate(_reason) => {
-                    let approval_id = Uuid::new_v4();
-
-                    // Emit approval event to stream so UI can show approve/deny
-                    let _ = tx
-                        .send(StreamEvent::ApprovalRequired {
-                            id: approval_id.to_string(),
-                            tool_name: tool_call.tool_name.clone(),
-                            tool_args: tool_call.arguments.clone(),
-                            reason: _reason.clone(),
-                            risk_level: tool_def.risk_level,
-                        })
-                        .await;
-
-                    // Wait for approval — no lock held during this potentially long wait
-                    let response = state
-                        .approval
-                        .request_approval_with_id(
-                            approval_id,
-                            &tool_call.tool_name,
-                            &tool_call.arguments,
-                            &_reason,
-                            tool_def.risk_level,
-                            120,
-                        )
-                        .await;
-                    match response {
-                        ApprovalResponse::Approved => execute_tool_shared(state, tool_call).await,
-                        ApprovalResponse::Denied => ToolResult {
-                            tool_call_id: tool_call.id.clone(),
-                            content: "DENIED: Human denied the action".into(),
-                            is_error: true,
-                            data: None,
-                        },
-                        ApprovalResponse::TimedOut => ToolResult {
-                            tool_call_id: tool_call.id.clone(),
-                            content: "DENIED: Approval request timed out".into(),
-                            is_error: true,
-                            data: None,
-                        },
-                    }
-                }
-            };
-
-            let _ = tx
-                .send(StreamEvent::ToolResult {
-                    id: tool_call.id.clone(),
-                    content: tool_result.content.clone(),
-                    is_error: tool_result.is_error,
-                    data: tool_result.data.clone(),
-                })
-                .await;
-
-            // Truncate tool result to fit context window
-            let truncated_content =
-                truncate_tool_result(&tool_result.content, tool_result_max_tokens);
-
-            // Store tool result — brief lock
-            {
-                let mut mem = state.memory.lock().await;
-                let result_msg = Message {
-                    id: Uuid::new_v4(),
-                    session_id,
-                    role: Role::Tool,
-                    content: vec![claw_core::MessageContent::ToolResult {
+                let verdict = state
+                    .guardrails
+                    .evaluate(&tool_def, tool_call, autonomy_level);
+                let tool_result = match verdict {
+                    GuardrailVerdict::Approve => execute_tool_shared(state, tool_call).await,
+                    GuardrailVerdict::Deny(reason) => ToolResult {
                         tool_call_id: tool_call.id.clone(),
-                        content: truncated_content,
-                        is_error: tool_result.is_error,
-                    }],
-                    timestamp: chrono::Utc::now(),
-                    tool_calls: vec![],
-                    metadata: Default::default(),
+                        content: format!("DENIED: {}", reason),
+                        is_error: true,
+                        data: None,
+                    },
+                    GuardrailVerdict::Escalate(_reason) => {
+                        let approval_id = Uuid::new_v4();
+
+                        // Emit approval event to stream so UI can show approve/deny
+                        let _ = tx
+                            .send(StreamEvent::ApprovalRequired {
+                                id: approval_id.to_string(),
+                                tool_name: tool_call.tool_name.clone(),
+                                tool_args: tool_call.arguments.clone(),
+                                reason: _reason.clone(),
+                                risk_level: tool_def.risk_level,
+                            })
+                            .await;
+
+                        // Wait for approval — no lock held during this potentially long wait
+                        let response = state
+                            .approval
+                            .request_approval_with_id(
+                                approval_id,
+                                &tool_call.tool_name,
+                                &tool_call.arguments,
+                                &_reason,
+                                tool_def.risk_level,
+                                120,
+                            )
+                            .await;
+                        match response {
+                            ApprovalResponse::Approved => {
+                                execute_tool_shared(state, tool_call).await
+                            }
+                            ApprovalResponse::Denied => ToolResult {
+                                tool_call_id: tool_call.id.clone(),
+                                content: "DENIED: Human denied the action".into(),
+                                is_error: true,
+                                data: None,
+                            },
+                            ApprovalResponse::TimedOut => ToolResult {
+                                tool_call_id: tool_call.id.clone(),
+                                content: "DENIED: Approval request timed out".into(),
+                                is_error: true,
+                                data: None,
+                            },
+                        }
+                    }
                 };
-                mem.working.push(result_msg);
-            }
+
+                let _ = tx
+                    .send(StreamEvent::ToolResult {
+                        id: tool_call.id.clone(),
+                        content: tool_result.content.clone(),
+                        is_error: tool_result.is_error,
+                        data: tool_result.data.clone(),
+                    })
+                    .await;
+
+                // Truncate tool result to fit context window
+                let truncated_content =
+                    truncate_tool_result(&tool_result.content, tool_result_max_tokens);
+
+                // Store tool result — brief lock
+                {
+                    let mut mem = state.memory.lock().await;
+                    let result_msg = Message {
+                        id: Uuid::new_v4(),
+                        session_id,
+                        role: Role::Tool,
+                        content: vec![claw_core::MessageContent::ToolResult {
+                            tool_call_id: tool_call.id.clone(),
+                            content: truncated_content,
+                            is_error: tool_result.is_error,
+                        }],
+                        timestamp: chrono::Utc::now(),
+                        tool_calls: vec![],
+                        metadata: Default::default(),
+                    };
+                    mem.working.push(result_msg);
+                }
             }
         }
 
@@ -3612,7 +3835,9 @@ async fn process_message_streaming_shared(
                     );
                     let _ = tx
                         .send(StreamEvent::TextDelta {
-                            content: "\n\n⏱️ I'll automatically resume this work in about 1 minute.".to_string(),
+                            content:
+                                "\n\n⏱️ I'll automatically resume this work in about 1 minute."
+                                    .to_string(),
                         })
                         .await;
                 }
@@ -3673,6 +3898,12 @@ async fn process_message_streaming_shared(
         *ctx = None;
     }
 
+    // Clear stream tx
+    {
+        let mut stx = state.stream_tx.lock().await;
+        *stx = None;
+    }
+
     Ok(())
 }
 
@@ -3700,6 +3931,8 @@ async fn execute_tool_shared(state: &SharedAgentState, call: &ToolCall) -> ToolR
         "sub_agent_wait" => return exec_sub_agent_wait(state, call).await,
         "sub_agent_status" => return exec_sub_agent_status(state, call).await,
         "cron_schedule" => return exec_cron_schedule(state, call).await,
+        "cron_list" => return exec_cron_list(state, call).await,
+        "cron_cancel" => return exec_cron_cancel(state, call).await,
         _ => {}
     }
 
@@ -4637,7 +4870,10 @@ async fn exec_goal_list_shared(state: &SharedAgentState, call: &ToolCall) -> Too
                 claw_autonomy::planner::StepStatus::Failed => "❌",
                 _ => "⬜",
             };
-            lines.push(format!("    {} [step:{}] {}", icon, step.id, step.description));
+            lines.push(format!(
+                "    {} [step:{}] {}",
+                icon, step.id, step.description
+            ));
         }
     }
 
@@ -4688,14 +4924,25 @@ async fn exec_goal_complete_step_shared(state: &SharedAgentState, call: &ToolCal
 
     // Persist updated goal to SQLite
     {
-        let goal_desc = planner.get(goal_id).map(|g| g.description.clone()).unwrap_or_default();
+        let goal_desc = planner
+            .get(goal_id)
+            .map(|g| g.description.clone())
+            .unwrap_or_default();
         let goal_priority = planner.get(goal_id).map(|g| g.priority).unwrap_or(5);
-        let step_desc = planner.get(goal_id)
+        let step_desc = planner
+            .get(goal_id)
             .and_then(|g| g.steps.iter().find(|s| s.id == step_id))
             .map(|s| s.description.clone())
             .unwrap_or_default();
         let mem = state.memory.lock().await;
-        let _ = mem.persist_goal(&goal_id, &goal_desc, &status.to_lowercase(), goal_priority, progress, None);
+        let _ = mem.persist_goal(
+            &goal_id,
+            &goal_desc,
+            &status.to_lowercase(),
+            goal_priority,
+            progress,
+            None,
+        );
         let _ = mem.persist_goal_step(&step_id, &goal_id, &step_desc, "completed", Some(&result));
     }
 
@@ -4771,11 +5018,21 @@ async fn exec_goal_update_status_shared(state: &SharedAgentState, call: &ToolCal
 
     // Persist updated goal to SQLite — read current values so we don't clobber description/priority/progress
     {
-        let goal_desc = planner.get(goal_id).map(|g| g.description.clone()).unwrap_or_default();
+        let goal_desc = planner
+            .get(goal_id)
+            .map(|g| g.description.clone())
+            .unwrap_or_default();
         let goal_priority = planner.get(goal_id).map(|g| g.priority).unwrap_or(5);
         let goal_progress = planner.get(goal_id).map(|g| g.progress).unwrap_or(0.0);
         let mem = state.memory.lock().await;
-        let _ = mem.persist_goal(&goal_id, &goal_desc, status_str, goal_priority, goal_progress, None);
+        let _ = mem.persist_goal(
+            &goal_id,
+            &goal_desc,
+            status_str,
+            goal_priority,
+            goal_progress,
+            None,
+        );
     }
 
     ToolResult {
@@ -4987,13 +5244,27 @@ fn is_parallel_safe(tool_name: &str) -> bool {
 /// Role-specific system prompt prefixes for sub-agents.
 fn sub_agent_system_prompt(role: &str) -> String {
     let role_instruction = match role {
-        "planner" => "You are a planning agent. Your job is to analyze the task, break it down into clear steps, identify required files and dependencies, and create a detailed project plan. Output a structured plan with specific file paths, technologies, and implementation order. Do NOT write code — only plan.",
-        "coder" | "developer" => "You are a coding agent. Your job is to write production-quality code based on the task description. When research findings are provided from a preceding agent, use them thoroughly — match the structure, content, styling, and details described. Write complete, well-structured files with proper imports, error handling, and documentation. Use your tools to create files and test that they compile/run correctly. After writing code, run the build and fix any errors before finishing.",
-        "reviewer" => "You are a code review agent. Your job is to review the code that was written, check for bugs, security issues, missing error handling, and style problems. Run tests and linters if available. Report issues clearly with file paths and line numbers. Suggest specific fixes.",
-        "tester" | "qa" => "You are a testing agent. Your job is to write and run tests for the code. Create unit tests, integration tests, and end-to-end tests as appropriate. Verify that the application works correctly. Report any failures with details.",
-        "researcher" => "You are a research agent. Your job is to gather information needed for the task. When given URLs, ALWAYS fetch them with http_fetch first — read the actual content, structure, and details before summarizing. Search the web, read documentation, find examples, and compile your findings into a clear, structured summary. Focus on finding practical, actionable information. For website rebuilds: extract page structure, navigation items, section headings, key copy, feature lists, and design notes.",
-        "devops" | "deployer" => "You are a DevOps agent. Your job is to set up build systems, CI/CD, deployment configurations, Docker files, and infrastructure. Ensure the project can be built, tested, and deployed reliably.",
-        "debugger" | "fixer" => "You are a debugging agent. Your job is to find and fix errors in the code. Read error messages carefully, trace the root cause, and apply fixes. Run the code again to verify the fix works.",
+        "planner" => {
+            "You are a planning agent. Your job is to analyze the task, break it down into clear steps, identify required files and dependencies, and create a detailed project plan. Output a structured plan with specific file paths, technologies, and implementation order. Do NOT write code — only plan."
+        }
+        "coder" | "developer" => {
+            "You are a coding agent. Your job is to write production-quality code based on the task description. When research findings are provided from a preceding agent, use them thoroughly — match the structure, content, styling, and details described. Write complete, well-structured files with proper imports, error handling, and documentation. Use your tools to create files and test that they compile/run correctly. After writing code, run the build and fix any errors before finishing."
+        }
+        "reviewer" => {
+            "You are a code review agent. Your job is to review the code that was written, check for bugs, security issues, missing error handling, and style problems. Run tests and linters if available. Report issues clearly with file paths and line numbers. Suggest specific fixes."
+        }
+        "tester" | "qa" => {
+            "You are a testing agent. Your job is to write and run tests for the code. Create unit tests, integration tests, and end-to-end tests as appropriate. Verify that the application works correctly. Report any failures with details."
+        }
+        "researcher" => {
+            "You are a research agent. Your job is to gather information needed for the task. When given URLs, ALWAYS fetch them with http_fetch first — read the actual content, structure, and details before summarizing. Search the web, read documentation, find examples, and compile your findings into a clear, structured summary. Focus on finding practical, actionable information. For website rebuilds: extract page structure, navigation items, section headings, key copy, feature lists, and design notes."
+        }
+        "devops" | "deployer" => {
+            "You are a DevOps agent. Your job is to set up build systems, CI/CD, deployment configurations, Docker files, and infrastructure. Ensure the project can be built, tested, and deployed reliably."
+        }
+        "debugger" | "fixer" => {
+            "You are a debugging agent. Your job is to find and fix errors in the code. Read error messages carefully, trace the root cause, and apply fixes. Run the code again to verify the fix works."
+        }
         _ => "You are a specialized agent. Execute the assigned task thoroughly using your tools.",
     };
 
@@ -5162,6 +5433,9 @@ async fn exec_sub_agent_spawn(state: &SharedAgentState, call: &ToolCall) -> Tool
 /// Internal: run the sub-agent task through a fresh agent loop.
 /// Returns a boxed future to break the async type recursion cycle
 /// (process_message_shared → exec_sub_agent_spawn → run_sub_agent_task → process_api_message → process_message_shared).
+///
+/// If a parent stream_tx is available, sub-agent events (tool calls, results, progress)
+/// are forwarded to the parent stream so they render in the web UI and channel outputs.
 fn run_sub_agent_task(
     state: SharedAgentState,
     task_id: Uuid,
@@ -5264,23 +5538,146 @@ fn run_sub_agent_task(
         }
         sub_state.config = sub_config;
 
-        // Run through the normal API message path
-        let result = process_api_message(sub_state, prompt, Some(session_id.to_string())).await;
+        // Check if we have a parent stream tx to forward events to
+        let parent_tx = {
+            let stx = state.stream_tx.lock().await;
+            stx.clone()
+        };
+
+        let (result_text, result_error) = if let Some(ref ptx) = parent_tx {
+            // Use streaming path — forward sub-agent events to parent stream
+            let role_tag = role.clone();
+
+            // Send a marker so the UI/channel knows a sub-agent started
+            let _ = ptx
+                .send(StreamEvent::TextDelta {
+                    content: format!("\n\n🤖 *Sub-agent ({}) working…*\n", role_tag),
+                })
+                .await;
+
+            // Create a local stream that forwards events to the parent
+            let (sub_tx, mut sub_rx) = mpsc::channel::<StreamEvent>(128);
+            let ptx_fwd = ptx.clone();
+            let role_fwd = role_tag.clone();
+            let forwarder = tokio::spawn(async move {
+                let mut sub_text = String::new();
+                while let Some(event) = sub_rx.recv().await {
+                    match event {
+                        StreamEvent::ToolCall { name, id, args } => {
+                            // Forward tool calls with sub-agent prefix in the name
+                            let prefixed_name = format!("[{}] {}", role_fwd, name);
+                            let _ = ptx_fwd
+                                .send(StreamEvent::ToolCall {
+                                    name: prefixed_name,
+                                    id,
+                                    args,
+                                })
+                                .await;
+                        }
+                        StreamEvent::ToolResult {
+                            id,
+                            content,
+                            is_error,
+                            data,
+                        } => {
+                            // Forward tool results as-is (they match by id)
+                            let _ = ptx_fwd
+                                .send(StreamEvent::ToolResult {
+                                    id,
+                                    content,
+                                    is_error,
+                                    data,
+                                })
+                                .await;
+                        }
+                        StreamEvent::TextDelta { content } => {
+                            sub_text.push_str(&content);
+                        }
+                        StreamEvent::Error { message } => {
+                            let _ = ptx_fwd
+                                .send(StreamEvent::TextDelta {
+                                    content: format!(
+                                        "\n⚠️ Sub-agent ({}) error: {}\n",
+                                        role_fwd, message
+                                    ),
+                                })
+                                .await;
+                        }
+                        StreamEvent::Done => break,
+                        _ => {} // Skip session, usage, etc.
+                    }
+                }
+                sub_text
+            });
+
+            // Build incoming message for the streaming path
+            let incoming = IncomingMessage {
+                id: Uuid::new_v4().to_string(),
+                channel: "sub-agent".to_string(),
+                sender: format!("sub-agent:{}", role_tag),
+                sender_name: Some(format!("Sub-agent ({})", role_tag)),
+                group: None,
+                text: Some(prompt.clone()),
+                attachments: vec![],
+                is_mention: false,
+                is_reply_to_bot: false,
+                metadata: serde_json::Value::Null,
+            };
+
+            // Clear the parent stream_tx in sub_state so nested sub-agents
+            // don't double-forward (they'll get their own copy if needed)
+            {
+                let mut stx = sub_state.stream_tx.lock().await;
+                *stx = Some(sub_tx.clone());
+            }
+
+            let stream_result = process_message_streaming_shared(
+                &sub_state,
+                "sub-agent",
+                incoming,
+                &sub_tx,
+                Some(session_id),
+            )
+            .await;
+
+            let _ = sub_tx.send(StreamEvent::Done).await;
+            drop(sub_tx);
+
+            // Wait for forwarder to finish and get the accumulated text
+            let sub_final_text = match forwarder.await {
+                Ok(text) => text,
+                Err(_) => String::new(),
+            };
+
+            // Send completion marker
+            let _ = ptx
+                .send(StreamEvent::TextDelta {
+                    content: format!("\n✅ *Sub-agent ({}) done*\n\n", role_tag),
+                })
+                .await;
+
+            match stream_result {
+                Ok(()) => (sub_final_text, None),
+                Err(e) => (sub_final_text, Some(e.to_string())),
+            }
+        } else {
+            // No parent stream — fall back to non-streaming API path
+            let result = process_api_message(sub_state, prompt, Some(session_id.to_string())).await;
+            (result.text, result.error)
+        };
 
         // Update the sub-task state with the result
-        let result_text = result.text.clone();
-        let result_error = result.error.clone();
         let (is_error, goal_link) = {
             let mut tasks = state.pending_sub_tasks.lock().await;
             if let Some(t) = tasks.get_mut(&task_id) {
-                if result.error.is_some() {
+                if result_error.is_some() {
                     t.status = SubTaskStatus::Failed;
-                    t.error = result.error;
-                    t.result = Some(result.text);
+                    t.error = result_error.clone();
+                    t.result = Some(result_text.clone());
                     (true, (t.goal_id, t.step_id))
                 } else {
                     t.status = SubTaskStatus::Completed;
-                    t.result = Some(result.text);
+                    t.result = Some(result_text.clone());
                     (false, (t.goal_id, t.step_id))
                 }
             } else {
@@ -5300,8 +5697,12 @@ fn run_sub_agent_task(
                     if let Some(goal) = planner.get(gid) {
                         let mem = state.memory.lock().await;
                         let _ = mem.persist_goal(
-                            &gid, &goal.description, &format!("{:?}", goal.status).to_lowercase(),
-                            goal.priority, goal.progress, None,
+                            &gid,
+                            &goal.description,
+                            &format!("{:?}", goal.status).to_lowercase(),
+                            goal.priority,
+                            goal.progress,
+                            None,
                         );
                         let _ = mem.persist_goal_step(&sid, &gid, "", "failed", Some(&err_msg));
                     }
@@ -5315,8 +5716,12 @@ fn run_sub_agent_task(
                     if let Some(goal) = planner.get(gid) {
                         let mem = state.memory.lock().await;
                         let _ = mem.persist_goal(
-                            &gid, &goal.description, &format!("{:?}", goal.status).to_lowercase(),
-                            goal.priority, goal.progress, None,
+                            &gid,
+                            &goal.description,
+                            &format!("{:?}", goal.status).to_lowercase(),
+                            goal.priority,
+                            goal.progress,
+                            None,
                         );
                         let _ = mem.persist_goal_step(&sid, &gid, "", "completed", Some(&summary));
                     }
@@ -5508,6 +5913,26 @@ async fn exec_sub_agent_status(state: &SharedAgentState, call: &ToolCall) -> Too
 
 // ─── Scheduler Tool Implementation ─────────────────────────────────────────
 
+/// Persist a ScheduledTask to the memory database.
+fn persist_task_to_db(mem: &claw_memory::MemoryStore, task: &crate::scheduler::ScheduledTask) {
+    let kind_json = serde_json::to_string(&task.kind).unwrap_or_default();
+    let created_at = task.created_at.to_rfc3339();
+    let last_fired = task.last_fired.map(|t| t.to_rfc3339());
+    if let Err(e) = mem.persist_scheduled_task(
+        &task.id.to_string(),
+        task.label.as_deref(),
+        &task.description,
+        &kind_json,
+        &created_at,
+        task.session_id.as_ref().map(|s| s.to_string()).as_deref(),
+        task.active,
+        task.fire_count,
+        last_fired.as_deref(),
+    ) {
+        warn!(task_id = %task.id, error = %e, "failed to persist scheduled task to DB");
+    }
+}
+
 /// Schedule a recurring cron or one-shot delayed task.
 async fn exec_cron_schedule(state: &SharedAgentState, call: &ToolCall) -> ToolResult {
     let description = match call.arguments.get("description").and_then(|v| v.as_str()) {
@@ -5527,10 +5952,7 @@ async fn exec_cron_schedule(state: &SharedAgentState, call: &ToolCall) -> ToolRe
         .get("cron_expr")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    let delay_seconds = call
-        .arguments
-        .get("delay_seconds")
-        .and_then(|v| v.as_u64());
+    let delay_seconds = call.arguments.get("delay_seconds").and_then(|v| v.as_u64());
     let label = call
         .arguments
         .get("label")
@@ -5551,27 +5973,37 @@ async fn exec_cron_schedule(state: &SharedAgentState, call: &ToolCall) -> ToolRe
 
     if let Some(cron) = cron_expr {
         // Recurring cron task
-        match scheduler.add_cron(description.clone(), &cron, label.clone(), None).await {
-            Ok(task_id) => ToolResult {
-                tool_call_id: call.id.clone(),
-                content: format!(
-                    "Recurring task scheduled.\n\
-                     Task ID: {}\n\
-                     Cron: {}\n\
-                     Label: {}\n\
-                     Description: {}",
-                    task_id,
-                    cron,
-                    label.unwrap_or_else(|| "none".to_string()),
-                    description,
-                ),
-                is_error: false,
-                data: Some(serde_json::json!({
-                    "task_id": task_id.to_string(),
-                    "type": "cron",
-                    "cron_expr": cron,
-                })),
-            },
+        match scheduler
+            .add_cron(description.clone(), &cron, label.clone(), None)
+            .await
+        {
+            Ok(task_id) => {
+                // Persist to SQLite
+                if let Some(task) = scheduler.get(task_id).await {
+                    let mem = state.memory.lock().await;
+                    persist_task_to_db(&mem, &task);
+                }
+                ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: format!(
+                        "Recurring task scheduled.\n\
+                         Task ID: {}\n\
+                         Cron: {}\n\
+                         Label: {}\n\
+                         Description: {}",
+                        task_id,
+                        cron,
+                        label.unwrap_or_else(|| "none".to_string()),
+                        description,
+                    ),
+                    is_error: false,
+                    data: Some(serde_json::json!({
+                        "task_id": task_id.to_string(),
+                        "type": "cron",
+                        "cron_expr": cron,
+                    })),
+                }
+            }
             Err(e) => ToolResult {
                 tool_call_id: call.id.clone(),
                 content: format!("Error scheduling cron task: {}", e),
@@ -5581,7 +6013,14 @@ async fn exec_cron_schedule(state: &SharedAgentState, call: &ToolCall) -> ToolRe
         }
     } else if let Some(delay) = delay_seconds {
         // One-shot delayed task
-        let task_id = scheduler.add_one_shot(description.clone(), delay, label.clone(), None).await;
+        let task_id = scheduler
+            .add_one_shot(description.clone(), delay, label.clone(), None)
+            .await;
+        // Persist to SQLite
+        if let Some(task) = scheduler.get(task_id).await {
+            let mem = state.memory.lock().await;
+            persist_task_to_db(&mem, &task);
+        }
         ToolResult {
             tool_call_id: call.id.clone(),
             content: format!(
@@ -5606,6 +6045,131 @@ async fn exec_cron_schedule(state: &SharedAgentState, call: &ToolCall) -> ToolRe
         ToolResult {
             tool_call_id: call.id.clone(),
             content: "Error: must provide either 'cron_expr' or 'delay_seconds'".into(),
+            is_error: true,
+            data: None,
+        }
+    }
+}
+
+async fn exec_cron_list(state: &SharedAgentState, call: &ToolCall) -> ToolResult {
+    let scheduler = match &state.scheduler {
+        Some(s) => s,
+        None => {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                content: "Error: scheduler is not available".into(),
+                is_error: true,
+                data: None,
+            };
+        }
+    };
+
+    let tasks = scheduler.list_all().await;
+    if tasks.is_empty() {
+        return ToolResult {
+            tool_call_id: call.id.clone(),
+            content: "No scheduled tasks.".into(),
+            is_error: false,
+            data: Some(serde_json::json!({ "tasks": [] })),
+        };
+    }
+
+    let mut lines = Vec::new();
+    let mut active_count = 0u32;
+    let mut json_tasks = Vec::new();
+    for task in &tasks {
+        let kind_str = match &task.kind {
+            crate::scheduler::ScheduleKind::Cron { expression } => format!("cron: {}", expression),
+            crate::scheduler::ScheduleKind::OneShot { fire_at } => {
+                format!("one-shot: {}", fire_at.format("%Y-%m-%d %H:%M:%S UTC"))
+            }
+        };
+        let status = if task.active { "active" } else { "inactive" };
+        if task.active {
+            active_count += 1;
+        }
+        let label_str = task.label.as_deref().unwrap_or("(none)");
+        lines.push(format!(
+            "• [{}] {} | {} | label: {} | fires: {} | desc: {}",
+            status, task.id, kind_str, label_str, task.fire_count, task.description
+        ));
+        json_tasks.push(serde_json::json!({
+            "id": task.id.to_string(),
+            "label": task.label,
+            "description": task.description,
+            "kind": kind_str,
+            "active": task.active,
+            "fire_count": task.fire_count,
+            "last_fired": task.last_fired.map(|t| t.to_rfc3339()),
+            "created_at": task.created_at.to_rfc3339(),
+        }));
+    }
+
+    ToolResult {
+        tool_call_id: call.id.clone(),
+        content: format!(
+            "{} task(s) ({} active):\n{}",
+            tasks.len(),
+            active_count,
+            lines.join("\n")
+        ),
+        is_error: false,
+        data: Some(serde_json::json!({ "tasks": json_tasks })),
+    }
+}
+
+async fn exec_cron_cancel(state: &SharedAgentState, call: &ToolCall) -> ToolResult {
+    let task_id_str = match call.arguments.get("task_id").and_then(|v| v.as_str()) {
+        Some(id) => id,
+        None => {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                content: "Error: missing 'task_id' argument".into(),
+                is_error: true,
+                data: None,
+            };
+        }
+    };
+
+    let task_id = match uuid::Uuid::parse_str(task_id_str) {
+        Ok(id) => id,
+        Err(_) => {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                content: format!("Error: invalid UUID: {}", task_id_str),
+                is_error: true,
+                data: None,
+            };
+        }
+    };
+
+    let scheduler = match &state.scheduler {
+        Some(s) => s,
+        None => {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                content: "Error: scheduler is not available".into(),
+                is_error: true,
+                data: None,
+            };
+        }
+    };
+
+    let removed = scheduler.remove(task_id).await;
+    if removed {
+        // Remove from SQLite
+        let mem = state.memory.lock().await;
+        let _ = mem.delete_scheduled_task(&task_id.to_string());
+        ToolResult {
+            tool_call_id: call.id.clone(),
+            content: format!("Task {} cancelled and removed.", task_id),
+            is_error: false,
+            data: Some(serde_json::json!({ "task_id": task_id.to_string(), "removed": true })),
+        }
+    } else {
+        ToolResult {
+            tool_call_id: call.id.clone(),
+            content: format!("Task {} not found.", task_id),
             is_error: true,
             data: None,
         }
@@ -5782,6 +6346,31 @@ fn short_path(path: &str) -> String {
     result.join("/")
 }
 
+/// Extract a brief, human-readable summary from a tool result.
+/// Skips boilerplate lines (Exit code, STDOUT/STDERR headers) and returns
+/// the first meaningful line of content, truncated to `max_len` chars.
+fn extract_result_summary(content: &str, max_len: usize) -> String {
+    let skip = |line: &str| -> bool {
+        let trimmed = line.trim();
+        trimmed.is_empty()
+            || trimmed.starts_with("Exit code:")
+            || trimmed == "STDOUT:"
+            || trimmed == "STDERR:"
+            || trimmed == "Command completed successfully (no output)."
+    };
+
+    for line in content.lines() {
+        if !skip(line) {
+            let trimmed = line.trim();
+            if trimmed.len() > max_len {
+                return format!("{}…", &trimmed[..max_len - 1]);
+            }
+            return trimmed.to_string();
+        }
+    }
+    String::new()
+}
+
 /// Send a message through a channel and return its platform message ID.
 async fn send_channel_message_returning_id(
     state: &SharedAgentState,
@@ -5931,6 +6520,7 @@ pub fn build_test_state_with_router(
         scheduler: None,
         device_tools: Arc::new(DeviceTools::new()),
         reply_context: Arc::new(TokioMutex::new(None)),
+        stream_tx: Arc::new(TokioMutex::new(None)),
     })
 }
 

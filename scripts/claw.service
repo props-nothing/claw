@@ -10,7 +10,7 @@
 #
 [Unit]
 Description=Claw — Autonomous AI Agent Runtime
-Documentation=https://github.com/claw/claw
+Documentation=https://github.com/props-nothing/claw
 After=network-online.target
 Wants=network-online.target
 

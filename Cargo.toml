@@ -22,7 +22,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 authors = ["Claw Contributors"]
-repository = "https://github.com/claw/claw"
+repository = "https://github.com/props-nothing/claw"
 description = "Universal autonomous AI agent runtime"
 
 [workspace.dependencies]

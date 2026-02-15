@@ -114,6 +114,19 @@ impl MemoryStore {
                 messages_json TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS scheduled_tasks (
+                id TEXT PRIMARY KEY,
+                label TEXT,
+                description TEXT NOT NULL,
+                kind_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                session_id TEXT,
+                active INTEGER DEFAULT 1,
+                fire_count INTEGER DEFAULT 0,
+                last_fired TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_active ON scheduled_tasks(active);
             ",
         )
         .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
@@ -597,6 +610,98 @@ impl MemoryStore {
             None => Ok(Vec::new()),
         }
     }
+
+    // ── Scheduled Tasks persistence ─────────────────────────────────
+
+    /// Persist a scheduled task to SQLite (upsert).
+    pub fn persist_scheduled_task(
+        &self,
+        id: &str,
+        label: Option<&str>,
+        description: &str,
+        kind_json: &str,
+        created_at: &str,
+        session_id: Option<&str>,
+        active: bool,
+        fire_count: u64,
+        last_fired: Option<&str>,
+    ) -> claw_core::Result<()> {
+        let db = self.db.lock();
+        db.execute(
+            "INSERT INTO scheduled_tasks (id, label, description, kind_json, created_at, session_id, active, fire_count, last_fired)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(id) DO UPDATE SET
+                label = excluded.label,
+                description = excluded.description,
+                kind_json = excluded.kind_json,
+                active = excluded.active,
+                fire_count = excluded.fire_count,
+                last_fired = excluded.last_fired",
+            rusqlite::params![
+                id, label, description, kind_json, created_at,
+                session_id, active as i32, fire_count as i64, last_fired,
+            ],
+        )
+        .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Delete a scheduled task from SQLite.
+    pub fn delete_scheduled_task(&self, id: &str) -> claw_core::Result<bool> {
+        let db = self.db.lock();
+        let rows = db
+            .execute(
+                "DELETE FROM scheduled_tasks WHERE id = ?1",
+                rusqlite::params![id],
+            )
+            .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
+        Ok(rows > 0)
+    }
+
+    /// Load all scheduled tasks from SQLite. Returns raw tuples.
+    pub fn load_scheduled_tasks(&self) -> claw_core::Result<Vec<ScheduledTaskRow>> {
+        let db = self.db.lock();
+        let mut stmt = db
+            .prepare(
+                "SELECT id, label, description, kind_json, created_at, session_id, active, fire_count, last_fired
+                 FROM scheduled_tasks"
+            )
+            .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(ScheduledTaskRow {
+                    id: row.get(0)?,
+                    label: row.get(1)?,
+                    description: row.get(2)?,
+                    kind_json: row.get(3)?,
+                    created_at: row.get(4)?,
+                    session_id: row.get(5)?,
+                    active: row.get::<_, i32>(6)? != 0,
+                    fire_count: row.get::<_, i64>(7)? as u64,
+                    last_fired: row.get(8)?,
+                })
+            })
+            .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(rows)
+    }
+}
+
+/// A raw scheduled task row loaded from SQLite.
+#[derive(Debug, Clone)]
+pub struct ScheduledTaskRow {
+    pub id: String,
+    pub label: Option<String>,
+    pub description: String,
+    pub kind_json: String,
+    pub created_at: String,
+    pub session_id: Option<String>,
+    pub active: bool,
+    pub fire_count: u64,
+    pub last_fired: Option<String>,
 }
 
 /// Simple hash for audit checksums (would use blake3 or HMAC in production).

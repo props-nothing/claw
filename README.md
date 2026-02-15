@@ -13,7 +13,7 @@ A single binary that runs on any device — Linux, macOS, Windows, Android (Term
 Works on **macOS, Linux, Windows (WSL), Android (Termux), iOS (iSH)**:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/claw/claw/main/scripts/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/props-nothing/claw/main/scripts/install.sh | sh
 ```
 
 This auto-detects your OS and architecture, downloads the right binary, adds it to `PATH`, and runs `claw init`.
@@ -25,10 +25,10 @@ This auto-detects your OS and architecture, downloads the right binary, adds it 
 docker run -d --name claw -p 3700:3700 \
   -e ANTHROPIC_API_KEY=sk-ant-... \
   -v claw-data:/home/claw/.claw \
-  ghcr.io/claw/claw:latest
+  ghcr.io/props-nothing/claw:latest
 
 # Or with docker compose
-git clone https://github.com/claw/claw && cd claw
+git clone https://github.com/props-nothing/claw && cd claw
 # Edit config/claw.toml with your API keys
 docker compose up -d
 ```
@@ -48,7 +48,7 @@ claw init
 ### 🍎 macOS
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/claw/claw/main/scripts/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/props-nothing/claw/main/scripts/install.sh | sh
 source ~/.zshrc
 claw start
 ```
@@ -57,7 +57,7 @@ claw start
 
 ```bash
 # Install
-curl -sSL https://raw.githubusercontent.com/claw/claw/main/scripts/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/props-nothing/claw/main/scripts/install.sh | sh
 source ~/.bashrc
 
 # Edit config
@@ -80,14 +80,14 @@ journalctl -u claw -f
 
 ```bash
 # In WSL terminal:
-curl -sSL https://raw.githubusercontent.com/claw/claw/main/scripts/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/props-nothing/claw/main/scripts/install.sh | sh
 ```
 
 **Option B — Native PowerShell:**
 
 ```powershell
 # Install Rust from https://rustup.rs, then:
-git clone https://github.com/claw/claw
+git clone https://github.com/props-nothing/claw
 cd claw
 cargo install --path claw-bin
 claw init
@@ -101,7 +101,7 @@ Install [Termux](https://f-droid.org/en/packages/com.termux/) from F-Droid, then
 ```bash
 # In Termux:
 pkg update && pkg install curl
-curl -sSL https://raw.githubusercontent.com/claw/claw/main/scripts/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/props-nothing/claw/main/scripts/install.sh | sh
 source ~/.bashrc
 claw start
 ```
@@ -120,7 +120,7 @@ Install [iSH](https://ish.app) from the App Store. iSH runs Alpine Linux, so Cla
 ```bash
 # In iSH:
 apk add curl bash
-curl -sSL https://raw.githubusercontent.com/claw/claw/main/scripts/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/props-nothing/claw/main/scripts/install.sh | bash
 source ~/.profile
 claw start
 ```
@@ -129,7 +129,7 @@ For building from source in iSH:
 
 ```bash
 apk add build-base openssl-dev rust cargo git
-git clone https://github.com/claw/claw && cd claw
+git clone https://github.com/props-nothing/claw && cd claw
 cargo build --release --bin claw
 cp target/release/claw /usr/local/bin/
 claw init && claw start
@@ -141,16 +141,16 @@ claw init && claw start
 
 ```bash
 # AMD64 (Intel/AMD servers)
-docker pull ghcr.io/claw/claw:latest
+docker pull ghcr.io/props-nothing/claw:latest
 
 # ARM64 (Raspberry Pi, AWS Graviton, Apple Silicon)
-docker pull ghcr.io/claw/claw:latest
+docker pull ghcr.io/props-nothing/claw:latest
 
 # The image is multi-arch — Docker picks the right one automatically
 docker run -d --name claw -p 3700:3700 \
   -e ANTHROPIC_API_KEY=sk-ant-... \
   -v claw-data:/home/claw/.claw \
-  ghcr.io/claw/claw:latest
+  ghcr.io/props-nothing/claw:latest
 ```
 
 ---

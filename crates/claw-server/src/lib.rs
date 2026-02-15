@@ -129,7 +129,8 @@ pub fn build_router(config: ServerConfig, hub_url: Option<String>) -> Router {
         .route("/api/v1/mesh/peers", get(mesh_peers_handler))
         .route("/api/v1/mesh/send", post(mesh_send_handler))
         .route("/api/v1/sub-tasks", get(sub_tasks_handler))
-        .route("/api/v1/scheduled-tasks", get(scheduled_tasks_handler));
+        .route("/api/v1/scheduled-tasks", get(scheduled_tasks_handler))
+        .route("/api/v1/events", get(events_sse_handler));
 
     // Apply API key auth if configured
     let api_routes = if config.api_key.is_some() {
@@ -688,6 +689,46 @@ async fn screenshot_handler(Path(filename): Path<String>) -> Result<Response, St
         .header(header::CACHE_CONTROL, "public, max-age=86400")
         .body(Body::from(bytes))
         .unwrap())
+}
+
+/// SSE endpoint for server-push notifications (cron results, etc.).
+/// Web UI subscribes to this for real-time updates that aren't part of a chat stream.
+async fn events_sse_handler(
+    State(state): State<Arc<AppState>>,
+) -> Result<Sse<impl Stream<Item = Result<SseEvent, Infallible>>>, StatusCode> {
+    let handle = get_handle(&state)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let mut rx = handle.subscribe_notifications();
+
+    let stream = async_stream::stream! {
+        // Send a keepalive comment every 30s to prevent proxy/browser timeouts
+        let mut keepalive = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            tokio::select! {
+                result = rx.recv() => {
+                    match result {
+                        Ok(notification) => {
+                            let data = serde_json::to_string(&notification).unwrap_or_default();
+                            yield Ok(SseEvent::default().data(data));
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            tracing::warn!(missed = n, "SSE client lagged — some notifications dropped");
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            break;
+                        }
+                    }
+                }
+                _ = keepalive.tick() => {
+                    yield Ok(SseEvent::default().comment("keepalive"));
+                }
+            }
+        }
+    };
+
+    Ok(Sse::new(stream))
 }
 
 /// Helper — get or cache the runtime handle.

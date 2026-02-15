@@ -40,9 +40,10 @@ pub mod tools;
 
 pub use agent::AgentRuntime;
 pub use agent::{
-    ApiResponse, QueryKind, RuntimeHandle, StreamEvent, get_runtime_handle, set_runtime_handle,
+    ApiResponse, Notification, QueryKind, RuntimeHandle, StreamEvent, get_runtime_handle,
+    set_runtime_handle,
 };
-pub use agent::{SharedAgentState, build_test_state, build_test_state_with_router};
 pub use agent::{PendingSubTasks, SubTaskState, SubTaskStatus};
-pub use scheduler::{CronScheduler, SchedulerHandle, ScheduledTask};
+pub use agent::{SharedAgentState, build_test_state, build_test_state_with_router};
+pub use scheduler::{CronScheduler, ScheduledTask, SchedulerHandle};
 pub use session::Session;

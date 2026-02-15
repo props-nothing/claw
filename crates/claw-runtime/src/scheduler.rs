@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex as TokioMutex};
+use tokio::sync::{Mutex as TokioMutex, mpsc};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -47,13 +47,9 @@ pub struct ScheduledTask {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ScheduleKind {
     /// Recurring schedule based on a cron expression.
-    Cron {
-        expression: String,
-    },
+    Cron { expression: String },
     /// One-shot: fires once at the specified time.
-    OneShot {
-        fire_at: DateTime<Utc>,
-    },
+    OneShot { fire_at: DateTime<Utc> },
 }
 
 /// A message emitted by the scheduler when a task should fire.
@@ -100,6 +96,27 @@ impl CronScheduler {
         // Validate the cron expression
         Schedule::from_str(cron_expr).map_err(|e| format!("Invalid cron expression: {}", e))?;
 
+        let mut tasks = self.tasks.lock().await;
+
+        // Deduplicate: skip if an active task with same label or same cron+description exists
+        for existing in tasks.values() {
+            if !existing.active {
+                continue;
+            }
+            if let (Some(existing_label), Some(new_label)) = (&existing.label, &label) {
+                if existing_label == new_label {
+                    info!(task_id = %existing.id, label = %new_label, "cron task already exists — skipping");
+                    return Ok(existing.id);
+                }
+            }
+            if let ScheduleKind::Cron { expression: expr } = &existing.kind {
+                if expr == cron_expr && existing.description == description {
+                    info!(task_id = %existing.id, cron = cron_expr, "cron task already exists — skipping");
+                    return Ok(existing.id);
+                }
+            }
+        }
+
         let task = ScheduledTask {
             id: Uuid::new_v4(),
             label,
@@ -115,7 +132,7 @@ impl CronScheduler {
         };
 
         let id = task.id;
-        self.tasks.lock().await.insert(id, task);
+        tasks.insert(id, task);
         info!(task_id = %id, cron = cron_expr, "scheduled recurring task");
         Ok(id)
     }
@@ -196,10 +213,7 @@ impl CronScheduler {
             if let Some(ref cron_expr) = goal_config.cron {
                 match self
                     .add_cron(
-                        format!(
-                            "Scheduled goal check: {}",
-                            goal_config.description
-                        ),
+                        format!("Scheduled goal check: {}", goal_config.description),
                         cron_expr,
                         Some(goal_config.description.clone()),
                         None,
@@ -311,6 +325,8 @@ pub struct SchedulerHandle {
 
 impl SchedulerHandle {
     /// Add a recurring cron task.
+    /// Deduplicates: if an active task with the same label or same (cron + description) exists,
+    /// returns the existing task ID instead of creating a duplicate.
     pub async fn add_cron(
         &self,
         description: String,
@@ -319,6 +335,37 @@ impl SchedulerHandle {
         session_id: Option<Uuid>,
     ) -> Result<Uuid, String> {
         Schedule::from_str(cron_expr).map_err(|e| format!("Invalid cron expression: {}", e))?;
+
+        let mut tasks = self.tasks.lock().await;
+
+        // Check for duplicate: same label (if provided) or same cron + description
+        for existing in tasks.values() {
+            if !existing.active {
+                continue;
+            }
+            // Match by label if both have one
+            if let (Some(existing_label), Some(new_label)) = (&existing.label, &label) {
+                if existing_label == new_label {
+                    info!(
+                        task_id = %existing.id,
+                        label = %new_label,
+                        "cron task with same label already exists — skipping duplicate"
+                    );
+                    return Ok(existing.id);
+                }
+            }
+            // Match by cron expression + description
+            if let ScheduleKind::Cron { expression: expr } = &existing.kind {
+                if expr == cron_expr && existing.description == description {
+                    info!(
+                        task_id = %existing.id,
+                        cron = cron_expr,
+                        "cron task with same expression and description already exists — skipping duplicate"
+                    );
+                    return Ok(existing.id);
+                }
+            }
+        }
 
         let task = ScheduledTask {
             id: Uuid::new_v4(),
@@ -335,7 +382,7 @@ impl SchedulerHandle {
         };
 
         let id = task.id;
-        self.tasks.lock().await.insert(id, task);
+        tasks.insert(id, task);
         info!(task_id = %id, cron = cron_expr, "scheduled recurring task via handle");
         Ok(id)
     }
@@ -372,8 +419,20 @@ impl SchedulerHandle {
         self.tasks.lock().await.remove(&task_id).is_some()
     }
 
+    /// Get a scheduled task by ID.
+    pub async fn get(&self, task_id: Uuid) -> Option<ScheduledTask> {
+        self.tasks.lock().await.get(&task_id).cloned()
+    }
+
     /// List all scheduled tasks (active and inactive).
     pub async fn list_all(&self) -> Vec<ScheduledTask> {
         self.tasks.lock().await.values().cloned().collect()
+    }
+
+    /// Restore a previously-persisted task into the scheduler.
+    /// Skips validation and deduplication — used at startup to reload from DB.
+    pub async fn restore_task(&self, task: ScheduledTask) {
+        let id = task.id;
+        self.tasks.lock().await.insert(id, task);
     }
 }

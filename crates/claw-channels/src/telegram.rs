@@ -1180,7 +1180,9 @@ async fn dispatch_update(
                         media_type: "image/jpeg".to_string(),
                         data: path.to_string_lossy().to_string(),
                     }),
-                    Err(e) => warn!(error = %e, file_id = %best_file_id, "failed to download Telegram photo"),
+                    Err(e) => {
+                        warn!(error = %e, file_id = %best_file_id, "failed to download Telegram photo")
+                    }
                 }
             }
         }
@@ -1210,7 +1212,9 @@ async fn dispatch_update(
                         media_type: mime.to_string(),
                         data: path.to_string_lossy().to_string(),
                     }),
-                    Err(e) => warn!(error = %e, file_id = %file_id, "failed to download Telegram document"),
+                    Err(e) => {
+                        warn!(error = %e, file_id = %file_id, "failed to download Telegram document")
+                    }
                 }
             }
         }
@@ -1231,7 +1235,9 @@ async fn dispatch_update(
                         media_type: "video/mp4".to_string(),
                         data: path.to_string_lossy().to_string(),
                     }),
-                    Err(e) => warn!(error = %e, file_id = %file_id, "failed to download Telegram video"),
+                    Err(e) => {
+                        warn!(error = %e, file_id = %file_id, "failed to download Telegram video")
+                    }
                 }
             }
         }
@@ -1261,7 +1267,9 @@ async fn dispatch_update(
                         media_type: mime.to_string(),
                         data: path.to_string_lossy().to_string(),
                     }),
-                    Err(e) => warn!(error = %e, file_id = %file_id, "failed to download Telegram audio"),
+                    Err(e) => {
+                        warn!(error = %e, file_id = %file_id, "failed to download Telegram audio")
+                    }
                 }
             }
         }

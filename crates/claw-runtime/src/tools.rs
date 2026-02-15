@@ -72,6 +72,8 @@ impl BuiltinTools {
                 | "sub_agent_wait"
                 | "sub_agent_status"
                 | "cron_schedule"
+                | "cron_list"
+                | "cron_cancel"
         )
     }
 
@@ -894,7 +896,7 @@ impl BuiltinTools {
             // ── Scheduler Tools ───────────────────────────────────────
             Tool {
                 name: "cron_schedule".into(),
-                description: "Schedule a task to run later. Supports recurring cron expressions (e.g., '*/5 * * * *' for every 5 minutes) or one-shot delayed execution. Use this for: recurring health checks, auto-resuming interrupted work, reminders, scheduled builds, periodic monitoring. The scheduled task will create a new agent session and execute the description as a prompt.".into(),
+                description: "Schedule a task to run later. Supports recurring cron expressions (e.g., '*/5 * * * *' for every 5 minutes) or one-shot delayed execution. Use this for: recurring health checks, auto-resuming interrupted work, reminders, scheduled builds, periodic monitoring. The scheduled task will create a new agent session and execute the description as a prompt. IMPORTANT: The scheduler automatically deduplicates by label — if a task with the same label already exists, it will not create a duplicate. Always provide a descriptive label. Never schedule a task that is already recurring — when a scheduled task fires, the agent must NOT call cron_schedule again for the same recurring job.".into(),
                 parameters: json!({
                     "type": "object",
                     "properties": {
@@ -916,6 +918,37 @@ impl BuiltinTools {
                         }
                     },
                     "required": ["description"]
+                }),
+                capabilities: vec![],
+                is_mutating: true,
+                risk_level: 2,
+                provider: None,
+            },
+            Tool {
+                name: "cron_list".into(),
+                description: "List all scheduled tasks (both active and inactive). Returns task IDs, labels, cron expressions, descriptions, fire counts, and status. Use this to inspect what is currently scheduled before adding or cancelling tasks.".into(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }),
+                capabilities: vec![],
+                is_mutating: false,
+                risk_level: 0,
+                provider: None,
+            },
+            Tool {
+                name: "cron_cancel".into(),
+                description: "Cancel/remove a scheduled task by its task ID. Use cron_list first to find the task ID you want to cancel. This permanently removes the task from the scheduler.".into(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "The UUID of the scheduled task to cancel (from cron_list)"
+                        }
+                    },
+                    "required": ["task_id"]
                 }),
                 capabilities: vec![],
                 is_mutating: true,
@@ -992,18 +1025,53 @@ impl BuiltinTools {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let exit_code = output.status.code().unwrap_or(-1);
 
-        let content = format!(
-            "Exit code: {}\n\nSTDOUT:\n{}\n\nSTDERR:\n{}",
-            exit_code,
-            stdout.chars().take(10_000).collect::<String>(),
-            stderr.chars().take(5_000).collect::<String>(),
-        );
+        let stdout_trimmed = stdout.trim();
+        let stderr_trimmed = stderr.trim();
+
+        // Build a clean, compact output — only include non-empty sections
+        let content = if exit_code != 0 {
+            // Non-zero exit: always show exit code and all available output
+            let mut parts = vec![format!("Exit code: {}", exit_code)];
+            if !stdout_trimmed.is_empty() {
+                parts.push(format!(
+                    "STDOUT:\n{}",
+                    stdout_trimmed.chars().take(10_000).collect::<String>()
+                ));
+            }
+            if !stderr_trimmed.is_empty() {
+                parts.push(format!(
+                    "STDERR:\n{}",
+                    stderr_trimmed.chars().take(5_000).collect::<String>()
+                ));
+            }
+            parts.join("\n\n")
+        } else if !stdout_trimmed.is_empty() && !stderr_trimmed.is_empty() {
+            // Success with both outputs
+            format!(
+                "{}\n\n{}",
+                stdout_trimmed.chars().take(10_000).collect::<String>(),
+                stderr_trimmed.chars().take(5_000).collect::<String>(),
+            )
+        } else if !stdout_trimmed.is_empty() {
+            // Success with only stdout
+            stdout_trimmed.chars().take(10_000).collect::<String>()
+        } else if !stderr_trimmed.is_empty() {
+            // Success with only stderr (common for status messages)
+            stderr_trimmed.chars().take(5_000).collect::<String>()
+        } else {
+            // Success with no output
+            "Command completed successfully (no output).".to_string()
+        };
 
         Ok(ToolResult {
             tool_call_id: call.id.clone(),
             content,
             is_error: !output.status.success(),
-            data: Some(json!({ "exit_code": exit_code })),
+            data: Some(json!({
+                "exit_code": exit_code,
+                "stdout": stdout_trimmed.chars().take(10_000).collect::<String>(),
+                "stderr": stderr_trimmed.chars().take(5_000).collect::<String>(),
+            })),
         })
     }
 

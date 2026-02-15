@@ -2,8 +2,8 @@
 # 🦞 Claw — Universal Install Script
 #
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/claw/claw/main/scripts/install.sh | sh
-#   wget -qO- https://raw.githubusercontent.com/claw/claw/main/scripts/install.sh | sh
+#   curl -sSL https://raw.githubusercontent.com/props-nothing/claw/main/scripts/install.sh | sh
+#   wget -qO- https://raw.githubusercontent.com/props-nothing/claw/main/scripts/install.sh | sh
 #
 # Options (env vars):
 #   CLAW_VERSION=0.1.0   Install a specific version (default: latest)

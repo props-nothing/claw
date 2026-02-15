@@ -39,6 +39,30 @@ function escHtml(str) {
   return div.innerHTML;
 }
 
+/**
+ * Extract a meaningful short summary from a tool result.
+ * For shell_exec results, skip "Exit code:" / "STDOUT:" / "STDERR:" boilerplate
+ * and return the first line of actual content.
+ */
+function extractToolSummary(toolName, plain) {
+  if (!plain) return "";
+
+  // For shell results, try to find the most meaningful line
+  const lines = plain
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return "";
+
+  // Skip lines that are just section headers from shell output
+  const skipPatterns =
+    /^(Exit code:\s*\d+|STDOUT:|STDERR:|Command completed successfully)$/i;
+  const meaningful = lines.filter((l) => !skipPatterns.test(l));
+
+  const best = meaningful.length > 0 ? meaningful[0] : lines[0];
+  return best.length > 100 ? best.slice(0, 97) + "…" : best;
+}
+
 function riskBadge(level) {
   const cls =
     level >= 7
@@ -405,16 +429,21 @@ async function renderChat(el) {
   $("#chat-input").focus();
 }
 
+// Track which tool results the user has manually expanded/collapsed.
+// Keys are tool result IDs (e.g. "tr-call_xxx"), values are true (expanded) or false (collapsed).
+const _toolExpandState = {};
+
 // Toggle a tool result's expanded/collapsed state
 window.toggleToolResult = function (toolId) {
   const el = document.getElementById(`tool-result-${toolId}`);
   if (!el) return;
   el.classList.toggle("expanded");
+  const isExpanded = el.classList.contains("expanded");
+  _toolExpandState[toolId] = isExpanded;
   const btn = el.previousElementSibling;
   if (btn && btn.classList.contains("tool-header")) {
     const chevron = btn.querySelector(".tool-chevron");
-    if (chevron)
-      chevron.textContent = el.classList.contains("expanded") ? "▾" : "▸";
+    if (chevron) chevron.textContent = isExpanded ? "▾" : "▸";
   }
 };
 
@@ -427,8 +456,7 @@ function renderToolCallSegment(tc, msgId, isStreaming) {
   let summary = "";
   if (hasResult) {
     const plain = tc.result.replace(/^❌ /, "");
-    const firstLine = plain.split("\n")[0];
-    summary = firstLine.length > 80 ? firstLine.slice(0, 77) + "…" : firstLine;
+    summary = extractToolSummary(tc.name, plain);
   }
 
   // Check if the result contains a screenshot URL — prefer structured data, fall back to regex
@@ -453,8 +481,10 @@ function renderToolCallSegment(tc, msgId, isStreaming) {
         </div>
       </div>`;
   } else if (hasResult) {
+    // Check if user manually toggled this result
+    const userExpanded = _toolExpandState[resultId] === true;
     resultHtml = `
-      <div class="tool-result-wrap" id="tool-result-${resultId}">
+      <div class="tool-result-wrap${userExpanded ? " expanded" : ""}" id="tool-result-${resultId}">
         <div class="tool-result ${isError ? "tool-result-error" : ""}">${escHtml(tc.result)}</div>
       </div>`;
   } else if (isStreaming) {
@@ -462,8 +492,12 @@ function renderToolCallSegment(tc, msgId, isStreaming) {
       '<div class="typing-indicator"><span></span><span></span><span></span></div>';
   }
 
-  // Chevron: ▾ if expanded by default (screenshot), ▸ if collapsed
-  const chevron = hasResult ? (expandedByDefault ? "▾" : "▸") : "";
+  // Chevron: respect user's manual toggle, otherwise default (▾ for screenshots, ▸ for others)
+  const isUserExpanded =
+    resultId in _toolExpandState
+      ? _toolExpandState[resultId]
+      : expandedByDefault;
+  const chevron = hasResult ? (isUserExpanded ? "▾" : "▸") : "";
 
   return `
     <div class="msg-tool-call ${isError ? "tool-error" : hasResult ? "tool-done" : "tool-running"}">
@@ -557,6 +591,8 @@ window.newChatSession = function () {
   chatSessionId = null;
   chatMessages = [];
   chatStreaming = false;
+  // Clear tracked expand states for the old session
+  for (const key in _toolExpandState) delete _toolExpandState[key];
   localStorage.removeItem("claw_session_id");
   const hash = location.hash.slice(1);
   if (hash === "/chat") renderChat($("#content"));
@@ -702,7 +738,23 @@ function handleStreamEvent(event, assistantMsg) {
       };
       assistantMsg.segments.push(tcSeg);
       assistantMsg.toolCalls.push(tcSeg); // same object ref for result lookup
-      updateStreamingBubble(assistantMsg);
+
+      // Try appending just the new tool card instead of full re-render
+      const bubble = $(`#msg-${assistantMsg.id}`);
+      if (bubble) {
+        // Remove streaming cursor before appending
+        const cursor = bubble.querySelector(".streaming-cursor");
+        if (cursor) cursor.remove();
+        // Append new tool card + fresh cursor
+        const fragment = document.createElement("div");
+        fragment.innerHTML =
+          renderToolCallSegment(tcSeg, assistantMsg.id, true) +
+          '<span class="streaming-cursor">▊</span>';
+        while (fragment.firstChild) bubble.appendChild(fragment.firstChild);
+        chatAutoScroll();
+      } else {
+        updateStreamingBubble(assistantMsg);
+      }
       break;
     }
 
@@ -713,6 +765,19 @@ function handleStreamEvent(event, assistantMsg) {
         // Extract screenshot URL from structured data (preferred) or regex fallback
         if (event.data && event.data.screenshot_url) {
           tc.screenshot_url = event.data.screenshot_url;
+        }
+        // Try targeted update of just this tool card to avoid disrupting user interaction
+        const resultId = `tr-${tc.id}`;
+        const existingCard = document.getElementById(`tool-result-${resultId}`);
+        if (existingCard) {
+          // Replace just the tool call card in-place
+          const toolCallEl = existingCard.closest(".msg-tool-call");
+          if (toolCallEl) {
+            const newHtml = renderToolCallSegment(tc, assistantMsg.id, true);
+            toolCallEl.outerHTML = newHtml;
+            chatAutoScroll();
+            break;
+          }
         }
       }
       updateStreamingBubble(assistantMsg);
@@ -759,7 +824,22 @@ function updateStreamingBubble(msg) {
   const bubble = $(`#msg-${msg.id}`);
   if (!bubble) return;
 
-  // Render segments in order
+  // If the last segment is a text delta and it's the only thing that changed,
+  // try a targeted update of just the last text block to avoid nuking expanded tool states.
+  const lastSeg = msg.segments[msg.segments.length - 1];
+  if (lastSeg && lastSeg.type === "text" && lastSeg === msg._currentTextSeg) {
+    // Find existing text blocks — if the count matches segments, just update the last one
+    const textBlocks = bubble.querySelectorAll(".msg-text-block");
+    const textSegCount = msg.segments.filter((s) => s.type === "text").length;
+    if (textBlocks.length === textSegCount && textBlocks.length > 0) {
+      const lastBlock = textBlocks[textBlocks.length - 1];
+      lastBlock.innerHTML = renderMarkdown(lastSeg.content);
+      chatAutoScroll();
+      return;
+    }
+  }
+
+  // Full re-render — preserve tool expand states via _toolExpandState
   let content = "";
   for (const seg of msg.segments) {
     if (seg.type === "text") {
@@ -1922,6 +2002,62 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
+// ── Server-push notifications (cron results, etc.) ───────────
+
+let _notificationSource = null;
+
+function connectNotifications() {
+  if (_notificationSource) {
+    _notificationSource.close();
+  }
+  _notificationSource = new EventSource(`${API}/api/v1/events`);
+
+  _notificationSource.onmessage = function (e) {
+    if (!e.data || e.data.startsWith(":")) return; // skip keepalive comments
+    try {
+      const notification = JSON.parse(e.data);
+      handleNotification(notification);
+    } catch (_) {}
+  };
+
+  _notificationSource.onerror = function () {
+    // Reconnect after a delay (EventSource auto-reconnects, but add safety)
+    setTimeout(() => {
+      if (
+        _notificationSource &&
+        _notificationSource.readyState === EventSource.CLOSED
+      ) {
+        connectNotifications();
+      }
+    }, 5000);
+  };
+}
+
+function handleNotification(notification) {
+  if (notification.type === "cron_result") {
+    const label = notification.label || "Scheduled task";
+    const text = notification.text || "";
+    const sessionId = notification.session_id || "";
+
+    // Add as a system notification in the chat messages
+    chatMessages.push({
+      role: "assistant",
+      text: `⏰ **${label}**\n\n${text}`,
+      id: `cron-${Date.now()}`,
+      segments: [{ type: "text", content: `⏰ **${label}**\n\n${text}` }],
+      isCronNotification: true,
+      cronSessionId: sessionId,
+    });
+
+    // Re-render chat if we're on the chat page
+    const msgsEl = $("#chat-messages");
+    if (msgsEl && !chatStreaming) {
+      msgsEl.innerHTML = chatMessages.map(renderChatMessage).join("");
+      chatAutoScroll();
+    }
+  }
+}
+
 // ── Init ──────────────────────────────────────────────────────
 
 window.addEventListener("hashchange", navigate);
@@ -1929,4 +2065,6 @@ window.addEventListener("DOMContentLoaded", () => {
   navigate();
   // Periodic status check
   setInterval(fetchStatus, 15000);
+  // Connect to server-push notifications
+  connectNotifications();
 });
