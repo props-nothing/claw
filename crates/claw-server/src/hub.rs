@@ -138,7 +138,10 @@ pub fn standalone_hub_router(db_path: &std::path::Path) -> Result<Router, String
         )
         .route("/api/v1/hub/skills/{name}/pull", post(pull_skill))
         // Plugins
-        .route("/api/v1/hub/plugins", get(list_plugins).post(publish_plugin))
+        .route(
+            "/api/v1/hub/plugins",
+            get(list_plugins).post(publish_plugin),
+        )
         .route("/api/v1/hub/plugins/search", get(search_plugins))
         .route(
             "/api/v1/hub/plugins/{name}",
@@ -184,7 +187,10 @@ pub fn hub_proxy_routes() -> Router<Arc<crate::AppState>> {
         )
         .route("/api/v1/hub/skills/{name}/pull", post(proxy_forward))
         // Plugins
-        .route("/api/v1/hub/plugins", get(proxy_forward).post(proxy_forward))
+        .route(
+            "/api/v1/hub/plugins",
+            get(proxy_forward).post(proxy_forward),
+        )
         .route("/api/v1/hub/plugins/search", get(proxy_forward))
         .route(
             "/api/v1/hub/plugins/{name}",
@@ -196,8 +202,8 @@ pub fn hub_proxy_routes() -> Router<Arc<crate::AppState>> {
         .route("/api/v1/hub/health", get(proxy_forward))
 }
 
-/// Generic proxy handler — forwards the request to the remote hub, streams
-/// the response back verbatim.
+// Generic proxy handler — forwards the request to the remote hub, streams
+// the response back verbatim.
 
 // ═══════════════════════════════════════════════════════════════
 // MODE 3 — Local hub (no remote hub configured)
@@ -241,12 +247,10 @@ async fn local_list_skills(
                     .as_str()
                     .is_some_and(|d| d.to_lowercase().contains(&q)))
                 && (tag.is_empty()
-                    || s["tags"]
-                        .as_array()
-                        .is_some_and(|tags| {
-                            tags.iter()
-                                .any(|t| t.as_str().is_some_and(|t| t.to_lowercase() == tag))
-                        }))
+                    || s["tags"].as_array().is_some_and(|tags| {
+                        tags.iter()
+                            .any(|t| t.as_str().is_some_and(|t| t.to_lowercase() == tag))
+                    }))
         })
         .collect();
 
@@ -318,15 +322,12 @@ async fn local_get_plugin(
 }
 
 /// Hub stats from the local filesystem.
-async fn local_hub_stats(
-    State(state): State<Arc<crate::AppState>>,
-) -> Json<serde_json::Value> {
+async fn local_hub_stats(State(state): State<Arc<crate::AppState>>) -> Json<serde_json::Value> {
     let skills = discover_local_skills(&state.skills_dir);
     let plugins = discover_local_plugins(&state.plugin_dir);
 
     // Gather tags
-    let mut tag_counts: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
+    let mut tag_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for skill in &skills {
         if let Some(tags) = skill["tags"].as_array() {
             for tag in tags {
@@ -446,11 +447,7 @@ fn find_wasm_size(plugin_dir: &std::path::Path, name: &str) -> u64 {
     let dir = plugin_dir.join(name);
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for entry in entries.flatten() {
-            if entry
-                .path()
-                .extension()
-                .is_some_and(|e| e == "wasm")
-            {
+            if entry.path().extension().is_some_and(|e| e == "wasm") {
                 return entry.metadata().map(|m| m.len()).unwrap_or(0);
             }
         }
@@ -889,7 +886,9 @@ async fn list_plugins(
          FROM plugins {sort_clause} LIMIT ?1 OFFSET ?2"
     );
 
-    let mut stmt = db.prepare(&sql).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = db
+        .prepare(&sql)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let plugins: Vec<HubPlugin> = stmt
         .query_map(
@@ -924,7 +923,9 @@ async fn search_plugins(
                ORDER BY downloads DESC LIMIT ?2 OFFSET ?3";
 
     let pattern = format!("%{}%", params.q);
-    let mut stmt = db.prepare(sql).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = db
+        .prepare(sql)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let plugins: Vec<HubPlugin> = stmt
         .query_map(
@@ -972,12 +973,7 @@ async fn download_plugin(
     let result: Result<(Vec<u8>, String), _> = db.query_row(
         "SELECT wasm_bytes, manifest_toml FROM plugins WHERE name = ?1",
         [&name],
-        |row| {
-            Ok((
-                row.get::<_, Vec<u8>>(0)?,
-                row.get::<_, String>(1)?,
-            ))
-        },
+        |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?)),
     );
 
     match result {
@@ -991,7 +987,10 @@ async fn download_plugin(
             Ok(Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", "application/wasm")
-                .header("Content-Disposition", format!("attachment; filename=\"{name}.wasm\""))
+                .header(
+                    "Content-Disposition",
+                    format!("attachment; filename=\"{name}.wasm\""),
+                )
                 .body(Body::from(wasm_bytes))
                 .unwrap())
         }
@@ -1031,7 +1030,8 @@ async fn publish_plugin(
     let now = chrono::Utc::now().to_rfc3339();
     let id = format!("{}@{}", name, manifest.plugin.version);
     let checksum = blake3::hash(&wasm_bytes).to_hex().to_string();
-    let authors_json = serde_json::to_string(&manifest.plugin.authors).unwrap_or_else(|_| "[]".into());
+    let authors_json =
+        serde_json::to_string(&manifest.plugin.authors).unwrap_or_else(|_| "[]".into());
     let tools_json = serde_json::to_string(&manifest.tools).unwrap_or_else(|_| "[]".into());
     let caps_json = serde_json::to_string(&manifest.capabilities).unwrap_or_else(|_| "{}".into());
 

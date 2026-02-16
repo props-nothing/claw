@@ -408,32 +408,59 @@ impl MemoryStore {
             )
             .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
 
-        let mut goals_map: std::collections::HashMap<String, GoalRow> = std::collections::HashMap::new();
+        let mut goals_map: std::collections::HashMap<String, GoalRow> =
+            std::collections::HashMap::new();
         let mut goal_order: Vec<String> = Vec::new();
 
         stmt.query_map([], |row| {
             let goal_id: String = row.get(0)?;
             let step_id: Option<String> = row.get(6)?;
-            Ok((goal_id, row.get(1)?, row.get(2)?, row.get::<_, i32>(3)?, row.get::<_, f64>(4)?, row.get::<_, Option<String>>(5)?,
-                step_id, row.get::<_, Option<String>>(7)?, row.get::<_, Option<String>>(8)?, row.get::<_, Option<String>>(9)?))
+            Ok((
+                goal_id,
+                row.get(1)?,
+                row.get(2)?,
+                row.get::<_, i32>(3)?,
+                row.get::<_, f64>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                step_id,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<String>>(9)?,
+            ))
         })
         .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?
         .filter_map(|r| r.ok())
-        .for_each(|(goal_id, desc, status, priority, progress, parent_id, step_id, step_desc, step_status, step_result)| {
-            if !goals_map.contains_key(&goal_id) {
-                goal_order.push(goal_id.clone());
-                goals_map.insert(goal_id.clone(), GoalRow {
-                    id: goal_id.clone(),
-                    description: desc,
-                    status,
-                    priority: priority as u8,
-                    progress: progress as f32,
-                    parent_id,
-                    steps: Vec::new(),
-                });
-            }
-            if let (Some(sid), Some(sd), Some(ss)) = (step_id, step_desc, step_status) {
-                if let Some(goal) = goals_map.get_mut(&goal_id) {
+        .for_each(
+            |(
+                goal_id,
+                desc,
+                status,
+                priority,
+                progress,
+                parent_id,
+                step_id,
+                step_desc,
+                step_status,
+                step_result,
+            )| {
+                if !goals_map.contains_key(&goal_id) {
+                    goal_order.push(goal_id.clone());
+                    goals_map.insert(
+                        goal_id.clone(),
+                        GoalRow {
+                            id: goal_id.clone(),
+                            description: desc,
+                            status,
+                            priority: priority as u8,
+                            progress: progress as f32,
+                            parent_id,
+                            steps: Vec::new(),
+                        },
+                    );
+                }
+                if let (Some(sid), Some(sd), Some(ss)) = (step_id, step_desc, step_status)
+                    && let Some(goal) = goals_map.get_mut(&goal_id)
+                {
                     goal.steps.push(GoalStepRow {
                         id: sid,
                         description: sd,
@@ -441,10 +468,13 @@ impl MemoryStore {
                         result: step_result,
                     });
                 }
-            }
-        });
+            },
+        );
 
-        Ok(goal_order.into_iter().filter_map(|id| goals_map.remove(&id)).collect())
+        Ok(goal_order
+            .into_iter()
+            .filter_map(|id| goals_map.remove(&id))
+            .collect())
     }
 }
 

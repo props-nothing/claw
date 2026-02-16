@@ -734,8 +734,7 @@ pub(crate) async fn process_message_shared(
     // This eliminates ~750 lines of near-duplicate logic.
     let (tx, mut rx) = mpsc::channel::<StreamEvent>(64);
 
-    process_message_streaming_shared(state, channel_id, incoming, &tx, override_session_id)
-        .await?;
+    process_message_streaming_shared(state, channel_id, incoming, &tx, override_session_id).await?;
 
     // Drop the sender so the receiver terminates
     drop(tx);

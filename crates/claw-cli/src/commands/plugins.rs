@@ -30,7 +30,9 @@ pub(super) async fn cmd_plugin(
         }
         PluginAction::Install { name, version } => {
             if registry_url.is_empty() {
-                println!("No hub configured. Set plugins.registry_url or services.hub_url in claw.toml,");
+                println!(
+                    "No hub configured. Set plugins.registry_url or services.hub_url in claw.toml,"
+                );
                 println!("or run 'claw hub serve' to host your own hub.");
                 return Ok(());
             }
@@ -45,7 +47,9 @@ pub(super) async fn cmd_plugin(
         }
         PluginAction::Search { query } => {
             if registry_url.is_empty() {
-                println!("No hub configured. Set plugins.registry_url or services.hub_url in claw.toml,");
+                println!(
+                    "No hub configured. Set plugins.registry_url or services.hub_url in claw.toml,"
+                );
                 println!("or run 'claw hub serve' to host your own hub.");
                 return Ok(());
             }
@@ -67,60 +71,58 @@ pub(super) async fn cmd_plugin(
                 }
             }
         }
-        PluginAction::Info { name } => {
-            match host.get_manifest(&name) {
-                Some(manifest) => {
-                    println!(
-                        "\x1b[1m{}\x1b[0m v{}",
-                        manifest.plugin.name, manifest.plugin.version
-                    );
-                    println!("  {}", manifest.plugin.description);
-                    if !manifest.plugin.authors.is_empty() {
-                        println!("  Authors: {}", manifest.plugin.authors.join(", "));
+        PluginAction::Info { name } => match host.get_manifest(&name) {
+            Some(manifest) => {
+                println!(
+                    "\x1b[1m{}\x1b[0m v{}",
+                    manifest.plugin.name, manifest.plugin.version
+                );
+                println!("  {}", manifest.plugin.description);
+                if !manifest.plugin.authors.is_empty() {
+                    println!("  Authors: {}", manifest.plugin.authors.join(", "));
+                }
+                if let Some(ref license) = manifest.plugin.license {
+                    println!("  License: {license}");
+                }
+                if let Some(ref homepage) = manifest.plugin.homepage {
+                    println!("  Homepage: {homepage}");
+                }
+                if let Some(ref checksum) = manifest.plugin.checksum {
+                    println!("  Checksum: {}", &checksum[..checksum.len().min(16)]);
+                }
+                let caps = &manifest.capabilities;
+                if !caps.network.is_empty() || !caps.filesystem.is_empty() || caps.shell {
+                    println!("\n  \x1b[1mCapabilities:\x1b[0m");
+                    if !caps.network.is_empty() {
+                        println!("    Network: {}", caps.network.join(", "));
                     }
-                    if let Some(ref license) = manifest.plugin.license {
-                        println!("  License: {license}");
+                    if !caps.filesystem.is_empty() {
+                        println!("    Filesystem: {}", caps.filesystem.join(", "));
                     }
-                    if let Some(ref homepage) = manifest.plugin.homepage {
-                        println!("  Homepage: {homepage}");
-                    }
-                    if let Some(ref checksum) = manifest.plugin.checksum {
-                        println!("  Checksum: {}", &checksum[..checksum.len().min(16)]);
-                    }
-                    let caps = &manifest.capabilities;
-                    if !caps.network.is_empty() || !caps.filesystem.is_empty() || caps.shell {
-                        println!("\n  \x1b[1mCapabilities:\x1b[0m");
-                        if !caps.network.is_empty() {
-                            println!("    Network: {}", caps.network.join(", "));
-                        }
-                        if !caps.filesystem.is_empty() {
-                            println!("    Filesystem: {}", caps.filesystem.join(", "));
-                        }
-                        if caps.shell {
-                            println!("    Shell: yes");
-                        }
-                    }
-                    if !manifest.tools.is_empty() {
-                        println!("\n  \x1b[1mTools ({}):\x1b[0m", manifest.tools.len());
-                        for tool in &manifest.tools {
-                            let risk = if tool.risk_level > 0 {
-                                format!(" [risk={}]", tool.risk_level)
-                            } else {
-                                String::new()
-                            };
-                            let mutating = if tool.is_mutating { " ✏️" } else { "" };
-                            println!(
-                                "    {}{}{} — {}",
-                                tool.name, mutating, risk, tool.description
-                            );
-                        }
+                    if caps.shell {
+                        println!("    Shell: yes");
                     }
                 }
-                None => {
-                    println!("Plugin '{name}' not found. Is it installed?");
+                if !manifest.tools.is_empty() {
+                    println!("\n  \x1b[1mTools ({}):\x1b[0m", manifest.tools.len());
+                    for tool in &manifest.tools {
+                        let risk = if tool.risk_level > 0 {
+                            format!(" [risk={}]", tool.risk_level)
+                        } else {
+                            String::new()
+                        };
+                        let mutating = if tool.is_mutating { " ✏️" } else { "" };
+                        println!(
+                            "    {}{}{} — {}",
+                            tool.name, mutating, risk, tool.description
+                        );
+                    }
                 }
             }
-        }
+            None => {
+                println!("Plugin '{name}' not found. Is it installed?");
+            }
+        },
         PluginAction::Create { name } => {
             scaffold_plugin(&name)?;
         }
@@ -290,12 +292,13 @@ fn write_json(value: &serde_json::Value) -> u64 {{
 /// Runs `cargo build --target wasm32-unknown-unknown --release`, then
 /// copies the .wasm and plugin.toml to ~/.claw/plugins/<name>/.
 fn build_plugin(path: &str, plugin_dir: &Path) -> claw_core::Result<()> {
-    let project_dir = PathBuf::from(path).canonicalize().map_err(|e| {
-        claw_core::ClawError::Plugin {
-            plugin: path.to_string(),
-            reason: format!("invalid path: {e}"),
-        }
-    })?;
+    let project_dir =
+        PathBuf::from(path)
+            .canonicalize()
+            .map_err(|e| claw_core::ClawError::Plugin {
+                plugin: path.to_string(),
+                reason: format!("invalid path: {e}"),
+            })?;
 
     // Validate: must have plugin.toml
     let manifest_path = project_dir.join("plugin.toml");
@@ -319,12 +322,7 @@ fn build_plugin(path: &str, plugin_dir: &Path) -> claw_core::Result<()> {
 
     // Run cargo build
     let status = std::process::Command::new("cargo")
-        .args([
-            "build",
-            "--target",
-            "wasm32-unknown-unknown",
-            "--release",
-        ])
+        .args(["build", "--target", "wasm32-unknown-unknown", "--release"])
         .current_dir(&project_dir)
         .status()
         .map_err(|e| claw_core::ClawError::Plugin {
@@ -353,9 +351,7 @@ fn build_plugin(path: &str, plugin_dir: &Path) -> claw_core::Result<()> {
         });
     }
 
-    let wasm_size = std::fs::metadata(&wasm_src)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let wasm_size = std::fs::metadata(&wasm_src).map(|m| m.len()).unwrap_or(0);
 
     // Install: copy plugin.toml + .wasm to the plugins directory
     let dest_dir = plugin_dir.join(name);
@@ -364,10 +360,7 @@ fn build_plugin(path: &str, plugin_dir: &Path) -> claw_core::Result<()> {
     std::fs::copy(&wasm_src, dest_dir.join(format!("{crate_name}.wasm")))?;
 
     println!("✅ Installed {name} → {}", dest_dir.display());
-    println!(
-        "   WASM size: {}",
-        format_bytes(wasm_size)
-    );
+    println!("   WASM size: {}", format_bytes(wasm_size));
     println!(
         "   Tools: {}",
         manifest

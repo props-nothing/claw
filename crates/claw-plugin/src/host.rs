@@ -208,29 +208,31 @@ impl PluginHost {
             let module = if cache_path.exists() {
                 // SAFETY: we only deserialize artifacts we serialized ourselves
                 // from a content-addressed cache (keyed by WASM hash).
-                let bytes = std::fs::read(&cache_path).map_err(|e| claw_core::ClawError::Plugin {
-                    plugin: name.clone(),
-                    reason: format!("failed to read cached module: {e}"),
-                })?;
-                unsafe {
-                    Module::deserialize(&self.engine, &bytes)
-                }.map_err(|e| {
-                    // Cache may be stale (engine config change) — fall through to recompile
-                    warn!(plugin = %name, error = %e, "cached module invalid, recompiling");
-                    let _ = std::fs::remove_file(&cache_path);
+                let bytes =
+                    std::fs::read(&cache_path).map_err(|e| claw_core::ClawError::Plugin {
+                        plugin: name.clone(),
+                        reason: format!("failed to read cached module: {e}"),
+                    })?;
+                unsafe { Module::deserialize(&self.engine, &bytes) }
+                    .map_err(|e| {
+                        // Cache may be stale (engine config change) — fall through to recompile
+                        warn!(plugin = %name, error = %e, "cached module invalid, recompiling");
+                        let _ = std::fs::remove_file(&cache_path);
+                        claw_core::ClawError::Plugin {
+                            plugin: name.clone(),
+                            reason: format!("cached module invalid: {e}"),
+                        }
+                    })
+                    .unwrap_or_else(|_| {
+                        Module::new(&self.engine, &wasm_bytes).expect("recompile after cache miss")
+                    })
+            } else {
+                let module = Module::new(&self.engine, &wasm_bytes).map_err(|e| {
                     claw_core::ClawError::Plugin {
                         plugin: name.clone(),
-                        reason: format!("cached module invalid: {e}"),
-                    }
-                }).unwrap_or_else(|_| {
-                    Module::new(&self.engine, &wasm_bytes).expect("recompile after cache miss")
-                })
-            } else {
-                let module = Module::new(&self.engine, &wasm_bytes)
-                    .map_err(|e| claw_core::ClawError::Plugin {
-                        plugin: name.clone(),
                         reason: format!("failed to compile wasm: {}", e),
-                    })?;
+                    }
+                })?;
 
                 // Write cache (best-effort — don't fail the load if caching fails)
                 if std::fs::create_dir_all(&cache_dir).is_ok() {
@@ -245,10 +247,12 @@ impl PluginHost {
             // P0.13: Pre-link at load time — each execute_wasm() only needs
             // Store::new + instantiate_async, skipping the Linker entirely.
             let linker = Linker::new(&self.engine);
-            linker.instantiate_pre(&module).map_err(|e| claw_core::ClawError::Plugin {
-                plugin: name.clone(),
-                reason: format!("failed to pre-link wasm module: {}", e),
-            })?
+            linker
+                .instantiate_pre(&module)
+                .map_err(|e| claw_core::ClawError::Plugin {
+                    plugin: name.clone(),
+                    reason: format!("failed to pre-link wasm module: {}", e),
+                })?
         };
 
         self.plugins.insert(
@@ -270,7 +274,11 @@ impl PluginHost {
             .values()
             .flat_map(|plugin| {
                 plugin.manifest.tools.iter().map(|t| Tool {
-                    name: format!("{}_{}", plugin.manifest.plugin.name.replace('-', "_"), t.name),
+                    name: format!(
+                        "{}_{}",
+                        plugin.manifest.plugin.name.replace('-', "_"),
+                        t.name
+                    ),
                     description: t.description.clone(),
                     parameters: t.parameters.clone(),
                     capabilities: vec![],

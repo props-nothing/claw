@@ -200,7 +200,8 @@ async fn exec_web_search_shared(state: &SharedAgentState, call: &ToolCall) -> To
 
     info!(query = query, count = count, "executing web search");
 
-    let resp = match state.http_client
+    let resp = match state
+        .http_client
         .get("https://api.search.brave.com/res/v1/web/search")
         .header("Accept", "application/json")
         .header("X-Subscription-Token", &api_key)

@@ -73,20 +73,24 @@ impl PluginRegistry {
         let meta_url = format!("{}/api/v1/hub/plugins/{}", self.registry_url, name);
         info!(plugin = name, version = version_part, url = %meta_url, "downloading plugin from hub");
 
-        let meta_resp = self
-            .client
-            .get(&meta_url)
-            .send()
-            .await
-            .map_err(|e| claw_core::ClawError::Plugin {
-                plugin: name.to_string(),
-                reason: format!("cannot reach hub: {e}"),
-            })?;
+        let meta_resp =
+            self.client
+                .get(&meta_url)
+                .send()
+                .await
+                .map_err(|e| claw_core::ClawError::Plugin {
+                    plugin: name.to_string(),
+                    reason: format!("cannot reach hub: {e}"),
+                })?;
 
         if !meta_resp.status().is_success() {
             return Err(claw_core::ClawError::Plugin {
                 plugin: name.to_string(),
-                reason: format!("plugin '{}' not found on hub (HTTP {})", name, meta_resp.status()),
+                reason: format!(
+                    "plugin '{}' not found on hub (HTTP {})",
+                    name,
+                    meta_resp.status()
+                ),
             });
         }
 
@@ -96,15 +100,15 @@ impl PluginRegistry {
             self.registry_url, name, version_part
         );
 
-        let wasm_resp = self
-            .client
-            .get(&wasm_url)
-            .send()
-            .await
-            .map_err(|e| claw_core::ClawError::Plugin {
-                plugin: name.to_string(),
-                reason: format!("failed to download WASM: {e}"),
-            })?;
+        let wasm_resp =
+            self.client
+                .get(&wasm_url)
+                .send()
+                .await
+                .map_err(|e| claw_core::ClawError::Plugin {
+                    plugin: name.to_string(),
+                    reason: format!("failed to download WASM: {e}"),
+                })?;
 
         if !wasm_resp.status().is_success() {
             return Err(claw_core::ClawError::Plugin {
@@ -122,13 +126,14 @@ impl PluginRegistry {
             })?;
 
         // Get the metadata JSON to reconstruct a local plugin.toml
-        let meta: serde_json::Value = meta_resp
-            .json()
-            .await
-            .map_err(|e| claw_core::ClawError::Plugin {
-                plugin: name.to_string(),
-                reason: format!("invalid metadata JSON: {e}"),
-            })?;
+        let meta: serde_json::Value =
+            meta_resp
+                .json()
+                .await
+                .map_err(|e| claw_core::ClawError::Plugin {
+                    plugin: name.to_string(),
+                    reason: format!("invalid metadata JSON: {e}"),
+                })?;
 
         // Write to dest_dir/name/
         let plugin_dir = dest_dir.join(name);
