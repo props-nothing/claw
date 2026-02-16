@@ -1,6 +1,7 @@
 # 🦞 Claw — TODO
 
-> Organized by priority. Updated 2026-02-16 after deep performance audit, accuracy review, and codebase growth verification.
+> Organized by priority. Updated 2026-02-16.
+> **Goal: Beat every competitor — OpenClaw (201k★), ZeroClaw (6.8k★), PicoClaw (13.3k★) — on features, performance, and developer experience.**
 
 ---
 
@@ -336,153 +337,325 @@ After `Module::new()`, serializes the compiled artifact to `.cache/{name}-{hash}
 
 ---
 
-## 🔴 Priority 1 — Bugs & Polish
+## 🔴 Priority 1 — Crush the Competition
 
-### 1.1 Web UI Session Navigation
+> These items close every gap with OpenClaw/ZeroClaw/PicoClaw and establish clear leads.
 
-- [ ] When resuming a session, scroll to bottom of restored messages
-- [ ] Show session name in chat header (not just truncated UUID)
-- [ ] "Delete session" button / swipe-to-delete on sessions page
-- [ ] Clear localStorage `claw_session_id` when session is deleted
+### 1.1 LLM Providers — Match ZeroClaw's 22+ (Currently: 3)
 
-### 1.2 Memory Database 0-Byte Issue
+Claw has only OpenAI + Anthropic + Ollama. ZeroClaw supports 22+, PicoClaw supports 7. This is the #1 gap.
 
-- [ ] Investigate why `~/.claw/memory.db` can end up as 0 bytes
-- [ ] Add integrity check on startup (PRAGMA integrity_check)
-- [ ] Auto-recreate if corrupted
+- [ ] **OpenRouter provider** — single API key → 200+ models (Claude, GPT, Gemini, Llama, Mixtral, etc.) — _closes the gap overnight_
+- [ ] **Gemini provider** — Google AI Studio direct API, generous free tier, multimodal
+- [ ] **DeepSeek provider** — DeepSeek-V3/R1 direct API, massive context windows, cheap
+- [ ] **Groq provider** — ultra-fast inference (Llama, Mixtral, Whisper transcription)
+- [ ] **xAI/Grok provider** — Grok-2/3 API
+- [ ] **Mistral provider** — Mistral Large/Codestral direct API
+- [ ] **Together AI provider** — open-source model hosting
+- [ ] **Fireworks AI provider** — fast open-source inference
+- [ ] **Bedrock provider** — AWS Bedrock for enterprise (Claude, Titan, Llama)
+- [ ] **Cohere provider** — Command R+ with RAG
+- [x] ~~**OpenAI-compatible generic provider**~~ — 🟡 STUB: `OpenAiProvider::with_base_url()` exists, accepts any OpenAI-compatible endpoint. Needs config wiring (`[providers.custom]` section) so users don't need code changes.
+- [ ] **Perplexity provider** — search-augmented LLM
+- [x] ~~Provider auto-detection from model name prefix~~ — ✅ DONE: `anthropic/`, `openai/`, `ollama/`, `local/` prefixes already routed in `start.rs`. Extend for `google/`, `deepseek/`, `groq/`, etc.
+- [ ] Provider health dashboard in Web UI
+
+### 1.2 Voice & Speech — Match OpenClaw (Currently: None)
+
+OpenClaw has Voice Wake + Talk Mode + ElevenLabs. Nobody else in Rust has this.
+
+- [ ] **Speech-to-text (STT)** — Whisper API (OpenAI + Groq + local whisper.cpp via `cpal` audio capture)
+- [ ] **Text-to-speech (TTS)** — ElevenLabs + OpenAI TTS + edge-tts (free Microsoft voices)
+- [ ] **Voice mode in Web UI** — push-to-talk + continuous listening toggle
+- [ ] **Voice mode in Telegram** — auto-transcribe voice messages via Whisper, respond with voice notes
+- [ ] **Wake word detection** — local hotword engine (Porcupine or Rust-native)
+- [ ] **Talk Mode overlay** — persistent bidirectional voice conversation (like OpenClaw's Talk Mode)
+- [ ] Voice activity detection (VAD) for auto-segmenting speech
+
+### 1.3 Onboarding & Setup — ✅ Mostly Done
+
+- [x] ~~**`claw setup` interactive wizard**~~ — ✅ DONE (950 LOC in `setup.rs`): 6-step dialoguer TUI wizard — Model → Channels → Autonomy → Services → Mesh → Server. Includes WhatsApp QR linking, multi-channel selection, auto-install of 8 bundled skills.
+- [x] ~~**`claw doctor`**~~ — ✅ DONE (`cmd_doctor` in `mod.rs`): config file validation, denylist checks, API key checks.
+- [ ] **`claw channel doctor`** — per-channel health check with actionable fix suggestions (currently `claw channels status` exists but lacks fix suggestions)
+- [ ] **First-run tutorial** — guided first conversation with explanation of capabilities
+- [ ] **Config migration** — auto-detect OpenClaw/ZeroClaw configs and import
+
+### 1.4 Security Hardening — Beat ZeroClaw (Currently: No encryption, no sandbox)
+
+ZeroClaw has encrypted secrets, Docker sandbox, gateway pairing, tunnel integration. Close every gap.
+
+- [ ] **Secret encryption at rest** — encrypt API keys in `claw.toml` with local key file (AES-256-GCM via `aead` crate)
+- [ ] **`claw secrets encrypt`** — CLI to encrypt/decrypt config secrets
+- [ ] **Docker sandbox runtime** — `runtime.kind = "docker"` for tool execution in disposable containers (like ZeroClaw)
+  - [ ] Configurable image, memory limit, CPU limit, network mode, read-only rootfs
+  - [ ] Per-session sandbox isolation (like OpenClaw)
+- [ ] **Gateway pairing** — 6-digit one-time code on first connect, exchange for bearer token (like ZeroClaw)  
+      _Note: WhatsApp channel already has DM policy with pairing/allowlist/open/disabled modes + PairingRequest system. Generalize to all channels._
+- [ ] **Tunnel integration** — built-in support for:
+  - [ ] Tailscale Serve/Funnel (auto-configure)
+  - [ ] Cloudflare Tunnel
+  - [ ] ngrok
+  - [ ] Custom tunnel command
+- [ ] **Filesystem scoping** — `workspace_only = true` mode restricts all file tools to workspace (like ZeroClaw)
+- [ ] **Forbidden paths** — configurable deny list for dangerous paths (`/etc`, `/root`, `~/.ssh`, etc.)
+- [ ] **Command allowlist/denylist** — restrict which shell commands the agent can execute  
+      _Note: Tool-level allowlist/denylist already exists (`tool_allowlist`/`tool_denylist` in config + `GuardrailEngine`). This is about filtering individual shell commands within `shell_exec`._
+- [ ] **Dangerous command detection** — block `rm -rf /`, `dd if=`, fork bombs, etc.  
+      _Note: 3 guardrails exist (`RiskLevelGuardrail`, `DestructiveActionGuardrail`, `NetworkExfiltrationGuardrail`) but they operate on tool metadata, not raw shell command strings._
+- [ ] **Symlink escape detection** — canonicalize paths, reject escapes from workspace
+- [ ] **Audit log cryptographic signing** — HMAC-SHA256 instead of DefaultHasher
+
+### 1.5 Tunnel & Remote Access — Match OpenClaw + ZeroClaw (Currently: None)
+
+OpenClaw has Tailscale Serve/Funnel. ZeroClaw supports 4 tunnel providers. Claw has nothing.
+
+- [ ] **`[tunnel]` config section** — `provider = "tailscale" | "cloudflare" | "ngrok" | "custom" | "none"`
+- [ ] **Auto-start tunnel** on `claw start` when configured
+- [ ] **Refuse public bind** without tunnel (security default like ZeroClaw)
+- [ ] **Remote gateway access** — expose Web UI + API securely over tunnel with auth
+- [ ] **`claw tunnel status`** — show tunnel URL, connected clients
+
+### 1.6 Identity & Persona System — Match ZeroClaw (Currently: None)
+
+ZeroClaw supports AIEOS identity + OpenClaw-style markdown. PicoClaw has IDENTITY.md + SOUL.md. Claw has nothing.
+
+- [ ] **Workspace identity files** — `IDENTITY.md`, `SOUL.md`, `USER.md`, `AGENTS.md`, `TOOLS.md` in `~/.claw/workspace/`
+- [ ] **AIEOS v1.1 support** — import/export portable AI identity (JSON schema)
+- [ ] **Per-session persona override** — switch identity per channel or session
+- [ ] **`claw identity create`** — interactive persona builder
+- [ ] **`claw identity export`** — export to AIEOS JSON for portability
+
+### 1.7 Heartbeat / Periodic Tasks — 🟡 Partially Done
+
+ZeroClaw has HEARTBEAT.md, PicoClaw has heartbeat with subagent spawning. Claw has cron + heartbeat_cron config + scheduler integration.
+
+- [x] ~~**Configurable heartbeat cron**~~ — ✅ DONE: `heartbeat_cron` in `[autonomy]` config, loaded by `scheduler.rs`, executed by runtime on startup.
+- [ ] **HEARTBEAT.md** — periodic task file in workspace, agent reads every N minutes
+- [ ] **Heartbeat + subagent integration** — spawn subagents for long-running heartbeat tasks
+- [ ] **Heartbeat status in Web UI** — show last run, next run, task history
+
+### 1.8 More Channels — Beat Everyone
+
+OpenClaw leads with 14+ channels. Add the remaining to match and exceed.
+
+- [ ] **iMessage** — BlueBubbles integration (API + webhook) for macOS iMessage bridge
+- [ ] **Matrix** — `matrix-sdk` crate, room-based conversations, E2EE
+- [ ] **Microsoft Teams** — Bot Framework REST API
+- [ ] **Google Chat** — Chat API with service account
+- [ ] **LINE** — LINE Messaging API + webhook
+- [ ] **QQ** — QQ Official/OpenQQ API
+- [ ] **DingTalk/Feishu/Lark** — enterprise IM APIs
+- [ ] **Zalo** — Zalo Official Account API
+- [ ] **Webhook channel** — generic inbound/outbound webhook adapter (any service)
 
 ---
 
-## 🟡 Priority 2 — Feature Gaps
+## 🟡 Priority 2 — Establish Clear Leads (Unique Advantages)
 
-### 2.1 ClawHub — Plugin Registry 🟡 STUB
+> Double down on things only Claw can do. Make these hero features.
 
-**Current**: `PluginRegistry` HTTP client points to non-existent `registry.clawhub.com`.
+### 2.1 Mesh Networking — Nobody Else Has This
 
-Choose a path:
+Claw is the ONLY project with P2P mesh. Make it the killer feature.
 
-- [ ] **Option A**: Build ClawHub as a standalone service (upload, search, download, accounts)
-- [ ] **Option B**: Use GitHub Releases as registry (download from tagged releases)
-- [ ] **Option C**: Remove registry code, keep plugins local-only
+- [ ] Switch to `bincode` or `postcard` for mesh wire format (currently JSON, 2-3× overhead)
+- [ ] Use libp2p `request-response` for point-to-point messages (currently GossipSub floods all peers)
+- [ ] **Mesh dashboard in Web UI** — live peer map, message flow visualization, capability matrix
+- [ ] **Cross-device agent coordination demo** — multi-node task execution with video walkthrough
+- [ ] **Mesh auto-discovery showcase** — zero-config LAN discovery with mDNS
+- [ ] **Mesh security** — per-peer capability authorization, peer ban list
+- [ ] **Mesh relay** — NAT traversal via relay peers for WAN connectivity
 
-### 2.2 Matrix Channel 🔴
+### 2.2 Device Control — 83 Tools, Best in Class
 
-- [ ] Add `matrix-sdk` dependency
-- [ ] Implement room-based conversations
-- [ ] E2EE support
+Nobody else has native CDP + ADB + simctl in a single binary. Showcase it.
+
+- [ ] **Computer Use mode** — full desktop automation via screenshots + coordinate clicking (like Anthropic's computer use)
+- [ ] **Desktop automation** — native macOS (AppleScript/Accessibility) + Linux (xdotool/ydotool) + Windows (UI Automation)
+- [ ] **Screen recording** — capture video of agent actions for audit/replay
+- [ ] **Multi-browser support** — Firefox (via Marionette), Safari (via WebDriver)
+- [ ] **Browser profiles** — persistent sessions, cookie management, authenticated browsing
+- [ ] **Device tool gallery in Web UI** — live device status, screenshot preview, action history
+
+### 2.3 Memory — Already Best, Make It Untouchable
+
+Claw's 3-tier memory + self-learning is unique. Extend the lead.
+
+- [ ] **Memory graph visualization** in Web UI — show connections between facts, categories, lessons
+- [ ] **Memory export/import** — JSON/SQLite dump for backup and migration
+- [x] ~~**Cross-session memory**~~ — ✅ DONE: Semantic memory (facts) is stored globally, not session-scoped. Learned lessons are in `learned_lessons` category accessible to all sessions. Episodic memory is keyed by `session_id` but queryable across sessions.
+- [ ] **Forgetting curve** — auto-decay old memories, prioritize frequently recalled facts
+- [x] ~~**Memory search API**~~ — ✅ DONE: `/api/v1/memory/search?q=` and `/api/v1/memory/facts` endpoints exist in server.
+- [ ] **ANN index (HNSW)** — integrate `usearch` for >10K facts (currently linear scan)
+- [ ] **Memory migration from OpenClaw/ZeroClaw** — import their memory formats
+
+### 2.4 WASM Plugin Ecosystem — Nobody Else Has Sandboxed Plugins
+
+The WASM plugin system is unique. Build the ecosystem.
+
+- [x] ~~**ClawHub registry**~~ — ✅ DONE: Full hub server in `hub.rs` with SQLite-backed skill+plugin storage, publish/search/download/delete. `claw hub serve` runs standalone hub. Proxy mode via `/api/v1/hub/*`.
+- [x] ~~**`claw plugin search`**~~ — ✅ DONE: `PluginRegistry::search()` in `registry.rs`, CLI command `claw plugin search <query>` in `plugins.rs`.
+- [x] ~~**`claw plugin install <name>`**~~ — ✅ DONE: `PluginRegistry::install()` downloads WASM + verifies + installs. CLI command `claw plugin install <name>` in `plugins.rs`.
+- [x] ~~**Plugin page in Web UI**~~ — ✅ DONE: Hub page with Skills + Plugins tabs, search, publish modals (with WASM file upload), pull/delete, stats (total/downloads). Full CRUD.
+- [ ] **Plugin SDK** — Rust + AssemblyScript + TinyGo templates for writing plugins
+- [ ] **10+ community plugins** — GitHub, Jira, Linear, Notion, Todoist, Home Assistant, etc.
+- [ ] **Plugin hot-reload** — detect WASM file changes, reload without restart
+
+### 2.5 Self-Learning — Already Unique, Go Further
+
+No competitor has automatic lesson extraction. Push it further.
+
+- [ ] **Learning dashboard in Web UI** — browse lessons, edit, delete, export
+- [x] ~~**Lesson sharing across sessions**~~ — ✅ DONE: Lessons in semantic memory under `learned_lessons` category (global, not session-scoped). Also broadcast to mesh peers via `MeshMessage::SyncDelta`.
+- [ ] **Lesson confidence scoring** — track how often a lesson was applied successfully
+- [ ] **User-correctable lessons** — "that lesson is wrong, here's the correction"
+- [ ] **Learning analytics** — show improvement over time (error rate reduction)
 
 ---
 
-## 🟢 Priority 3 — Nice to Have
+## 🟢 Priority 3 — Polish & Distribution
 
-### 3.1 Observability
+> Production-ready quality, wide distribution, comprehensive docs.
 
-- [ ] OpenTelemetry export (traces + metrics to Jaeger/Prometheus/Grafana)
-- [ ] Per-session cost tracking in Web UI
-- [ ] Streaming token counter in chat UI
+### 3.1 Documentation Site — Match OpenClaw (Currently: README only)
 
-### 3.2 Security Hardening
+OpenClaw has docs.openclaw.ai. Claw only has README + STATUS.md.
 
-- [ ] Per-session rate limiting (not just per-IP)
-- [ ] Configurable rate limits in `claw.toml`
-- [ ] Tool sandboxing (chroot / namespaces for `shell_exec`)
-- [ ] Audit log cryptographic signing (HMAC instead of DefaultHasher)
+- [ ] **mdBook documentation site** — hosted on GitHub Pages
+  - [ ] Getting Started guide
+  - [ ] Architecture overview with diagrams
+  - [ ] Configuration reference (every key explained)
+  - [ ] Channel setup guides (per-channel)
+  - [ ] Plugin developer guide
+  - [ ] API reference (auto-generated from Axum routes)
+  - [ ] Mesh networking guide
+  - [ ] Device control guide (browser + Android + iOS)
+  - [ ] Security & autonomy guide
+  - [ ] Troubleshooting / FAQ
+- [ ] **`///` doc comments** on all public items (rustdoc)
+- [ ] **Architecture decision records (ADRs)** in docs/
 
-### 3.3 Agent Intelligence
+### 3.2 Distribution — Be Everywhere
 
-- [ ] Agent specialization — per-role system prompts and config
-- [ ] TTL-based tool result pruning (auto-expire old outputs)
-- [ ] Conversation branching (fork a session)
+- [x] ~~**Cross-platform release workflow**~~ — ✅ DONE: `.github/workflows/release.yml` already builds 9 targets:
+  - [x] `x86_64-unknown-linux-gnu` + `musl` ✅
+  - [x] `aarch64-unknown-linux-gnu` + `musl` ✅
+  - [x] `x86_64-apple-darwin` ✅
+  - [x] `aarch64-apple-darwin` ✅
+  - [x] `x86_64-pc-windows-msvc` ✅
+  - [x] `armv7-unknown-linux-gnueabihf` (Raspberry Pi) ✅
+  - [ ] `riscv64gc-unknown-linux-gnu` (RISC-V — match PicoClaw's IoT story)
+  - [x] `aarch64-linux-android` ✅
+- [ ] **Homebrew tap** — `brew install props-nothing/tap/claw`
+- [ ] **Cargo publish** — `cargo install claw` from crates.io
+- [ ] **Docker Hub automated builds** — multi-arch images (amd64 + arm64)
+- [ ] **AUR package** — Arch Linux user repository
+- [ ] **Nix flake** — declarative install (like OpenClaw's nix-openclaw)
+- [ ] **One-line installer** improvements — version pinning, checksum verification, rollback
+- [x] ~~**Auto-updater**~~ — ✅ DONE: `claw update` checks GitHub releases, downloads + replaces binary. Background update check runs automatically on `claw start`.
 
-### 3.4 Distribution
+### 3.3 Edge / IoT Deployment — Match PicoClaw
 
-- [ ] Release workflow — cross-compile for 6 platforms, upload to GitHub Releases
-- [ ] Homebrew tap: `brew install claw`
-- [ ] Cargo publish to crates.io
-- [ ] Docker Hub automated image builds
+PicoClaw runs on $10 RISC-V boards. Claw should too.
 
-### 3.5 Documentation
+- [ ] **Minimal feature profile** — `--no-default-features` strips mesh + WASM + device for tiny binaries
+- [ ] **Size benchmarks** — measure binary size per feature combination
+- [ ] **RISC-V CI builds** — verify compilation and basic tests
+- [ ] **Resource usage benchmarks** — RSS, startup time, idle CPU
+- [ ] **IoT deployment guide** — Raspberry Pi, RISC-V boards, NanoPi, etc.
+- [ ] **Benchmark page** — compare Claw vs OpenClaw vs ZeroClaw vs PicoClaw on size/RAM/startup
 
-- [ ] `///` doc comments on all public items
-- [ ] User guide (mdbook or similar)
-- [ ] Plugin developer guide
-- [ ] API reference (auto-generated)
-- [ ] Architecture decision records (ADRs)
+### 3.4 Web UI — Beat OpenClaw's Control UI
 
-### 3.6 Testing Gaps
+- [ ] **Session management** — scroll to bottom on resume, show session name, delete session button
+- [x] ~~**Memory browser**~~ — 🟡 STUB: basic search + fact listing + category display exists in Web UI. Needs: inline edit, bulk delete, export.
+- [ ] **Goal tracker** — visual goal progress, Gantt-style timeline
+- [ ] **Plugin manager** — install/uninstall/configure plugins from Web UI
+- [ ] **Mesh peer map** — live visualization of connected peers and capabilities
+- [x] ~~**Cost dashboard**~~ — ✅ DONE: Dashboard shows budget today (progress bar, color-coded), daily limit, total spend, total tool calls. Needs: per-session and per-model breakdown, charts.
+- [x] ~~**Settings editor**~~ — 🟡 STUB: Settings page loads config from `/api/v1/config` and displays as read-only JSON. Needs: inline editing + save endpoint + validation.
+- [x] ~~**Mobile-responsive design**~~ — ✅ DONE: Two `@media (max-width: 768px)` blocks in `style.css` (collapsible sidebar, grid adjustments, 95vw modals).
+- [ ] **PWA support** — installable as home screen app
+- [ ] **Dark/light theme toggle**
+- [ ] **WebSocket upgrade** — replace SSE with WebSocket for bidirectional streaming
 
-- [ ] `claw-channels` tests — Discord/Slack/WhatsApp/Signal unit tests
+### 3.5 Observability — Enterprise-Ready
+
+- [ ] **OpenTelemetry export** — traces + metrics to Jaeger/Prometheus/Grafana
+- [ ] **Per-session cost tracking** — track USD spend per session, surface in Web UI
+- [x] ~~**Streaming token counter**~~ — ✅ DONE: `StreamChunk::Usage(Usage)` emitted during streaming. `Usage` struct tracks `input_tokens`, `output_tokens`, `thinking_tokens`, `cache_read_tokens`, `cache_write_tokens`. Parsed from OpenAI + Anthropic stream events.
+- [x] ~~**Health check endpoint**~~ — ✅ DONE: `/health` endpoint exists with `HealthResponse` struct. Extend with detailed component status (LLM, memory, channels, mesh).
+- [x] ~~**Structured JSON logging**~~ — ✅ DONE: `logging.format = "json" | "pretty" | "compact"` in config. `tracing_subscriber::fmt().json()` initialized when format is `"json"` in `mod.rs`.
+
+### 3.6 Testing — Beat ZeroClaw's 1,017 Tests
+
+ZeroClaw claims 1,017 tests. Claw has 182. Close the gap decisively.
+
+- [ ] `claw-channels` tests — mock server tests for Discord, Slack, WhatsApp, Signal
 - [ ] `claw-mesh` tests — peer registration, message routing, capability matching
-- [ ] `claw-cli` tests — command parsing, output formatting
-- [ ] `claw-device` tests — CDP mocking, ADB command construction
-- [ ] Plugin lifecycle integration test: load → list tools → execute → unload
-- [ ] End-to-end test with real LLM (gated behind env flag)
-- [ ] Target: double test count from 182 → 350+
+- [ ] `claw-cli` tests — command parsing, output formatting, completions
+- [ ] `claw-device` tests — CDP mock, ADB command construction, iOS simctl parsing
+- [ ] Plugin lifecycle integration test — load → list tools → execute → unload
+- [ ] End-to-end test with mock LLM — full agent loop with tool calls
+- [ ] Approval flow integration test — trigger → prompt → approve → continue
+- [ ] Memory compaction stress test — 10K messages → compaction → verify recall
+- [ ] Mesh networking integration test — 3 peers, delegate task, collect result
+- [ ] Target: **500+ tests** (beat ZeroClaw on density — tests per LOC)
 
-### 3.7 Config & UX
+### 3.7 Agent Intelligence
 
-- [ ] Feature-gate `libp2p` behind cargo feature (reduce binary size ~2-3 MB)
-- [ ] Feature-gate `wasmtime` behind cargo feature (reduce binary size ~1-2 MB)
-- [ ] WebSocket support (optional upgrade from SSE for chat)
-- [ ] Config hot-reload notification in Web UI
-- [ ] Plugin page in Web UI (list loaded plugins, tools, install/uninstall)
+- [x] ~~**Agent specialization**~~ — ✅ DONE: `sub_agent_system_prompt(role)` generates role-specific prompts for: planner, coder/developer, reviewer, tester/qa, researcher. Config supports `system_prompt` + `system_prompt_file`.
+- [ ] **Conversation branching** — fork a session into two paths
+- [ ] **TTL-based tool result pruning** — auto-expire old outputs from context
+- [x] ~~**Parallel tool execution**~~ — ✅ DONE: `is_parallel_safe()` + `JoinSet` concurrent execution in `agent_loop.rs`. Config flag `parallel_tool_calls` (default: true), `max_parallel_tools` (default: 8).
+- [ ] **Streaming tool results** — pipe stdout/stderr from shell commands in real-time
 
----
+### 3.8 Remaining Performance Items
 
-## Summary — What's Left
-
-| Priority | Item                              | Effort    | Impact                         |
-| -------- | --------------------------------- | --------- | ------------------------------ |
-| ✅ P0.1  | Cache hostname (LazyLock)         | ~~5 min~~ | **DONE** — unblocks tokio      |
-| ✅ P0.2  | Shared reqwest::Client            | ~~5 min~~ | **DONE** — saves ~100ms/search |
-| ✅ P0.3  | `Arc<Vec<Tool>>` for tools        | ~~30 min~~| **DONE** — no more deep clone  |
-| ✅ P0.4  | RwLock for MemoryStore            | ~~2-3 hrs~~| **DONE** — concurrent reads   |
-| ✅ P0.5  | Unify streaming/non-streaming     | ~~4-6 hrs~~| **DONE** — -720 LOC           |
-| 🟡 P0.6  | Arc messages in loop              | —         | Partially resolved by P0.5     |
-| ✅ P0.7  | SSE buffer.drain()               | ~~5 min~~ | **DONE** — no realloc          |
-| ✅ P0.8  | `prepare_cached()` in SQLite      | ~~15 min~~| **DONE** — 2-3× query speedup |
-| ✅ P0.9  | N+1 goal queries → JOIN           | ~~20 min~~| **DONE** — 21 queries → 1     |
-| ✅ P0.10 | Partial sort in vector search     | ~~10 min~~| **DONE** — O(n) partition      |
-| ✅ P0.13 | WASM InstancePre (pre-link)       | ~~30 min~~| **DONE** — no Linker per call  |
-| ✅ P0.15 | `VecDeque` for episodes           | ~~5 min~~ | **DONE** — O(n) → O(1)         |
-| ✅ P0.17 | EventBus capacity 4096→256        | ~~2 min~~ | **DONE** — saves ~30 KB        |
-| ✅ P0.18 | WASM AOT compilation cache        | ~~30 min~~| **DONE** — skip recompile      |
-| 🔴 P1    | Memory DB integrity check         | 1 hour    | Prevents data loss             |
-| 🔴 P1    | Session UI polish                 | 2 hours   | Better UX                      |
-| 🟡 P2    | ClawHub registry                  | 3-5 days  | Low — local plugins work       |
-| 🟡 P2    | Matrix channel                    | 2-3 days  | Medium — niche audience        |
-| 🟢 P3    | OpenTelemetry                     | 2-3 days  | Medium                         |
-| 🟢 P3    | Feature-gate libp2p + wasmtime    | 1 day     | ~3-5 MB binary size reduction  |
-| 🟢 P3    | Documentation                     | Ongoing   | Medium                         |
-| 🟢 P3    | Double test coverage (181 → 350+) | Ongoing   | Medium                         |
-| 🟢 P3    | Distribution (brew, crates.io)    | 2-3 days  | Medium                         |
+- [ ] `Arc<Vec<Message>>` or COW for streaming-loop message clones (P0.6)
+- [ ] Typed request structs for LLM API bodies — eliminate `serde_json::json!` double-serialization (P0.14)
+- [ ] `Uuid` as HashMap keys directly, `as_bytes()` for SQL BLOBs (P0.16)
 
 ---
 
-## Corrections from 2026-02-16 accuracy review
+## 🏆 Competitive Scorecard (Target State)
 
-The previous TODO.md (dated 2026-02-12) had several stale entries. Changes made:
-
-| Item | Old (wrong) | New (correct) |
-|---|---|---|
-| Test count | 176 | **182** |
-| Total Rust LOC | 26,179 | **~34,900** |
-| Web UI LOC | 3,394 | **3,906** |
-| Builtin tools | 30 | **38** (added sub_agent ×3, cron ×3, channel_send_file, llm_generate) |
-| Total tools | 75 | **83** (38 builtin + 45 device) |
-| CLI commands | 15 | **17** (added channels, help) |
-| API routes | 18-19 (inconsistent) | **22** (added sub-tasks, scheduled-tasks, events SSE, screenshots) |
-| Docker Rust version | "needs updating from 1.88" | **Already updated to 1.93** ✅ |
-| Discord | "Stub — all methods TODO" | **Fully implemented** (524 LOC, gateway + REST) ✅ |
-| Slack | "No code" | **Fully implemented** (510 LOC, Events API + Socket Mode) ✅ |
-| WhatsApp | "No code" | **Fully implemented** (1,514 LOC, Business Cloud API) ✅ |
-| Signal | Not mentioned | **Fully implemented** (324 LOC, signal-cli JSON-RPC) ✅ |
-| Sub-agent spawning | "TODO" | **Fully implemented** (943 LOC, 3 tools) ✅ |
-| Scheduled tasks | Not mentioned | **Fully implemented** (440 LOC, 3 tools) ✅ |
-| claw-runtime LOC | 7,558 | **10,842** |
-| claw-channels LOC | 1,093 | **4,539** |
-| claw-cli LOC | 2,007 | **3,276** |
+| Feature         | OpenClaw          | ZeroClaw         | PicoClaw            | **Claw (Target)**                                  |
+| --------------- | ----------------- | ---------------- | ------------------- | -------------------------------------------------- |
+| LLM Providers   | Many              | 22+              | 7                   | **25+ (OpenRouter + 12 direct)** ✅                |
+| Channels        | 14+               | 6                | 5                   | **15+ (all major + webhook)** ✅                   |
+| Memory          | Basic             | Hybrid search    | Basic markdown      | **3-tier + self-learning ✅ (already best)**       |
+| Tools           | ~20               | ~15              | ~10                 | **90+ (30 builtin + 45 device + 15 new)** ✅       |
+| Mesh Networking | ❌                | ❌               | ❌                  | **✅ libp2p (only us)**                            |
+| WASM Plugins    | ❌                | ❌               | ❌                  | **✅ wasmtime (only us)**                          |
+| Voice/Speech    | ✅ (best)         | ❌               | ❌                  | **✅ STT + TTS + wake word**                       |
+| Autonomy Levels | 1 mode            | 3 levels         | Binary              | **5 levels + budget + approval ✅ (already best)** |
+| Security        | Sandbox           | Encrypted+paired | Basic               | **Encrypted + paired + sandboxed + scoped** ✅     |
+| Device Control  | Node-based        | ❌               | ❌                  | **✅ CDP + ADB + simctl native (already best)**    |
+| Native Apps     | macOS+iOS+Android | ❌               | ❌                  | Web UI + PWA                                       |
+| Docs Site       | ✅ (excellent)    | README           | README              | **✅ mdBook site**                                 |
+| Tests           | Vitest suite      | 1,017            | Unknown             | **500+**                                           |
+| Binary Size     | ~390MB (Node)     | 3.4 MB           | ~8 MB               | **<10 MB** ✅                                      |
+| RAM Usage       | >1 GB             | <5 MB            | <10 MB              | **<10 MB** ✅                                      |
+| Edge/IoT        | ❌                | Mentioned        | **✅ ($10 RISC-V)** | **✅ (RISC-V + ARM builds)**                       |
+| Onboarding      | Wizard            | Wizard           | Wizard              | **✅ Interactive wizard**                          |
 
 ---
 
-_Last updated: 2026-02-16 — 181 tests (1 ignored), 83 tools (38 builtin + 45 device), 22 API routes, ~38.1k lines (~34.2k Rust + 3.9k Web). 13 of 18 P0 perf items fixed (P0.6 partial, P0.11/P0.12/P0.14/P0.16 deferred)._
+## Summary — Execution Order
+
+| Phase       | Items                                                                                                            | Effort     | Impact                                |
+| ----------- | ---------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------- |
+| **Week 1**  | OpenRouter + Gemini + DeepSeek providers, secret encryption, OpenAI-compat config wiring                         | 3-4 days   | Closes #1 gap, matches provider count |
+| **Week 2**  | Groq + xAI + more providers, gateway pairing (generalize WhatsApp model), filesystem scoping, command allowlists | 3-4 days   | Security parity with ZeroClaw         |
+| **Week 3**  | Voice (STT via Whisper + TTS via ElevenLabs/OpenAI), voice in Web UI + Telegram                                  | 5 days     | Matches OpenClaw's killer feature     |
+| **Week 4**  | Docker sandbox runtime, tunnel integration (Tailscale + Cloudflare + ngrok)                                      | 4 days     | Enterprise-ready security             |
+| **Week 5**  | iMessage + Matrix + Teams channels, webhook channel, identity/persona system                                     | 5 days     | Channel parity with OpenClaw          |
+| **Week 6**  | mdBook docs site, Homebrew tap, remaining channel integrations                                                   | 4 days     | Professional distribution             |
+| **Week 7**  | HEARTBEAT.md, mesh improvements (binary format, request-response, dashboard)                                     | 4 days     | Amplify unique advantages             |
+| **Week 8**  | Test blitz (target 500+), Web UI polish (PWA, theme toggle, settings editor)                                     | 5 days     | Production quality                    |
+| **Ongoing** | WASM plugin ecosystem (hot-reload, SDK), desktop automation, learning analytics, IoT benchmarks                  | Continuous | Long-term moat                        |
+
+---
+
+_Last updated: 2026-02-16 — 182 tests, 83 tools (38 builtin + 45 device), 22 API routes, ~38.1k lines (~34.2k Rust + 3.9k Web). 13 of 18 P0 perf items fixed. Already done: cross-platform builds (9 targets), auto-updater, setup wizard, doctor, parallel tools, health check, ClawHub (search+install+publish), cost dashboard, memory browser, streaming tokens, JSON logging, mobile responsive, agent specialization, cross-session memory, lesson sharing, memory search API. **Target: beat all competitors within 8 weeks.**_
