@@ -1280,10 +1280,10 @@ async function renderHub(el) {
           </div>
           <div class="modal-body">
             <p style="margin-bottom:12px;color:var(--text-secondary);font-size:13px">
-              Paste the full TOML content of your skill definition below.
+              Paste the full SKILL.md content below (Markdown with YAML frontmatter).
               The hub will parse it, validate the schema, and publish it.
             </p>
-            <textarea id="hub-toml-input" class="hub-toml-textarea" rows="18" placeholder="# Paste your skill .toml here&#10;[skill]&#10;name = &quot;my_skill&quot;&#10;description = &quot;…&quot;&#10;version = &quot;1.0.0&quot;&#10;&#10;[[steps]]&#10;…"></textarea>
+            <textarea id="hub-toml-input" class="hub-toml-textarea" rows="18" placeholder="---&#10;name: my-skill&#10;description: What this skill does&#10;version: 1.0.0&#10;tags: [example, automation]&#10;author: Your Name&#10;---&#10;&#10;# My Skill&#10;&#10;## Overview&#10;Instructions for the LLM…"></textarea>
             <div id="hub-publish-error" class="hub-publish-error" style="display:none"></div>
           </div>
           <div class="modal-footer">
@@ -1383,7 +1383,9 @@ async function renderHub(el) {
   // ── Tab switching ──
   el.querySelectorAll(".hub-tab").forEach((tab) => {
     tab.addEventListener("click", () => {
-      el.querySelectorAll(".hub-tab").forEach((t) => t.classList.remove("active"));
+      el.querySelectorAll(".hub-tab").forEach((t) =>
+        t.classList.remove("active"),
+      );
       tab.classList.add("active");
       const which = tab.dataset.hubTab;
       $("#hub-panel-skills").style.display = which === "skills" ? "" : "none";
@@ -1471,7 +1473,7 @@ async function renderHub(el) {
           </div>
           <div class="hub-skill-desc">${escHtml(s.description)}</div>
           <div class="hub-skill-tags">
-            ${s.tags.map((t) => `<span class="badge badge-info">${escHtml(t)}</span>`).join("")}
+            ${(s.tags || []).map((t) => `<span class="badge badge-info">${escHtml(t)}</span>`).join("")}
           </div>
           <div class="hub-skill-footer">
             <span class="hub-skill-meta">
@@ -1499,6 +1501,7 @@ async function renderHub(el) {
   async function showSkillDetail(name) {
     try {
       const skill = await api(`/api/v1/hub/skills/${encodeURIComponent(name)}`);
+      const skillTags = skill.tags || [];
       $("#hub-detail-title").textContent = skill.name;
       $("#hub-detail-body").innerHTML = `
         <div class="hub-detail-grid">
@@ -1506,46 +1509,26 @@ async function renderHub(el) {
             <div class="hub-detail-row"><strong>Description:</strong> ${escHtml(skill.description)}</div>
             <div class="hub-detail-row"><strong>Version:</strong> ${escHtml(skill.version)}</div>
             <div class="hub-detail-row"><strong>Author:</strong> ${escHtml(skill.author || "—")}</div>
-            <div class="hub-detail-row"><strong>Risk Level:</strong> ${riskBadge(skill.risk_level)}</div>
-            <div class="hub-detail-row"><strong>Steps:</strong> ${skill.steps_count}</div>
-            <div class="hub-detail-row"><strong>Downloads:</strong> ${skill.downloads}</div>
+            <div class="hub-detail-row"><strong>Risk Level:</strong> ${riskBadge(skill.risk_level || 0)}</div>
+            <div class="hub-detail-row"><strong>Steps:</strong> ${skill.steps_count || "—"}</div>
+            <div class="hub-detail-row"><strong>Downloads:</strong> ${skill.downloads || 0}</div>
             <div class="hub-detail-row"><strong>Published:</strong> ${formatDate(skill.published_at)}</div>
             <div class="hub-detail-row"><strong>Updated:</strong> ${formatDate(skill.updated_at)}</div>
-            ${skill.tags.length > 0 ? `<div class="hub-detail-row"><strong>Tags:</strong> ${skill.tags.map((t) => `<span class="badge badge-info">${escHtml(t)}</span>`).join(" ")}</div>` : ""}
-            ${
-              skill.parameters.length > 0
-                ? `
-              <div class="hub-detail-row"><strong>Parameters:</strong></div>
-              <div class="hub-params-list">
-                ${skill.parameters
-                  .map(
-                    (p) => `
-                  <div class="hub-param">
-                    <code>${escHtml(p.name)}</code>
-                    ${p.required ? '<span class="badge badge-error">required</span>' : '<span class="badge badge-success">optional</span>'}
-                    <span class="hub-param-desc">${escHtml(p.description)}</span>
-                  </div>
-                `,
-                  )
-                  .join("")}
-              </div>
-            `
-                : ""
-            }
+            ${skillTags.length > 0 ? `<div class="hub-detail-row"><strong>Tags:</strong> ${skillTags.map((t) => `<span class="badge badge-info">${escHtml(t)}</span>`).join(" ")}</div>` : ""}
           </div>
           <div class="hub-detail-toml">
             <div class="hub-detail-toml-header">
-              <strong>Skill Definition (TOML)</strong>
+              <strong>SKILL.md Content</strong>
               <button class="btn" id="hub-copy-toml" style="font-size:11px;padding:2px 8px">Copy</button>
             </div>
-            <pre class="hub-toml-pre"><code>${escHtml(skill.toml_content)}</code></pre>
+            <pre class="hub-toml-pre"><code>${escHtml(skill.skill_content || "")}</code></pre>
           </div>
         </div>`;
 
       const copyBtn = $("#hub-copy-toml");
       if (copyBtn) {
         copyBtn.addEventListener("click", () => {
-          navigator.clipboard.writeText(skill.toml_content).then(() => {
+          navigator.clipboard.writeText(skill.skill_content || "").then(() => {
             copyBtn.textContent = "Copied!";
             setTimeout(() => (copyBtn.textContent = "Copy"), 1500);
           });
@@ -1636,7 +1619,7 @@ async function renderHub(el) {
     const toml = $("#hub-toml-input").value.trim();
     const errEl = $("#hub-publish-error");
     if (!toml) {
-      errEl.textContent = "Please paste the TOML content of your skill.";
+      errEl.textContent = "Please paste the SKILL.md content of your skill.";
       errEl.style.display = "block";
       return;
     }
@@ -1648,7 +1631,7 @@ async function renderHub(el) {
     try {
       await api("/api/v1/hub/skills", {
         method: "POST",
-        body: JSON.stringify({ toml_content: toml }),
+        body: JSON.stringify({ skill_content: toml }),
       });
       publishModal.style.display = "none";
       submitBtn.disabled = false;
@@ -1730,13 +1713,17 @@ async function renderHub(el) {
           </div>
           <div class="hub-skill-desc">${escHtml(p.description)}</div>
           <div class="hub-plugin-tools">
-            ${(p.tools || []).map((t) => `
+            ${(p.tools || [])
+              .map(
+                (t) => `
               <span class="hub-plugin-tool-chip" title="${escHtml(t.description)}">
                 ${t.is_mutating ? "✏️" : "🔍"} ${escHtml(t.name)}
                 <span class="hub-plugin-tool-risk">${t.risk_level}</span>
               </span>
-            `).join("")}
-            ${(!p.tools || p.tools.length === 0) ? '<span class="badge badge-info">No tools</span>' : ""}
+            `,
+              )
+              .join("")}
+            ${!p.tools || p.tools.length === 0 ? '<span class="badge badge-info">No tools</span>' : ""}
           </div>
           <div class="hub-skill-footer">
             <span class="hub-skill-meta">
@@ -1771,7 +1758,9 @@ async function renderHub(el) {
 
   async function showPluginDetail(name) {
     try {
-      const plugin = await api(`/api/v1/hub/plugins/${encodeURIComponent(name)}`);
+      const plugin = await api(
+        `/api/v1/hub/plugins/${encodeURIComponent(name)}`,
+      );
       $("#hub-pdetail-title").textContent = plugin.name;
       $("#hub-pdetail-body").innerHTML = `
         <div class="hub-detail-grid">
@@ -1826,7 +1815,10 @@ async function renderHub(el) {
       // Download button
       const dlBtn = $("#hub-pdetail-download");
       dlBtn.onclick = () => {
-        window.open(`${API}/api/v1/hub/plugins/${encodeURIComponent(name)}/${encodeURIComponent(plugin.version)}`, "_blank");
+        window.open(
+          `${API}/api/v1/hub/plugins/${encodeURIComponent(name)}/${encodeURIComponent(plugin.version)}`,
+          "_blank",
+        );
       };
 
       // Delete button
@@ -1866,7 +1858,7 @@ async function renderHub(el) {
     $("#hub-plugin-toml").value = "";
     selectedWasmFile = null;
     const dropText = $("#hub-wasm-drop-text");
-    dropText.innerHTML = '📦 Click or drag a <code>.wasm</code> file here';
+    dropText.innerHTML = "📦 Click or drag a <code>.wasm</code> file here";
     $("#hub-ppub-error").style.display = "none";
   });
 

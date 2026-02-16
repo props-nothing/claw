@@ -217,12 +217,19 @@ pub fn hub_proxy_routes() -> Router<Arc<crate::AppState>> {
 /// Merged into the agent's router when NO `services.hub_url` is set.
 pub fn local_hub_routes() -> Router<Arc<crate::AppState>> {
     Router::new()
-        .route("/api/v1/hub/skills", get(local_list_skills))
+        .route("/api/v1/hub/skills", get(local_list_skills).post(local_publish_skill))
         .route("/api/v1/hub/skills/search", get(local_list_skills))
-        .route("/api/v1/hub/skills/{name}", get(local_get_skill))
+        .route(
+            "/api/v1/hub/skills/{name}",
+            get(local_get_skill).delete(local_delete_skill),
+        )
+        .route("/api/v1/hub/skills/{name}/pull", post(local_pull_skill))
         .route("/api/v1/hub/plugins", get(local_list_plugins))
         .route("/api/v1/hub/plugins/search", get(local_list_plugins))
-        .route("/api/v1/hub/plugins/{name}", get(local_get_plugin))
+        .route(
+            "/api/v1/hub/plugins/{name}",
+            get(local_get_plugin).delete(local_delete_plugin),
+        )
         .route("/api/v1/hub/stats", get(local_hub_stats))
 }
 
@@ -319,6 +326,121 @@ async fn local_get_plugin(
         .find(|p| p["name"].as_str() == Some(name.as_str()))
         .map(Json)
         .ok_or(StatusCode::NOT_FOUND)
+}
+
+/// "Pull" a local skill — it's already on disk, so just return success with the version.
+async fn local_pull_skill(
+    State(state): State<Arc<crate::AppState>>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let skills = discover_local_skills(&state.skills_dir);
+    let skill = skills
+        .into_iter()
+        .find(|s| s["name"].as_str() == Some(&name))
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let version = skill["version"].as_str().unwrap_or("1.0.0");
+    Ok(Json(serde_json::json!({
+        "name": name,
+        "version": version,
+        "skill_content": skill["skill_content"],
+    })))
+}
+
+/// Delete a local skill by removing its directory from disk.
+async fn local_delete_skill(
+    State(state): State<Arc<crate::AppState>>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    // Find the skill to get its directory name
+    let mut registry = claw_skills::SkillRegistry::new_single(&state.skills_dir);
+    let _ = registry.discover();
+
+    let def = registry.get(&name).ok_or(StatusCode::NOT_FOUND)?;
+    let skill_dir = def.base_dir.clone();
+
+    // Safety: only delete if it's actually inside the skills directory
+    if !skill_dir.starts_with(&state.skills_dir) {
+        warn!(skill = %name, dir = ?skill_dir, "refusing to delete skill outside skills_dir");
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    std::fs::remove_dir_all(&skill_dir).map_err(|e| {
+        warn!(error = %e, skill = %name, "failed to delete skill directory");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    info!(skill = %name, "local skill deleted");
+    Ok(Json(serde_json::json!({
+        "status": "deleted",
+        "name": name,
+    })))
+}
+
+/// Publish (create) a new skill locally by writing a SKILL.md to the skills directory.
+async fn local_publish_skill(
+    State(state): State<Arc<crate::AppState>>,
+    Json(req): Json<PublishRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    // Parse to validate
+    let def = claw_skills::SkillDefinition::parse(
+        &req.skill_content,
+        std::path::PathBuf::from("local://uploaded"),
+        std::path::PathBuf::from("local://"),
+    )
+    .map_err(|e| {
+        warn!(error = %e, "invalid SKILL.md submitted locally");
+        StatusCode::BAD_REQUEST
+    })?;
+
+    // Derive a directory-safe name from the skill name
+    let dir_name: String = def
+        .name
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .collect();
+    let skill_dir = state.skills_dir.join(&dir_name);
+
+    std::fs::create_dir_all(&skill_dir).map_err(|e| {
+        warn!(error = %e, "failed to create skill directory");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    std::fs::write(skill_dir.join("SKILL.md"), &req.skill_content).map_err(|e| {
+        warn!(error = %e, "failed to write SKILL.md");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    info!(skill = %def.name, version = %def.version, "skill published locally");
+    Ok(Json(serde_json::json!({
+        "status": "published",
+        "name": def.name,
+        "version": def.version,
+    })))
+}
+
+/// Delete a local plugin by removing its directory from disk.
+async fn local_delete_plugin(
+    State(state): State<Arc<crate::AppState>>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let plugin_dir = state.plugin_dir.join(&name);
+
+    if !plugin_dir.exists() || !plugin_dir.starts_with(&state.plugin_dir) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    std::fs::remove_dir_all(&plugin_dir).map_err(|e| {
+        warn!(error = %e, plugin = %name, "failed to delete plugin directory");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    info!(plugin = %name, "local plugin deleted");
+    Ok(Json(serde_json::json!({
+        "status": "deleted",
+        "name": name,
+    })))
 }
 
 /// Hub stats from the local filesystem.
