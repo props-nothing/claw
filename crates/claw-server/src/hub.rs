@@ -217,7 +217,10 @@ pub fn hub_proxy_routes() -> Router<Arc<crate::AppState>> {
 /// Merged into the agent's router when NO `services.hub_url` is set.
 pub fn local_hub_routes() -> Router<Arc<crate::AppState>> {
     Router::new()
-        .route("/api/v1/hub/skills", get(local_list_skills).post(local_publish_skill))
+        .route(
+            "/api/v1/hub/skills",
+            get(local_list_skills).post(local_publish_skill),
+        )
         .route("/api/v1/hub/skills/search", get(local_list_skills))
         .route(
             "/api/v1/hub/skills/{name}",
@@ -398,7 +401,13 @@ async fn local_publish_skill(
         .name
         .to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     let skill_dir = state.skills_dir.join(&dir_name);
 
