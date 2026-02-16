@@ -869,6 +869,11 @@ td.mono {
   border-color: var(--border-light);
 }
 
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);

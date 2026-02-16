@@ -141,7 +141,9 @@ pub fn build_router(
         .route("/api/v1/mesh/send", post(mesh_send_handler))
         .route("/api/v1/sub-tasks", get(sub_tasks_handler))
         .route("/api/v1/scheduled-tasks", get(scheduled_tasks_handler))
-        .route("/api/v1/events", get(events_sse_handler));
+        .route("/api/v1/events", get(events_sse_handler))
+        .route("/api/v1/restart", post(restart_handler))
+        .route("/api/v1/update/check", get(update_check_handler));
 
     // Apply API key auth if configured
     let api_routes = if config.api_key.is_some() {
@@ -756,7 +758,7 @@ async fn get_handle(state: &AppState) -> Option<RuntimeHandle> {
     Some(h)
 }
 
-/// Start the HTTP server.
+/// Start the HTTP server with graceful shutdown support.
 pub async fn start_server(
     config: ServerConfig,
     hub_url: Option<String>,
@@ -764,7 +766,12 @@ pub async fn start_server(
     plugin_dir: std::path::PathBuf,
 ) -> claw_core::Result<()> {
     let listen = config.listen.clone();
-    let router = build_router(config, hub_url, skills_dir, plugin_dir);
+    let router = build_router(
+        config,
+        hub_url.clone(),
+        skills_dir.clone(),
+        plugin_dir.clone(),
+    );
 
     info!(listen = %listen, "starting HTTP server");
 
@@ -773,8 +780,154 @@ pub async fn start_server(
         .map_err(|e| claw_core::ClawError::Agent(format!("failed to bind {listen}: {e}")))?;
 
     axum::serve(listener, router)
+        .with_graceful_shutdown(shutdown_signal())
         .await
         .map_err(|e| claw_core::ClawError::Agent(format!("server error: {e}")))?;
 
+    // If restart was requested, re-exec ourselves
+    if RESTART_REQUESTED.load(std::sync::atomic::Ordering::SeqCst) {
+        info!("restart requested — re-execing");
+        restart_self();
+    }
+
     Ok(())
+}
+
+/// Global flag: when true, the server will re-exec after graceful shutdown.
+static RESTART_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Listen for SIGINT/SIGTERM or a restart request.
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+
+    #[cfg(unix)]
+    {
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler");
+        tokio::select! {
+            _ = ctrl_c => info!("received Ctrl+C, shutting down gracefully"),
+            _ = sigterm.recv() => info!("received SIGTERM, shutting down gracefully"),
+            _ = wait_for_restart() => info!("restart requested, shutting down gracefully"),
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        tokio::select! {
+            _ = ctrl_c => info!("received Ctrl+C, shutting down gracefully"),
+            _ = wait_for_restart() => info!("restart requested, shutting down gracefully"),
+        }
+    }
+}
+
+/// Notification channel for restart requests.
+static RESTART_NOTIFY: std::sync::OnceLock<tokio::sync::Notify> = std::sync::OnceLock::new();
+
+fn get_restart_notify() -> &'static tokio::sync::Notify {
+    RESTART_NOTIFY.get_or_init(tokio::sync::Notify::new)
+}
+
+async fn wait_for_restart() {
+    get_restart_notify().notified().await;
+}
+
+/// Re-exec the current binary with the same arguments.
+fn restart_self() {
+    let exe = match std::env::current_exe() {
+        Ok(e) => e,
+        Err(e) => {
+            warn!(error = %e, "cannot determine binary path for restart");
+            return;
+        }
+    };
+    let args: Vec<String> = std::env::args().collect();
+
+    info!(binary = %exe.display(), "re-execing");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        let err = std::process::Command::new(&exe).args(&args[1..]).exec();
+        // exec() only returns on error
+        warn!(error = %err, "re-exec failed");
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = std::process::Command::new(&exe).args(&args[1..]).spawn();
+        std::process::exit(0);
+    }
+}
+
+/// POST /api/v1/restart — trigger a graceful restart.
+async fn restart_handler() -> Json<serde_json::Value> {
+    info!("restart requested via API");
+    RESTART_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+    get_restart_notify().notify_one();
+    Json(serde_json::json!({
+        "status": "restarting",
+        "message": "Graceful restart initiated. The agent will be back shortly.",
+    }))
+}
+
+/// GET /api/v1/update/check — check for available updates.
+async fn update_check_handler() -> Json<serde_json::Value> {
+    let current = env!("CARGO_PKG_VERSION");
+
+    let client = match reqwest::Client::builder()
+        .user_agent("claw-update-check")
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => {
+            return Json(serde_json::json!({
+                "current": current,
+                "latest": current,
+                "update_available": false,
+            }));
+        }
+    };
+
+    let latest = match client
+        .get("https://api.github.com/repos/props-nothing/claw/releases/latest")
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => match resp.json::<serde_json::Value>().await {
+            Ok(data) => data["tag_name"]
+                .as_str()
+                .map(|t| t.strip_prefix('v').unwrap_or(t).to_string())
+                .unwrap_or_else(|| current.to_string()),
+            Err(_) => current.to_string(),
+        },
+        _ => current.to_string(),
+    };
+
+    let update_available = version_newer(&latest, current);
+
+    Json(serde_json::json!({
+        "current": current,
+        "latest": latest,
+        "update_available": update_available,
+    }))
+}
+
+/// Simple semver comparison: is `a` newer than `b`?
+fn version_newer(a: &str, b: &str) -> bool {
+    let parse =
+        |v: &str| -> Vec<u64> { v.split('.').filter_map(|s| s.parse::<u64>().ok()).collect() };
+    let va = parse(a);
+    let vb = parse(b);
+    for i in 0..va.len().max(vb.len()) {
+        let xa = va.get(i).copied().unwrap_or(0);
+        let xb = vb.get(i).copied().unwrap_or(0);
+        if xa > xb {
+            return true;
+        }
+        if xa < xb {
+            return false;
+        }
+    }
+    false
 }

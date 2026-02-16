@@ -11,6 +11,7 @@ mod plugins;
 mod setup;
 mod skills;
 mod start;
+mod update;
 
 /// 🦞 Claw — Universal autonomous AI agent runtime
 #[derive(Parser)]
@@ -133,6 +134,20 @@ enum Commands {
         #[command(subcommand)]
         action: ChannelAction,
     },
+    /// Self-update to the latest release from GitHub
+    Update {
+        /// Force re-download even if already at latest version
+        #[arg(long)]
+        force: bool,
+        /// Don't restart the running agent after updating
+        #[arg(long)]
+        no_restart: bool,
+        /// Only check for updates, don't install
+        #[arg(long)]
+        check: bool,
+    },
+    /// Restart the running agent gracefully
+    Restart,
 }
 
 #[derive(Subcommand)]
@@ -338,6 +353,50 @@ impl Cli {
             Commands::Hub { action } => skills::cmd_hub(action).await,
             Commands::Mesh { action } => mesh::cmd_mesh(config, action).await,
             Commands::Channels { action } => channels::cmd_channels(config, action).await,
+            Commands::Update {
+                force,
+                no_restart,
+                check,
+            } => {
+                if check {
+                    match update::check_for_update().await {
+                        Some((current, latest)) => {
+                            println!("🆕 Update available: v{current} → v{latest}");
+                            println!("   Run `claw update` to install.");
+                        }
+                        None => {
+                            println!("✅ Already up to date (v{}).", env!("CARGO_PKG_VERSION"));
+                        }
+                    }
+                    Ok(())
+                } else {
+                    update::cmd_update(config, force, no_restart).await
+                }
+            }
+            Commands::Restart => {
+                let listen = &config.server.listen;
+                println!("Requesting graceful restart at http://{listen}...");
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(10))
+                    .build()
+                    .unwrap_or_default();
+                match client
+                    .post(format!("http://{listen}/api/v1/restart"))
+                    .send()
+                    .await
+                {
+                    Ok(resp) if resp.status().is_success() => {
+                        println!("✅ Restart initiated. The agent will restart momentarily.");
+                    }
+                    Ok(resp) => {
+                        println!("❌ Restart failed: HTTP {}", resp.status());
+                    }
+                    Err(e) => {
+                        println!("❌ Cannot reach agent at {listen}: {e}");
+                    }
+                }
+                Ok(())
+            }
         }
     }
 

@@ -335,7 +335,24 @@ async function renderDashboard(el) {
                 <div class="card-detail">${status.channels.length ? status.channels.map((c) => `<span class="badge badge-info" style="margin-right:4px;">${escHtml(c)}</span>`).join("") : "No channels connected"}</div>
             </div>
         </div>
+
+        <div class="card-grid">
+            <div class="card" id="update-card">
+                <div class="card-header">
+                    <span class="card-label">Updates</span>
+                </div>
+                <div class="card-value" style="font-size: 16px;" id="update-status">Checking...</div>
+                <div class="card-detail" id="update-detail"></div>
+                <div style="margin-top: 12px; display: flex; gap: 8px;">
+                    <button class="btn btn-sm" id="btn-check-update" onclick="checkForUpdates()">Check for Updates</button>
+                    <button class="btn btn-sm btn-danger" id="btn-restart" onclick="restartAgent()">Restart Agent</button>
+                </div>
+            </div>
+        </div>
     </div>`;
+
+  // Trigger async update check on dashboard load
+  checkForUpdates();
 }
 
 // ── Chat Page ─────────────────────────────────────────────────
@@ -2461,6 +2478,78 @@ function handleNotification(notification) {
       msgsEl.innerHTML = chatMessages.map(renderChatMessage).join("");
       chatAutoScroll();
     }
+  }
+}
+
+// ── Update & Restart ──────────────────────────────────────────
+
+async function checkForUpdates() {
+  const statusEl = document.getElementById("update-status");
+  const detailEl = document.getElementById("update-detail");
+  const btn = document.getElementById("btn-check-update");
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = "Checking...";
+
+  try {
+    const res = await fetch("/api/v1/update/check");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+
+    if (data.update_available) {
+      if (statusEl) {
+        statusEl.innerHTML = `<span style="color:var(--accent)">v${escHtml(data.latest)} available</span>`;
+      }
+      if (detailEl) {
+        detailEl.textContent = `Current: v${data.current}. Run "claw update" on the server to update.`;
+      }
+    } else {
+      if (statusEl) statusEl.textContent = `v${data.current} (latest)`;
+      if (detailEl) detailEl.textContent = "You are running the latest version.";
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = "Check failed";
+    if (detailEl) detailEl.textContent = e.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function restartAgent() {
+  if (!confirm("Restart the Claw agent? Active sessions will be preserved.")) return;
+
+  const btn = document.getElementById("btn-restart");
+  if (btn) { btn.disabled = true; btn.textContent = "Restarting..."; }
+
+  try {
+    const res = await fetch("/api/v1/restart", { method: "POST" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+
+    const statusEl = document.getElementById("update-status");
+    if (statusEl) statusEl.textContent = "Restarting...";
+
+    // Poll until the server comes back (up to 30s)
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      attempts++;
+      try {
+        const r = await fetch("/api/v1/status");
+        if (r.ok) {
+          clearInterval(poll);
+          if (statusEl) statusEl.textContent = "Restarted ✓";
+          if (btn) { btn.disabled = false; btn.textContent = "Restart Agent"; }
+          setTimeout(() => navigate(), 1000);
+        }
+      } catch (_) {
+        if (attempts > 30) {
+          clearInterval(poll);
+          if (statusEl) statusEl.textContent = "Restart may have failed";
+          if (btn) { btn.disabled = false; btn.textContent = "Restart Agent"; }
+        }
+      }
+    }, 1000);
+  } catch (e) {
+    alert("Failed to restart: " + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = "Restart Agent"; }
   }
 }
 

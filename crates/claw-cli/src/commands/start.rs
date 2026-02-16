@@ -14,6 +14,16 @@ pub(super) async fn cmd_start(
     println!("   Autonomy: L{}", config.autonomy.level);
     println!();
 
+    // Background update check — non-blocking, best-effort
+    tokio::spawn(async {
+        match super::update::check_for_update().await {
+            Some((current, latest)) => {
+                println!("   📦 Update available: v{current} → v{latest}  (run `claw update`)");
+            }
+            None => {} // up to date or network error
+        }
+    });
+
     // Start config hot-reload watcher (kept alive for duration of runtime)
     let _watcher = match config_loader.watch() {
         Ok(w) => {
