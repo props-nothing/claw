@@ -8,11 +8,15 @@ use crate::manifest::PluginManifest;
 use claw_core::{Result, Tool, ToolCall, ToolResult};
 
 /// A loaded plugin instance.
+///
+/// With the `wasm` feature, stores a pre-linked `InstancePre` so that each
+/// tool call only needs a fresh `Store` + `instantiate_async` — the expensive
+/// compilation and linking steps are done once at load time (P0.13).
 pub struct LoadedPlugin {
     pub manifest: PluginManifest,
     pub wasm_path: PathBuf,
     #[cfg(feature = "wasm")]
-    module: Module,
+    instance_pre: InstancePre<()>,
 }
 
 /// The plugin host manages loading, sandboxing, and executing WASM plugins.
@@ -149,23 +153,32 @@ impl PluginHost {
         let name = manifest.plugin.name.clone();
 
         // Find the .wasm file
-        let wasm_path = dir.join(format!("{name}.wasm"));
+        let mut wasm_path = dir.join(format!("{name}.wasm"));
         if !wasm_path.exists() {
-            // Try any .wasm file in the directory
-            let wasm_files: Vec<_> = std::fs::read_dir(dir)
-                .map_err(|e| claw_core::ClawError::Plugin {
-                    plugin: name.clone(),
-                    reason: e.to_string(),
-                })?
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().is_some_and(|ext| ext == "wasm"))
-                .collect();
+            // Also try underscore variant (Cargo outputs foo_bar.wasm for foo-bar)
+            let underscore_name = name.replace('-', "_");
+            let alt_path = dir.join(format!("{underscore_name}.wasm"));
+            if alt_path.exists() {
+                wasm_path = alt_path;
+            } else {
+                // Fall back to any .wasm file in the directory
+                let wasm_files: Vec<_> = std::fs::read_dir(dir)
+                    .map_err(|e| claw_core::ClawError::Plugin {
+                        plugin: name.clone(),
+                        reason: e.to_string(),
+                    })?
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path().extension().is_some_and(|ext| ext == "wasm"))
+                    .collect();
 
-            if wasm_files.is_empty() {
-                return Err(claw_core::ClawError::Plugin {
-                    plugin: name,
-                    reason: "no .wasm file found".into(),
-                });
+                if let Some(first) = wasm_files.first() {
+                    wasm_path = first.path();
+                } else {
+                    return Err(claw_core::ClawError::Plugin {
+                        plugin: name,
+                        reason: "no .wasm file found".into(),
+                    });
+                }
             }
         }
 
@@ -184,11 +197,59 @@ impl PluginHost {
         }
 
         #[cfg(feature = "wasm")]
-        let module =
-            Module::new(&self.engine, &wasm_bytes).map_err(|e| claw_core::ClawError::Plugin {
+        let instance_pre = {
+            // P0.18: AOT compilation cache — avoid recompiling unchanged modules.
+            // Cache key = blake3 hash of the raw WASM bytes so a plugin update
+            // automatically invalidates the cache.
+            let hash = blake3::hash(&wasm_bytes);
+            let cache_dir = self.plugin_dir.join(".cache");
+            let cache_path = cache_dir.join(format!("{name}-{}.cwasm", &hash.to_hex()[..16]));
+
+            let module = if cache_path.exists() {
+                // SAFETY: we only deserialize artifacts we serialized ourselves
+                // from a content-addressed cache (keyed by WASM hash).
+                let bytes = std::fs::read(&cache_path).map_err(|e| claw_core::ClawError::Plugin {
+                    plugin: name.clone(),
+                    reason: format!("failed to read cached module: {e}"),
+                })?;
+                unsafe {
+                    Module::deserialize(&self.engine, &bytes)
+                }.map_err(|e| {
+                    // Cache may be stale (engine config change) — fall through to recompile
+                    warn!(plugin = %name, error = %e, "cached module invalid, recompiling");
+                    let _ = std::fs::remove_file(&cache_path);
+                    claw_core::ClawError::Plugin {
+                        plugin: name.clone(),
+                        reason: format!("cached module invalid: {e}"),
+                    }
+                }).unwrap_or_else(|_| {
+                    Module::new(&self.engine, &wasm_bytes).expect("recompile after cache miss")
+                })
+            } else {
+                let module = Module::new(&self.engine, &wasm_bytes)
+                    .map_err(|e| claw_core::ClawError::Plugin {
+                        plugin: name.clone(),
+                        reason: format!("failed to compile wasm: {}", e),
+                    })?;
+
+                // Write cache (best-effort — don't fail the load if caching fails)
+                if std::fs::create_dir_all(&cache_dir).is_ok() {
+                    if let Ok(serialized) = module.serialize() {
+                        let _ = std::fs::write(&cache_path, serialized);
+                        debug!(plugin = %name, "cached compiled WASM module");
+                    }
+                }
+                module
+            };
+
+            // P0.13: Pre-link at load time — each execute_wasm() only needs
+            // Store::new + instantiate_async, skipping the Linker entirely.
+            let linker = Linker::new(&self.engine);
+            linker.instantiate_pre(&module).map_err(|e| claw_core::ClawError::Plugin {
                 plugin: name.clone(),
-                reason: format!("failed to compile wasm: {}", e),
-            })?;
+                reason: format!("failed to pre-link wasm module: {}", e),
+            })?
+        };
 
         self.plugins.insert(
             name.clone(),
@@ -196,7 +257,7 @@ impl PluginHost {
                 manifest,
                 wasm_path,
                 #[cfg(feature = "wasm")]
-                module,
+                instance_pre,
             },
         );
 
@@ -209,7 +270,7 @@ impl PluginHost {
             .values()
             .flat_map(|plugin| {
                 plugin.manifest.tools.iter().map(|t| Tool {
-                    name: format!("{}.{}", plugin.manifest.plugin.name, t.name),
+                    name: format!("{}_{}", plugin.manifest.plugin.name.replace('-', "_"), t.name),
                     description: t.description.clone(),
                     parameters: t.parameters.clone(),
                     capabilities: vec![],
@@ -228,10 +289,19 @@ impl PluginHost {
     /// - `claw_malloc(size: u32) -> u32` — allocate bytes
     /// - `claw_invoke(ptr: u32, len: u32) -> u64` — execute tool, return packed (ptr << 32 | len)
     pub async fn execute(&self, call: &ToolCall) -> Result<ToolResult> {
-        // Parse "plugin_name.tool_name" format
-        let (plugin_name, tool_name) = call
-            .tool_name
-            .split_once('.')
+        // Parse "plugin_name_tool_name" format.
+        // Plugin names may contain hyphens but are normalized to underscores
+        // in tool names (OpenAI requires ^[a-zA-Z0-9_-]+$).
+        // Strategy: try each loaded plugin name (underscored) as a prefix.
+        let (plugin_name, tool_name) = self
+            .plugins
+            .keys()
+            .find_map(|pname| {
+                let prefix = format!("{}_", pname.replace('-', "_"));
+                call.tool_name
+                    .strip_prefix(&prefix)
+                    .map(|rest| (pname.as_str(), rest))
+            })
             .ok_or_else(|| claw_core::ClawError::ToolNotFound(call.tool_name.clone()))?;
 
         let plugin = self
@@ -302,10 +372,10 @@ impl PluginHost {
                 reason: format!("failed to set fuel: {}", e),
             })?;
 
-        // Instantiate the module with an empty linker (sandboxed — no WASI imports)
-        let linker = Linker::new(&self.engine);
-        let instance = linker
-            .instantiate_async(&mut store, &plugin.module)
+        // P0.13: Use pre-linked InstancePre — no Linker creation per call
+        let instance = plugin
+            .instance_pre
+            .instantiate_async(&mut store)
             .await
             .map_err(|e| claw_core::ClawError::Plugin {
                 plugin: plugin_name.clone(),
@@ -442,6 +512,16 @@ impl PluginHost {
     /// Check if a specific plugin is loaded.
     pub fn is_loaded(&self, name: &str) -> bool {
         self.plugins.contains_key(name)
+    }
+
+    /// Check whether a tool name belongs to any loaded plugin.
+    /// Tool names use the format `pluginname_toolname` where hyphens in the
+    /// plugin name are replaced with underscores.
+    pub fn is_plugin_tool(&self, tool_name: &str) -> bool {
+        self.plugins.keys().any(|pname| {
+            let prefix = format!("{}_", pname.replace('-', "_"));
+            tool_name.starts_with(&prefix)
+        })
     }
 
     /// Unload a plugin.

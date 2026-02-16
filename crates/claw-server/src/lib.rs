@@ -46,6 +46,10 @@ pub struct AppState {
     /// Hub proxy — forwards `/api/v1/hub/*` to the remote Skills Hub when
     /// `services.hub_url` is configured.
     pub hub_proxy: Option<hub::HubProxy>,
+    /// Local skills directory (e.g. ~/.claw/skills/).
+    pub skills_dir: std::path::PathBuf,
+    /// Local plugins directory (e.g. ~/.claw/plugins/).
+    pub plugin_dir: std::path::PathBuf,
 }
 
 /// Health check response.
@@ -88,7 +92,12 @@ fn default_limit() -> usize {
 }
 
 /// Build the Axum router.
-pub fn build_router(config: ServerConfig, hub_url: Option<String>) -> Router {
+pub fn build_router(
+    config: ServerConfig,
+    hub_url: Option<String>,
+    skills_dir: std::path::PathBuf,
+    plugin_dir: std::path::PathBuf,
+) -> Router {
     // Set up hub proxy if a remote hub URL is configured
     let hub_proxy = hub_url.map(|url| {
         info!(hub_url = %url, "skills hub proxy enabled — forwarding /api/v1/hub/* to remote hub");
@@ -103,6 +112,8 @@ pub fn build_router(config: ServerConfig, hub_url: Option<String>) -> Router {
         handle: RwLock::new(None),
         metrics: metrics::Metrics::new(),
         hub_proxy,
+        skills_dir,
+        plugin_dir,
     });
 
     let api_routes = Router::new()
@@ -172,10 +183,10 @@ pub fn build_router(config: ServerConfig, hub_url: Option<String>) -> Router {
         .route("/api/v1/screenshots/{filename}", get(screenshot_handler))
         .merge(api_routes);
 
-    // Merge hub proxy routes when a remote hub URL is configured
-    if state.hub_proxy.is_some() {
-        router = router.merge(hub::hub_proxy_routes());
-    }
+    // Always mount local hub routes so the web UI shows local skills + plugins.
+    // When a remote hub_url is configured, the proxy routes take precedence
+    // for write operations (publish, pull), but we always have local read routes.
+    router = router.merge(hub::local_hub_routes());
 
     // Serve static files for the Web UI
     if config.web_ui {
@@ -746,9 +757,14 @@ async fn get_handle(state: &AppState) -> Option<RuntimeHandle> {
 }
 
 /// Start the HTTP server.
-pub async fn start_server(config: ServerConfig, hub_url: Option<String>) -> claw_core::Result<()> {
+pub async fn start_server(
+    config: ServerConfig,
+    hub_url: Option<String>,
+    skills_dir: std::path::PathBuf,
+    plugin_dir: std::path::PathBuf,
+) -> claw_core::Result<()> {
     let listen = config.listen.clone();
-    let router = build_router(config, hub_url);
+    let router = build_router(config, hub_url, skills_dir, plugin_dir);
 
     info!(listen = %listen, "starting HTTP server");
 

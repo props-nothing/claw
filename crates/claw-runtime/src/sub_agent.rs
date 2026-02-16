@@ -459,7 +459,7 @@ fn run_sub_agent_task(
                     info!(task_id = %task_id, role = %role, "auto-failed linked goal step");
                     // Persist updated goal + step to SQLite
                     if let Some(goal) = planner.get(gid) {
-                        let mem = state.memory.lock().await;
+                        let mem = state.memory.read().await;
                         let _ = mem.persist_goal(
                             &gid,
                             &goal.description,
@@ -478,7 +478,7 @@ fn run_sub_agent_task(
                     info!(task_id = %task_id, role = %role, "auto-completed linked goal step");
                     // Persist updated goal + step to SQLite
                     if let Some(goal) = planner.get(gid) {
-                        let mem = state.memory.lock().await;
+                        let mem = state.memory.read().await;
                         let _ = mem.persist_goal(
                             &gid,
                             &goal.description,
@@ -746,7 +746,7 @@ pub(crate) async fn exec_cron_schedule(state: &SharedAgentState, call: &ToolCall
             Ok(task_id) => {
                 // Persist to SQLite
                 if let Some(task) = scheduler.get(task_id).await {
-                    let mem = state.memory.lock().await;
+                    let mem = state.memory.read().await;
                     persist_task_to_db(&mem, &task);
                 }
                 ToolResult {
@@ -784,7 +784,7 @@ pub(crate) async fn exec_cron_schedule(state: &SharedAgentState, call: &ToolCall
             .await;
         // Persist to SQLite
         if let Some(task) = scheduler.get(task_id).await {
-            let mem = state.memory.lock().await;
+            let mem = state.memory.read().await;
             persist_task_to_db(&mem, &task);
         }
         ToolResult {
@@ -924,7 +924,7 @@ pub(crate) async fn exec_cron_cancel(state: &SharedAgentState, call: &ToolCall) 
     let removed = scheduler.remove(task_id).await;
     if removed {
         // Remove from SQLite
-        let mem = state.memory.lock().await;
+        let mem = state.memory.read().await;
         let _ = mem.delete_scheduled_task(&task_id.to_string());
         ToolResult {
             tool_call_id: call.id.clone(),

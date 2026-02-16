@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use claw_core::{Message, Result, Tool};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// A request to an LLM provider.
 #[derive(Debug, Clone)]
@@ -9,8 +10,8 @@ pub struct LlmRequest {
     pub model: String,
     /// Conversation history.
     pub messages: Vec<Message>,
-    /// Available tools.
-    pub tools: Vec<Tool>,
+    /// Available tools (Arc-wrapped to avoid deep-cloning on every iteration).
+    pub tools: Arc<Vec<Tool>>,
     /// System prompt (separate from messages for providers that support it).
     pub system: Option<String>,
     /// Maximum tokens to generate.

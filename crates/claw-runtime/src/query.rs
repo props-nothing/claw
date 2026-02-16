@@ -65,7 +65,7 @@ pub(crate) async fn handle_query(
         }
         QueryKind::SessionMessages(ref session_id_str) => {
             if let Ok(sid) = session_id_str.parse::<Uuid>() {
-                let mem = state.memory.lock().await;
+                let mem = state.memory.read().await;
                 let mut messages_slice = mem.working.messages(sid);
 
                 // If working memory is empty, try loading from SQLite
@@ -180,7 +180,7 @@ pub(crate) async fn handle_query(
             serde_json::json!({ "tools": all })
         }
         QueryKind::Facts => {
-            let mem = state.memory.lock().await;
+            let mem = state.memory.read().await;
             let facts: Vec<serde_json::Value> = mem
                 .semantic
                 .all_facts()
@@ -212,7 +212,7 @@ pub(crate) async fn handle_query(
                 None
             };
 
-            let mem = state.memory.lock().await;
+            let mem = state.memory.read().await;
             let episodes = mem.episodic.search(query_text);
 
             // Use vector search for facts when embedding is available
@@ -325,7 +325,7 @@ pub(crate) async fn handle_query(
             })
         }
         QueryKind::AuditLog(limit) => {
-            let mem = state.memory.lock().await;
+            let mem = state.memory.read().await;
             let entries: Vec<serde_json::Value> = mem
                 .audit_log(limit)
                 .into_iter()

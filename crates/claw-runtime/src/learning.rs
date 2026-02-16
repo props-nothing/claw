@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::agent::SharedAgentState;
 use claw_core::{Message, Role};
 use claw_llm::LlmRequest;
@@ -307,7 +309,7 @@ async fn extract_lessons_via_llm(
     let request = LlmRequest {
         model: model.to_string(),
         messages: vec![Message::text(Uuid::nil(), Role::User, &prompt)],
-        tools: vec![],
+        tools: Arc::new(vec![]),
         system: Some("You are a precise lesson extractor. Output only valid JSON.".to_string()),
         max_tokens: 1024,
         temperature: 0.2,
@@ -352,7 +354,7 @@ async fn extract_lessons_via_llm(
 pub(crate) async fn maybe_extract_lessons(state: &SharedAgentState, session_id: Uuid) {
     // Read messages — brief lock
     let messages = {
-        let mem = state.memory.lock().await;
+        let mem = state.memory.read().await;
         mem.working.messages(session_id).to_vec()
     };
 
@@ -371,7 +373,7 @@ pub(crate) async fn maybe_extract_lessons(state: &SharedAgentState, session_id: 
     info!(session = %session_id, count = lessons.len(), "extracted lessons from conversation");
 
     // Persist each lesson as a semantic fact
-    let mut mem = state.memory.lock().await;
+    let mut mem = state.memory.write().await;
     for (key, lesson) in &lessons {
         let fact = claw_memory::semantic::Fact {
             id: Uuid::new_v4(),
@@ -399,7 +401,7 @@ pub(crate) async fn maybe_extract_lessons(state: &SharedAgentState, session_id: 
             .collect();
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         if let Ok(embeddings) = embedder.embed(&text_refs).await {
-            let mem = state.memory.lock().await;
+            let mem = state.memory.read().await;
             for (i, (key, _lesson)) in lessons.iter().enumerate() {
                 if let Some(emb) = embeddings.get(i) {
                     // Re-persist with embedding

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tokio::sync::oneshot;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -72,8 +74,8 @@ pub(crate) async fn execute_tool_shared(state: &SharedAgentState, call: &ToolCal
         }
     }
 
-    // Plugin tools — "plugin_name.tool_name" (dot-separated)
-    if call.tool_name.contains('.') {
+    // Plugin tools — "pluginname_toolname" (underscore-separated, plugin prefix matched)
+    if state.plugins.is_plugin_tool(&call.tool_name) {
         match state.plugins.execute(call).await {
             Ok(result) => return result,
             Err(e) => {
@@ -123,7 +125,7 @@ async fn exec_llm_generate_shared(state: &SharedAgentState, call: &ToolCall) -> 
             tool_calls: vec![],
             metadata: serde_json::Map::new(),
         }],
-        tools: vec![],
+        tools: Arc::new(vec![]),
         system: Some("You are a helpful assistant. Respond concisely and directly.".into()),
         max_tokens,
         temperature: state.config.agent.temperature,
@@ -198,8 +200,7 @@ async fn exec_web_search_shared(state: &SharedAgentState, call: &ToolCall) -> To
 
     info!(query = query, count = count, "executing web search");
 
-    let client = reqwest::Client::new();
-    let resp = match client
+    let resp = match state.http_client
         .get("https://api.search.brave.com/res/v1/web/search")
         .header("Accept", "application/json")
         .header("X-Subscription-Token", &api_key)
@@ -608,7 +609,7 @@ async fn exec_memory_search_shared(state: &SharedAgentState, call: &ToolCall) ->
         None
     };
 
-    let mem = state.memory.lock().await;
+    let mem = state.memory.read().await;
     let mut results = Vec::new();
 
     if mem_type == "episodic" || mem_type == "all" {
@@ -711,7 +712,7 @@ async fn exec_memory_store_shared(state: &SharedAgentState, call: &ToolCall) -> 
         None
     };
 
-    let mut mem = state.memory.lock().await;
+    let mut mem = state.memory.write().await;
 
     let fact = claw_memory::semantic::Fact {
         id: Uuid::new_v4(),
@@ -779,7 +780,7 @@ async fn exec_memory_delete_shared(state: &SharedAgentState, call: &ToolCall) ->
         };
     }
 
-    let mut mem = state.memory.lock().await;
+    let mut mem = state.memory.write().await;
 
     let result_msg = if let Some(key) = key {
         // Delete a specific fact
@@ -815,7 +816,7 @@ async fn exec_memory_delete_shared(state: &SharedAgentState, call: &ToolCall) ->
 async fn exec_memory_list_shared(state: &SharedAgentState, call: &ToolCall) -> ToolResult {
     let filter_category = call.arguments.get("category").and_then(|v| v.as_str());
 
-    let mem = state.memory.lock().await;
+    let mem = state.memory.read().await;
     let mut lines = Vec::new();
 
     if let Some(cat) = filter_category {
@@ -903,7 +904,7 @@ async fn exec_goal_create_shared(state: &SharedAgentState, call: &ToolCall) -> T
 
     // Persist goal to SQLite
     {
-        let mem = state.memory.lock().await;
+        let mem = state.memory.read().await;
         if let Err(e) = mem.persist_goal(&goal_id, &description, "active", priority, 0.0, None) {
             warn!(error = %e, "failed to persist goal to SQLite");
         }
@@ -1035,7 +1036,7 @@ async fn exec_goal_complete_step_shared(state: &SharedAgentState, call: &ToolCal
             .and_then(|g| g.steps.iter().find(|s| s.id == step_id))
             .map(|s| s.description.clone())
             .unwrap_or_default();
-        let mem = state.memory.lock().await;
+        let mem = state.memory.read().await;
         let _ = mem.persist_goal(
             &goal_id,
             &goal_desc,
@@ -1124,7 +1125,7 @@ async fn exec_goal_update_status_shared(state: &SharedAgentState, call: &ToolCal
             .unwrap_or_default();
         let goal_priority = planner.get(goal_id).map(|g| g.priority).unwrap_or(5);
         let goal_progress = planner.get(goal_id).map(|g| g.progress).unwrap_or(0.0);
-        let mem = state.memory.lock().await;
+        let mem = state.memory.read().await;
         let _ = mem.persist_goal(
             &goal_id,
             &goal_desc,

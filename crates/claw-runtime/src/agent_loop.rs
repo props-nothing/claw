@@ -1,11 +1,12 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use claw_autonomy::{ApprovalResponse, AutonomyLevel, guardrail::GuardrailVerdict};
 use claw_channels::adapter::IncomingMessage;
-use claw_core::{Event, Message, Role, Tool, ToolResult};
+use claw_core::{Message, Role, Tool, ToolResult};
 use claw_device::DeviceTools;
 use claw_llm::{LlmRequest, StopReason};
 use claw_mesh::MeshMessage;
@@ -145,7 +146,7 @@ pub(crate) async fn process_mesh_message(state: SharedAgentState, message: MeshM
                             .and_then(|v| v.as_f64())
                             .unwrap_or(0.8);
                         let source = format!("mesh:{peer_id}");
-                        let mut mem = state.memory.lock().await;
+                        let mut mem = state.memory.write().await;
                         // Upsert into in-memory semantic store
                         mem.semantic.upsert(claw_memory::semantic::Fact {
                             id: uuid::Uuid::new_v4(),
@@ -186,7 +187,7 @@ pub(crate) async fn process_mesh_message(state: SharedAgentState, message: MeshM
                                     .collect()
                             })
                             .unwrap_or_default();
-                        let mut mem = state.memory.lock().await;
+                        let mut mem = state.memory.write().await;
                         let episode = claw_memory::episodic::Episode {
                             id: uuid::Uuid::new_v4(),
                             session_id: uuid::Uuid::new_v4(),
@@ -644,7 +645,7 @@ async fn maybe_compact_context(
     session_id: Uuid,
 ) -> claw_core::Result<bool> {
     let needs_compaction = {
-        let mem = state.memory.lock().await;
+        let mem = state.memory.read().await;
         mem.working.needs_compaction(session_id)
     };
 
@@ -653,7 +654,7 @@ async fn maybe_compact_context(
     }
 
     let compaction_data = {
-        let mem = state.memory.lock().await;
+        let mem = state.memory.read().await;
         mem.working.prepare_compaction_request(session_id)
     };
 
@@ -686,7 +687,7 @@ async fn maybe_compact_context(
     let request = LlmRequest {
         model: compaction_model.to_string(),
         messages: vec![Message::text(Uuid::nil(), Role::User, &compaction_prompt)],
-        tools: vec![],
+        tools: Arc::new(vec![]),
         system: Some(
             "You are a precise conversation summarizer. Output only the summary, nothing else."
                 .to_string(),
@@ -700,7 +701,7 @@ async fn maybe_compact_context(
     match state.llm.complete(&request, None).await {
         Ok(response) => {
             let summary = response.message.text_content();
-            let mut mem = state.memory.lock().await;
+            let mut mem = state.memory.write().await;
             mem.working
                 .apply_llm_compaction(session_id, &summary, messages_to_remove);
             let new_token_count = mem.working.token_count(session_id);
@@ -715,7 +716,7 @@ async fn maybe_compact_context(
         Err(e) => {
             // Fallback to naive compaction if LLM fails
             warn!(session = %session_id, error = %e, "LLM compaction failed, using naive compaction");
-            let mut mem = state.memory.lock().await;
+            let mut mem = state.memory.write().await;
             mem.working.compact(session_id);
             Ok(true)
         }
@@ -729,741 +730,22 @@ pub(crate) async fn process_message_shared(
     incoming: IncomingMessage,
     override_session_id: Option<Uuid>,
 ) -> claw_core::Result<String> {
-    let target = incoming.group.as_deref().unwrap_or(&incoming.sender);
-    let target_owned = target.to_string();
-    let channel_id_owned = channel_id.to_string();
-    let session_id = match override_session_id {
-        Some(id) => id,
-        None => state.sessions.find_or_create(channel_id, target).await,
-    };
+    // Delegate to the streaming path with a sink channel and collect the final text.
+    // This eliminates ~750 lines of near-duplicate logic.
+    let (tx, mut rx) = mpsc::channel::<StreamEvent>(64);
 
-    info!(
-        session = %session_id,
-        channel = channel_id,
-        sender = %incoming.sender,
-        "processing message"
-    );
+    process_message_streaming_shared(state, channel_id, incoming, &tx, override_session_id)
+        .await?;
 
-    state.event_bus.publish(Event::MessageReceived {
-        session_id,
-        message_id: Uuid::new_v4(),
-        channel: channel_id.to_string(),
-    });
+    // Drop the sender so the receiver terminates
+    drop(tx);
 
-    let user_text = incoming.text.unwrap_or_default();
-
-    // 1. RECEIVE + RECALL — embed query (before lock) then search memory
-    // Generate query embedding outside the memory lock (async I/O)
-    let query_embedding = if let Some(ref embedder) = state.embedder {
-        match embedder.embed(&[&user_text]).await {
-            Ok(vecs) if !vecs.is_empty() => Some(vecs.into_iter().next().unwrap()),
-            _ => None,
-        }
-    } else {
-        None
-    };
-
-    let (context_parts, active_goals) = {
-        let mut mem = state.memory.lock().await;
-        let user_msg = Message::text(session_id, Role::User, &user_text);
-        mem.working.push(user_msg);
-        drop(mem);
-        state.sessions.record_message(session_id).await;
-        let mem = state.memory.lock().await;
-
-        let relevant_episodes = mem.episodic.search(&user_text);
-
-        // Build a combined keyword query from user text for broader matching
-        // Also extract key nouns/terms that the word-level search can match
-        let search_terms = extract_search_keywords(&user_text);
-
-        // Collect facts from multiple search strategies, dedup by category+key
-        let mut seen_fact_keys = std::collections::HashSet::new();
-        let mut relevant_facts: Vec<String> = Vec::new();
-
-        // Strategy 1: Vector search (best quality when embeddings available)
-        if let Some(ref qemb) = query_embedding {
-            for (fact, _score) in mem.semantic.vector_search(qemb, 10) {
-                let fk = format!("{}:{}", fact.category, fact.key);
-                if seen_fact_keys.insert(fk) {
-                    relevant_facts.push(format!(
-                        "- [{}] {}: {}",
-                        fact.category, fact.key, fact.value
-                    ));
-                }
-            }
-        }
-
-        // Strategy 2: Word-level keyword search on user text
-        for fact in mem.semantic.search(&user_text).iter().take(10) {
-            let fk = format!("{}:{}", fact.category, fact.key);
-            if seen_fact_keys.insert(fk) {
-                relevant_facts.push(format!(
-                    "- [{}] {}: {}",
-                    fact.category, fact.key, fact.value
-                ));
-            }
-        }
-
-        // Strategy 3: Search with extracted keywords (catches domain-specific terms)
-        if search_terms != user_text.to_lowercase() {
-            for fact in mem.semantic.search(&search_terms).iter().take(5) {
-                let fk = format!("{}:{}", fact.category, fact.key);
-                if seen_fact_keys.insert(fk) {
-                    relevant_facts.push(format!(
-                        "- [{}] {}: {}",
-                        fact.category, fact.key, fact.value
-                    ));
-                }
-            }
-        }
-
-        // Cap total facts to avoid bloating the system prompt
-        relevant_facts.truncate(15);
-
-        let mut parts = Vec::new();
-        if !relevant_episodes.is_empty() {
-            let episodes_text: Vec<String> = relevant_episodes
-                .iter()
-                .take(5)
-                .map(|e| format!("- {}", e.summary))
-                .collect();
-            parts.push(format!(
-                "Relevant past conversations:\n{}",
-                episodes_text.join("\n")
-            ));
-        }
-        if !relevant_facts.is_empty() {
-            parts.push(format!(
-                "Relevant knowledge:\n{}",
-                relevant_facts.join("\n")
-            ));
-        }
-
-        // Always load learned lessons — these are high-value self-corrections
-        let lessons: Vec<String> = mem
-            .semantic
-            .category("learned_lessons")
-            .iter()
-            .map(|f| format!("- **{}**: {}", f.key, f.value))
-            .collect();
-        if !lessons.is_empty() {
-            parts.push(format!(
-                "Lessons learned from past sessions (apply these!):\n{}",
-                lessons.join("\n")
-            ));
-        }
-
-        drop(mem); // release memory lock
-
-        let planner = state.planner.lock().await;
-        let goals: Vec<_> = planner.active_goals().into_iter().cloned().collect();
-        drop(planner); // release planner lock
-
-        (parts, goals)
-    };
-
-    // 2. BUILD system prompt — no locks needed
-    let mut system_prompt = state
-        .config
-        .agent
-        .system_prompt
-        .clone()
-        .unwrap_or_else(build_default_system_prompt);
-    if !context_parts.is_empty() {
-        system_prompt.push_str("\n\n<memory>\n");
-        system_prompt.push_str(&context_parts.join("\n\n"));
-        system_prompt.push_str("\n</memory>");
-    }
-    if !active_goals.is_empty() {
-        system_prompt.push_str("\n\n<active_goals>\n");
-        for goal in &active_goals {
-            system_prompt.push_str(&format!(
-                "- [{}] {} (progress: {:.0}%)\n",
-                goal.id,
-                goal.description,
-                goal.progress * 100.0
-            ));
-        }
-        system_prompt.push_str("</active_goals>");
-    }
-
-    // Add mesh peer context so the LLM knows about the network
-    {
-        let mesh = state.mesh.lock().await;
-        if mesh.is_running() {
-            let peers = mesh.peer_list();
-            if !peers.is_empty() {
-                system_prompt.push_str("\n\n<mesh_network>\n");
-                system_prompt.push_str(&format!(
-                    "Your peer ID: {}\n",
-                    &mesh.peer_id()[..12.min(mesh.peer_id().len())]
-                ));
-                system_prompt.push_str(&format!(
-                    "Your capabilities: [{}]\n",
-                    state.config.mesh.capabilities.join(", ")
-                ));
-                system_prompt.push_str(&format!("Connected peers ({}):\n", peers.len()));
-                for p in &peers {
-                    system_prompt.push_str(&format!(
-                        "  - {} ({}) — capabilities: [{}]\n",
-                        p.hostname,
-                        &p.peer_id[..8.min(p.peer_id.len())],
-                        p.capabilities.join(", "),
-                    ));
-                }
-                system_prompt.push_str(
-                    "Use mesh_delegate to send tasks to peers with capabilities you lack.\n",
-                );
-                system_prompt.push_str("</mesh_network>");
-            }
-        }
-    }
-
-    // Add available skills to system prompt (SKILL.md prompt-injection)
-    {
-        let skills = state.skills.lock().await;
-        if let Some(block) = skills.system_prompt_block() {
-            system_prompt.push_str(&block);
-        }
-    }
-
-    // Add credential provider context so the LLM knows how to retrieve secrets
-    if state.config.credentials.provider != "none" {
-        system_prompt.push_str("\n\n<credentials>\n");
-        system_prompt.push_str(&format!(
-            "Provider: {}\n",
-            state.config.credentials.provider
-        ));
-        if let Some(ref vault) = state.config.credentials.default_vault {
-            system_prompt.push_str(&format!("Default vault: {vault}\n"));
-        }
-        let has_service_account = state.config.credentials.service_account_token.is_some();
-        if has_service_account {
-            system_prompt.push_str(
-                "Mode: service account (headless — no biometric prompts)\n\
-                 OP_SERVICE_ACCOUNT_TOKEN is set in the environment. The `op` CLI works without the desktop app.\n\
-                 You can call `op` commands directly — no Touch ID or user interaction required.\n\n"
-            );
-        } else {
-            system_prompt.push_str(
-                "Mode: desktop app integration (biometric / Touch ID)\n\
-                 The 1Password desktop app handles authentication via biometric unlock.\n\
-                 IMPORTANT: To avoid repeated Touch ID prompts, batch credential lookups using `op run`:\n\
-                   export FIELD1=\"op://Vault/Item/field1\"\n\
-                   export FIELD2=\"op://Vault/Item/field2\"\n\
-                   op run -- sh -c 'echo \"user=$FIELD1 pass=$FIELD2\"'\n\
-                 This triggers biometric ONCE for the entire batch instead of per-command.\n\
-                 For single lookups, `op read \"op://Vault/Item/field\"` is fine (one prompt).\n\n"
-            );
-        }
-        system_prompt.push_str(
-            "When a task requires credentials (passwords, API keys, tokens):\n\
-             1. Check memory first with memory_search for the item name/vault mapping\n\
-             2. Retrieve the credential using the provider CLI (e.g. `op read \"op://Vault/Item/field\"` or `op item get`)\n\
-             3. Use the credential directly — never store the secret itself in memory\n\
-             4. After first successful retrieval, store the MAPPING in memory (e.g. \"Plesk credentials → 1Password item 'Plesk Admin' in vault 'Servers'\")\n\
-             The operator has pre-configured this provider. Proceed with credential retrieval without asking for permission.\n"
-        );
-        system_prompt.push_str("</credentials>");
-    }
-
-    let mut all_tools = state.tools.tools();
-    all_tools.extend(state.plugins.tools());
-    all_tools.extend(DeviceTools::tools());
-    state.budget.reset_loop();
-    let context_window = claw_config::resolve_context_window(
-        state.config.agent.context_window,
-        &state.config.agent.model,
-    );
-    let tool_result_max_tokens = state.config.agent.tool_result_max_tokens;
-    {
-        let mut mem = state.memory.lock().await;
-        mem.working.set_context_window(
-            session_id,
-            context_window,
-            state.config.agent.compaction_threshold,
-        );
-    }
-
-    let autonomy_level = AutonomyLevel::from_u8(state.config.autonomy.level);
-    let mut iteration = 0;
-    let max_iterations = state.config.agent.max_iterations;
+    // Collect all TextDelta events into the final response string
     let mut final_response = String::new();
-    let mut consecutive_llm_failures: u32 = 0;
-
-    // Wall-clock deadline for this request
-    let started_at = std::time::Instant::now();
-    let timeout_secs = state.config.agent.request_timeout_secs;
-    let deadline = if timeout_secs > 0 {
-        Some(started_at + std::time::Duration::from_secs(timeout_secs))
-    } else {
-        None
-    };
-
-    // Run serialization — acquire per-session lock to prevent interleaving
-    let session_lock = state.sessions.run_lock(session_id).await;
-    let _run_guard = session_lock.lock().await;
-
-    // Track tool names from the previous turn to avoid misfiring lazy-stop
-    let mut last_turn_tool_names: Vec<String> = Vec::new();
-
-    // 3. THINK + ACT loop
-    loop {
-        iteration += 1;
-        if iteration > max_iterations {
-            warn!(session = %session_id, "max agent iterations reached");
-            break;
+    while let Some(event) = rx.recv().await {
+        if let StreamEvent::TextDelta { content } = event {
+            final_response.push_str(&content);
         }
-
-        // Check wall-clock timeout
-        if let Some(dl) = deadline
-            && std::time::Instant::now() >= dl
-        {
-            warn!(session = %session_id, elapsed_secs = started_at.elapsed().as_secs(), "request timeout reached");
-            final_response = format!(
-                "I ran out of time ({}s limit reached after {} iterations). Here's what I accomplished so far. \
-                     You can send another message to continue where I left off.",
-                timeout_secs,
-                iteration - 1
-            );
-            break;
-        }
-
-        state.event_bus.publish(Event::AgentThinking { session_id });
-        state.budget.check()?;
-
-        // Try LLM-powered compaction before reading messages if context is large
-        let _ = maybe_compact_context(state, session_id).await;
-
-        // Read messages — brief lock
-        let messages = {
-            let mem = state.memory.lock().await;
-            mem.working.messages(session_id).to_vec()
-        };
-
-        let request = LlmRequest {
-            model: if consecutive_llm_failures >= 3 {
-                // After 3 consecutive failures from primary, switch to fallback for this run
-                state
-                    .config
-                    .agent
-                    .fallback_model
-                    .as_deref()
-                    .unwrap_or(&state.config.agent.model)
-                    .to_string()
-            } else {
-                state.config.agent.model.clone()
-            },
-            messages,
-            tools: all_tools.clone(),
-            system: Some(system_prompt.clone()),
-            max_tokens: state.config.agent.max_tokens,
-            temperature: state.config.agent.temperature,
-            thinking_level: Some(state.config.agent.thinking_level.clone()),
-            stream: false,
-        };
-
-        // Call LLM with overflow recovery and model fallback
-        let response = match state
-            .llm
-            .complete(&request, state.config.agent.fallback_model.as_deref())
-            .await
-        {
-            Ok(resp) => {
-                consecutive_llm_failures = 0;
-                resp
-            }
-            Err(ref e)
-                if matches!(
-                    e,
-                    claw_core::ClawError::ContextOverflow { .. }
-                        | claw_core::ClawError::LlmProvider(_)
-                ) && iteration <= max_iterations =>
-            {
-                consecutive_llm_failures += 1;
-                // Context might be too large — force compaction and retry
-                warn!(session = %session_id, error = %e, consecutive_failures = consecutive_llm_failures,
-                    "LLM call failed, attempting emergency compaction");
-                {
-                    let mut mem = state.memory.lock().await;
-                    mem.working.compact(session_id);
-                }
-                // Retry with compacted context
-                let messages = {
-                    let mem = state.memory.lock().await;
-                    mem.working.messages(session_id).to_vec()
-                };
-                let retry_request = LlmRequest {
-                    messages,
-                    ..request
-                };
-                state
-                    .llm
-                    .complete(&retry_request, state.config.agent.fallback_model.as_deref())
-                    .await?
-            }
-            Err(e) => return Err(e),
-        };
-
-        state
-            .budget
-            .record_spend(response.usage.estimated_cost_usd)?;
-
-        // Store assistant message — brief lock
-        {
-            let mut mem = state.memory.lock().await;
-            let mut assistant_msg = response.message.clone();
-            assistant_msg.session_id = session_id;
-            mem.working.push(assistant_msg);
-        }
-        state.sessions.record_message(session_id).await;
-
-        if !response.has_tool_calls {
-            // Check WHY the model stopped — don't just break blindly
-            match response.stop_reason {
-                StopReason::MaxTokens => {
-                    // Model was cut off mid-output — inject continuation prompt and loop
-                    info!(session = %session_id, iteration, "model hit max_tokens, injecting continuation prompt");
-                    let mut mem = state.memory.lock().await;
-                    let continue_msg = Message::text(
-                        session_id,
-                        Role::User,
-                        "[SYSTEM: Your previous response was truncated because it exceeded the output token limit. \
-                         Continue exactly where you left off. Do NOT repeat what you already said or re-explain — \
-                         just keep going with the next tool calls or remaining work.]",
-                    );
-                    mem.working.push(continue_msg);
-                    continue;
-                }
-                _ => {
-                    // Model chose to stop — check if it's being lazy
-                    // Skip lazy-stop if last turn started a dev server / background process
-                    let text = response.message.text_content();
-                    let lower = text.to_lowercase();
-                    let just_started_server = last_turn_tool_names
-                        .iter()
-                        .any(|name| name == "process_start" || name == "terminal_run")
-                        && (lower.contains("localhost")
-                            || lower.contains("running")
-                            || lower.contains("dev server")
-                            || lower.contains("started"));
-                    if !just_started_server
-                        && is_lazy_stop(&text, iteration as usize)
-                        && iteration < max_iterations
-                    {
-                        info!(session = %session_id, iteration, "detected lazy model stop, re-prompting");
-                        let mut mem = state.memory.lock().await;
-                        let nudge_msg = Message::text(
-                            session_id,
-                            Role::User,
-                            "[SYSTEM: You stopped but the task is NOT complete. Do NOT describe what could be done — \
-                             actually DO it. Use your tools to create the remaining files and finish the job. \
-                             Continue working now.]",
-                        );
-                        mem.working.push(nudge_msg);
-                        continue;
-                    }
-                    // Genuinely done
-                    final_response = text;
-                    state.event_bus.publish(Event::AgentResponse {
-                        session_id,
-                        message_id: response.message.id,
-                    });
-                    break;
-                }
-            }
-        }
-
-        // 4. GUARD + ACT — execute tool calls with guardrail checks
-        // Partition into parallel-safe and sequential tool calls
-        let tool_calls_ref = &response.message.tool_calls;
-        let parallel_enabled = state.config.agent.parallel_tool_calls;
-        let can_parallelize = parallel_enabled && tool_calls_ref.len() > 1;
-
-        if can_parallelize
-            && tool_calls_ref
-                .iter()
-                .all(|tc| is_parallel_safe(&tc.tool_name))
-        {
-            // All tool calls are parallel-safe — run them all concurrently
-            let mut join_set = tokio::task::JoinSet::new();
-            for tool_call in tool_calls_ref.clone() {
-                state.budget.record_tool_call()?;
-                state.event_bus.publish(Event::AgentToolCall {
-                    session_id,
-                    tool_name: tool_call.tool_name.clone(),
-                    tool_call_id: tool_call.id.clone(),
-                });
-                let tool_def = all_tools
-                    .iter()
-                    .find(|t| t.name == tool_call.tool_name)
-                    .cloned()
-                    .unwrap_or_else(|| Tool {
-                        name: tool_call.tool_name.clone(),
-                        description: String::new(),
-                        parameters: serde_json::Value::Null,
-                        capabilities: vec![],
-                        is_mutating: true,
-                        risk_level: 5,
-                        provider: None,
-                    });
-                let verdict = state
-                    .guardrails
-                    .evaluate(&tool_def, &tool_call, autonomy_level);
-                let s = state.clone();
-                let tc = tool_call.clone();
-                let tc_id = tool_call.id.clone();
-                join_set.spawn(async move {
-                    let result = match verdict {
-                        GuardrailVerdict::Approve => execute_tool_shared(&s, &tc).await,
-                        GuardrailVerdict::Deny(reason) => ToolResult {
-                            tool_call_id: tc_id.clone(),
-                            content: format!("DENIED: {reason}"),
-                            is_error: true,
-                            data: None,
-                        },
-                        _ => execute_tool_shared(&s, &tc).await,
-                    };
-                    (tc_id, tc.tool_name.clone(), result)
-                });
-            }
-
-            // Collect results as they complete
-            while let Some(join_result) = join_set.join_next().await {
-                if let Ok((tc_id, _tool_name, tool_result)) = join_result {
-                    let is_error = tool_result.is_error;
-                    state.event_bus.publish(Event::AgentToolResult {
-                        session_id,
-                        tool_call_id: tc_id.clone(),
-                        is_error,
-                    });
-                    let truncated_content =
-                        truncate_tool_result(&tool_result.content, tool_result_max_tokens);
-                    {
-                        let mut mem = state.memory.lock().await;
-                        let result_msg = Message {
-                            id: Uuid::new_v4(),
-                            session_id,
-                            role: Role::Tool,
-                            content: vec![claw_core::MessageContent::ToolResult {
-                                tool_call_id: tc_id,
-                                content: truncated_content,
-                                is_error: tool_result.is_error,
-                            }],
-                            timestamp: chrono::Utc::now(),
-                            tool_calls: vec![],
-                            metadata: Default::default(),
-                        };
-                        mem.working.push(result_msg);
-                    }
-                }
-            }
-        } else {
-            // Sequential execution (original path) — either parallel disabled or has mutating tools
-            for tool_call in &response.message.tool_calls {
-                state.budget.record_tool_call()?;
-
-                state.event_bus.publish(Event::AgentToolCall {
-                    session_id,
-                    tool_name: tool_call.tool_name.clone(),
-                    tool_call_id: tool_call.id.clone(),
-                });
-
-                let tool_def = all_tools
-                    .iter()
-                    .find(|t| t.name == tool_call.tool_name)
-                    .cloned()
-                    .unwrap_or_else(|| Tool {
-                        name: tool_call.tool_name.clone(),
-                        description: String::new(),
-                        parameters: serde_json::Value::Null,
-                        capabilities: vec![],
-                        is_mutating: true,
-                        risk_level: 5,
-                        provider: None,
-                    });
-
-                let verdict = state
-                    .guardrails
-                    .evaluate(&tool_def, tool_call, autonomy_level);
-                let tool_result = match verdict {
-                    GuardrailVerdict::Approve => execute_tool_shared(state, tool_call).await,
-                    GuardrailVerdict::Deny(reason) => ToolResult {
-                        tool_call_id: tool_call.id.clone(),
-                        content: format!("DENIED: {reason}"),
-                        is_error: true,
-                        data: None,
-                    },
-                    GuardrailVerdict::Escalate(reason) => {
-                        // Generate approval ID upfront so we can include it in the prompt
-                        let approval_id = Uuid::new_v4();
-
-                        // Send approval prompt to the originating channel
-                        send_approval_prompt_shared(
-                            state,
-                            &channel_id_owned,
-                            &target_owned,
-                            &approval_id.to_string(),
-                            &tool_call.tool_name,
-                            &tool_call.arguments,
-                            &reason,
-                            tool_def.risk_level,
-                        )
-                        .await;
-
-                        // Now wait for approval (resolved via callback query, /approve command, or API)
-                        let response = state
-                            .approval
-                            .request_approval_with_id(
-                                approval_id,
-                                &tool_call.tool_name,
-                                &tool_call.arguments,
-                                &reason,
-                                tool_def.risk_level,
-                                120,
-                            )
-                            .await;
-                        match response {
-                            ApprovalResponse::Approved => {
-                                execute_tool_shared(state, tool_call).await
-                            }
-                            ApprovalResponse::Denied => ToolResult {
-                                tool_call_id: tool_call.id.clone(),
-                                content: "DENIED: Human denied the action".into(),
-                                is_error: true,
-                                data: None,
-                            },
-                            ApprovalResponse::TimedOut => ToolResult {
-                                tool_call_id: tool_call.id.clone(),
-                                content: "DENIED: Approval request timed out".into(),
-                                is_error: true,
-                                data: None,
-                            },
-                        }
-                    }
-                };
-
-                let is_error = tool_result.is_error;
-                state.event_bus.publish(Event::AgentToolResult {
-                    session_id,
-                    tool_call_id: tool_call.id.clone(),
-                    is_error,
-                });
-
-                // Truncate tool result to fit context window
-                let truncated_content =
-                    truncate_tool_result(&tool_result.content, tool_result_max_tokens);
-
-                // Store tool result — brief lock
-                {
-                    let mut mem = state.memory.lock().await;
-                    let result_msg = Message {
-                        id: Uuid::new_v4(),
-                        session_id,
-                        role: Role::Tool,
-                        content: vec![claw_core::MessageContent::ToolResult {
-                            tool_call_id: tool_call.id.clone(),
-                            content: truncated_content,
-                            is_error: tool_result.is_error,
-                        }],
-                        timestamp: chrono::Utc::now(),
-                        tool_calls: vec![],
-                        metadata: Default::default(),
-                    };
-                    mem.working.push(result_msg);
-                }
-            }
-        }
-
-        // Try LLM-powered compaction if context is getting large
-        let _ = maybe_compact_context(state, session_id).await;
-
-        // Record this turn's tool names for next iteration's lazy-stop check
-        last_turn_tool_names = response
-            .message
-            .tool_calls
-            .iter()
-            .map(|tc| tc.tool_name.clone())
-            .collect();
-    }
-
-    // Auto-resume: if we hit max_iterations or timeout with active goals, schedule a resume
-    if state.config.agent.auto_resume {
-        let was_interrupted = iteration > max_iterations
-            || deadline.is_some_and(|dl| std::time::Instant::now() >= dl);
-        if was_interrupted {
-            let has_active_goals = {
-                let planner = state.planner.lock().await;
-                !planner.active_goals().is_empty()
-            };
-            if has_active_goals && let Some(ref scheduler) = state.scheduler {
-                let resume_desc = format!(
-                    "Auto-resume: Continue working on unfinished tasks from session {session_id}. \
-                         Review active goals with goal_list and continue where you left off."
-                );
-                let task_id = scheduler
-                    .add_one_shot(
-                        resume_desc,
-                        60, // Resume in 60 seconds
-                        Some(format!("auto-resume:{session_id}")),
-                        Some(session_id),
-                    )
-                    .await;
-                info!(
-                    task_id = %task_id,
-                    session = %session_id,
-                    "scheduled auto-resume in 60s for interrupted task"
-                );
-                final_response
-                    .push_str("\n\n⏱️ I'll automatically resume this work in about 1 minute.");
-            }
-        }
-    }
-
-    // 5. REMEMBER — record episodic memory + audit
-    {
-        let mut mem = state.memory.lock().await;
-        mem.audit("message", "processed", Some(&user_text))?;
-
-        // Build a brief summary for episodic memory from the conversation
-        let messages = mem.working.messages(session_id);
-        let msg_count = messages.len();
-        if msg_count >= 2 {
-            let summary = build_episode_summary(messages, &user_text, &final_response);
-            let episode = claw_memory::episodic::Episode {
-                id: uuid::Uuid::new_v4(),
-                session_id,
-                summary,
-                outcome: if final_response.is_empty() {
-                    None
-                } else {
-                    Some("completed".to_string())
-                },
-                tags: extract_episode_tags(&user_text),
-                created_at: chrono::Utc::now(),
-                updated_at: chrono::Utc::now(),
-            };
-            mem.episodic.record(episode);
-        }
-    }
-
-    // 6. LEARN — extract lessons from error→correction→success patterns
-    maybe_extract_lessons(state, session_id).await;
-
-    // Auto-set session label from first user message if not yet set
-    if let Some(session) = state.sessions.get(session_id).await
-        && session.name.is_none()
-        && !user_text.is_empty()
-    {
-        let label: String = user_text.chars().take(60).collect();
-        let label = label
-            .split('\n')
-            .next()
-            .unwrap_or(&label)
-            .trim()
-            .to_string();
-        state.sessions.set_name(session_id, &label).await;
     }
 
     Ok(final_response)
@@ -1508,12 +790,12 @@ pub(crate) async fn process_message_streaming_shared(
     };
 
     let (context_parts, active_goals) = {
-        let mut mem = state.memory.lock().await;
+        let mut mem = state.memory.write().await;
         let user_msg = Message::text(session_id, Role::User, &user_text);
         mem.working.push(user_msg);
         drop(mem);
         state.sessions.record_message(session_id).await;
-        let mem = state.memory.lock().await;
+        let mem = state.memory.read().await;
 
         let relevant_episodes = mem.episodic.search(&user_text);
 
@@ -1710,9 +992,10 @@ pub(crate) async fn process_message_streaming_shared(
         system_prompt.push_str("</credentials>");
     }
 
-    let mut all_tools = state.tools.tools();
-    all_tools.extend(state.plugins.tools());
-    all_tools.extend(DeviceTools::tools());
+    let mut all_tools_vec = state.tools.tools();
+    all_tools_vec.extend(state.plugins.tools());
+    all_tools_vec.extend(DeviceTools::tools());
+    let all_tools = Arc::new(all_tools_vec);
     state.budget.reset_loop();
 
     let autonomy_level = AutonomyLevel::from_u8(state.config.autonomy.level);
@@ -1744,7 +1027,7 @@ pub(crate) async fn process_message_streaming_shared(
         &state.config.agent.model,
     );
     {
-        let mut mem = state.memory.lock().await;
+        let mut mem = state.memory.write().await;
         mem.working.set_context_window(
             session_id,
             context_window,
@@ -1781,7 +1064,7 @@ pub(crate) async fn process_message_streaming_shared(
 
         // Read messages — brief lock
         let messages = {
-            let mem = state.memory.lock().await;
+            let mem = state.memory.read().await;
             mem.working.messages(session_id).to_vec()
         };
 
@@ -1827,11 +1110,11 @@ pub(crate) async fn process_message_streaming_shared(
                 warn!(session = %session_id, error = %e, consecutive_failures = consecutive_llm_failures,
                     "stream call failed, attempting emergency compaction");
                 {
-                    let mut mem = state.memory.lock().await;
+                    let mut mem = state.memory.write().await;
                     mem.working.compact(session_id);
                 }
                 let messages = {
-                    let mem = state.memory.lock().await;
+                    let mem = state.memory.read().await;
                     mem.working.messages(session_id).to_vec()
                 };
                 let retry_request = LlmRequest {
@@ -1898,7 +1181,7 @@ pub(crate) async fn process_message_streaming_shared(
 
         // Store assistant message — brief lock
         {
-            let mut mem = state.memory.lock().await;
+            let mut mem = state.memory.write().await;
             let mut assistant_msg = Message::text(session_id, Role::Assistant, &full_text);
             assistant_msg.tool_calls = tool_calls.clone();
             mem.working.push(assistant_msg);
@@ -1911,7 +1194,7 @@ pub(crate) async fn process_message_streaming_shared(
                 StopReason::MaxTokens => {
                     // Model was cut off mid-output — inject continuation prompt and loop
                     info!(session = %session_id, iteration, "model hit max_tokens in stream, injecting continuation prompt");
-                    let mut mem = state.memory.lock().await;
+                    let mut mem = state.memory.write().await;
                     let continue_msg = Message::text(
                         session_id,
                         Role::User,
@@ -1943,7 +1226,7 @@ pub(crate) async fn process_message_streaming_shared(
                         && iteration < max_iterations
                     {
                         info!(session = %session_id, iteration, "detected lazy model stop in stream, re-prompting");
-                        let mut mem = state.memory.lock().await;
+                        let mut mem = state.memory.write().await;
                         let nudge_msg = Message::text(
                             session_id,
                             Role::User,
@@ -2022,7 +1305,7 @@ pub(crate) async fn process_message_streaming_shared(
                     let truncated_content =
                         truncate_tool_result(&tool_result.content, tool_result_max_tokens);
                     {
-                        let mut mem = state.memory.lock().await;
+                        let mut mem = state.memory.write().await;
                         let result_msg = Message {
                             id: Uuid::new_v4(),
                             session_id,
@@ -2131,7 +1414,7 @@ pub(crate) async fn process_message_streaming_shared(
 
                 // Store tool result — brief lock
                 {
-                    let mut mem = state.memory.lock().await;
+                    let mut mem = state.memory.write().await;
                     let result_msg = Message {
                         id: Uuid::new_v4(),
                         session_id,
@@ -2196,7 +1479,7 @@ pub(crate) async fn process_message_streaming_shared(
 
     // 5. REMEMBER — record episodic memory + audit
     {
-        let mut mem = state.memory.lock().await;
+        let mut mem = state.memory.write().await;
         mem.audit("message", "processed", Some(&user_text))?;
 
         // Build a brief summary for episodic memory

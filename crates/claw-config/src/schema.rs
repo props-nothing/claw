@@ -231,7 +231,9 @@ impl Default for MeshConfig {
 pub struct PluginsConfig {
     /// Directory containing WASM plugin files.
     pub plugin_dir: PathBuf,
-    /// ClawHub registry URL.
+    /// Plugin Hub / registry URL. Defaults to the same URL as `services.hub_url`
+    /// when left empty. Set this to point to a different hub for plugins.
+    /// Run `claw hub serve` to host your own hub (serves both skills and plugins).
     pub registry_url: String,
     /// Plugins to install / load on startup.
     pub install: Vec<PluginRef>,
@@ -241,12 +243,30 @@ pub struct PluginsConfig {
 
 impl Default for PluginsConfig {
     fn default() -> Self {
+        // Default to ~/.claw/plugins so plugins are discovered globally
+        let plugin_dir = dirs::home_dir()
+            .map(|h| h.join(".claw").join("plugins"))
+            .unwrap_or_else(|| PathBuf::from("plugins"));
         Self {
-            plugin_dir: PathBuf::from("plugins"),
-            registry_url: "https://registry.clawhub.com".into(),
+            plugin_dir,
+            registry_url: String::new(), // empty = fall back to services.hub_url
             install: vec![],
             default_capabilities: vec![],
         }
+    }
+}
+
+impl PluginsConfig {
+    /// Resolve the effective registry URL, falling back to `hub_url` when
+    /// `registry_url` is empty or the old hardcoded default.
+    pub fn effective_registry_url(&self, hub_url: Option<&str>) -> Option<String> {
+        let url = self.registry_url.trim();
+        // If explicitly set to a real URL (not the old default placeholder)
+        if !url.is_empty() && url != "https://registry.clawhub.com" {
+            return Some(url.to_string());
+        }
+        // Fall back to the hub_url from [services]
+        hub_url.map(|u| u.trim_end_matches('/').to_string())
     }
 }
 

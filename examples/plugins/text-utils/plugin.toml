@@ -1,0 +1,204 @@
+[plugin]
+name = "text-utils"
+version = "1.0.0"
+description = "Text & data processing toolkit — base64, hashing, UUIDs, timestamps, regex, JSON queries, and more. All sandboxed in WASM."
+authors = ["Claw"]
+license = "MIT"
+
+[capabilities]
+# Pure computation — no host access needed
+
+# ── Base64 encode / decode ──────────────────────────────────
+
+[[tools]]
+name = "base64_encode"
+description = "Encode text to base64"
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.text]
+type = "string"
+description = "Plain text to encode"
+
+[[tools]]
+name = "base64_decode"
+description = "Decode a base64 string back to UTF-8 text"
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.encoded]
+type = "string"
+description = "Base64-encoded string to decode"
+
+# ── Hashing ─────────────────────────────────────────────────
+
+[[tools]]
+name = "hash"
+description = "Hash text using SHA-256, MD5, or SHA-1. Returns the hex digest."
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.text]
+type = "string"
+description = "Text to hash"
+
+[tools.parameters.properties.algorithm]
+type = "string"
+description = "Hash algorithm: sha256 (default), sha1, or md5"
+
+# ── UUID generation ─────────────────────────────────────────
+
+[[tools]]
+name = "uuid"
+description = "Generate a random UUID v4"
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+properties = {}
+
+# ── Timestamp formatting ────────────────────────────────────
+
+[[tools]]
+name = "timestamp"
+description = "Convert a UNIX timestamp (seconds) to an ISO-8601 date string, or get the current epoch placeholder. Supports optional timezone offset."
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.epoch]
+type = "number"
+description = "UNIX timestamp in seconds. Omit for a format example."
+
+[tools.parameters.properties.offset_hours]
+type = "number"
+description = "Timezone offset from UTC in hours (e.g. 1 for CET, -5 for EST). Default: 0 (UTC)"
+
+# ── Regex tools ─────────────────────────────────────────────
+
+[[tools]]
+name = "regex_match"
+description = "Test if text matches a regex pattern. Returns match groups if found."
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.text]
+type = "string"
+description = "Text to search in"
+
+[tools.parameters.properties.pattern]
+type = "string"
+description = "Regular expression pattern"
+
+[[tools]]
+name = "regex_replace"
+description = "Replace all regex matches in text with a replacement string"
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.text]
+type = "string"
+description = "Input text"
+
+[tools.parameters.properties.pattern]
+type = "string"
+description = "Regular expression pattern to find"
+
+[tools.parameters.properties.replacement]
+type = "string"
+description = "Replacement string ($1, $2 etc. for capture groups)"
+
+# ── JSON tools ──────────────────────────────────────────────
+
+[[tools]]
+name = "json_query"
+description = "Extract a value from JSON using a dot-separated path (e.g. 'users.0.name')"
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.json]
+type = "string"
+description = "JSON string to query"
+
+[tools.parameters.properties.path]
+type = "string"
+description = "Dot-separated path (e.g. 'data.items.0.id')"
+
+[[tools]]
+name = "json_format"
+description = "Pretty-print or minify a JSON string"
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.json]
+type = "string"
+description = "JSON string to format"
+
+[tools.parameters.properties.minify]
+type = "boolean"
+description = "If true, minify instead of pretty-print. Default: false"
+
+# ── Text tools ──────────────────────────────────────────────
+
+[[tools]]
+name = "text_stats"
+description = "Count characters, words, lines, and sentences in text"
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.text]
+type = "string"
+description = "Text to analyze"
+
+[[tools]]
+name = "url_encode"
+description = "Percent-encode a string for use in URLs"
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.text]
+type = "string"
+description = "Text to URL-encode"
+
+[[tools]]
+name = "url_decode"
+description = "Decode a percent-encoded URL string"
+risk_level = 0
+is_mutating = false
+
+[tools.parameters]
+type = "object"
+
+[tools.parameters.properties.text]
+type = "string"
+description = "URL-encoded text to decode"

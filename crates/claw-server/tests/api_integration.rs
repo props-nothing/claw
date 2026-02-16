@@ -38,7 +38,12 @@ async fn setup(responses: Vec<&str>) -> axum::Router {
         api_key: None,
         ..Default::default()
     };
-    claw_server::build_router(server_config, None)
+    claw_server::build_router(
+        server_config,
+        None,
+        std::path::PathBuf::from("/tmp/claw-test-skills"),
+        std::path::PathBuf::from("/tmp/claw-test-plugins"),
+    )
 }
 
 /// Helper to read the full body bytes from a response.
@@ -261,7 +266,12 @@ async fn test_api_key_rejects_unauthenticated() {
         api_key: Some("test-secret-key".to_string()),
         ..Default::default()
     };
-    let app = claw_server::build_router(server_config, None);
+    let app = claw_server::build_router(
+        server_config,
+        None,
+        std::path::PathBuf::from("/tmp/claw-test-skills"),
+        std::path::PathBuf::from("/tmp/claw-test-plugins"),
+    );
 
     // Request without API key
     let req = Request::get("/api/v1/status").body(Body::empty()).unwrap();

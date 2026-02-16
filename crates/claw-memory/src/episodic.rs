@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -20,7 +21,7 @@ pub struct Episode {
 /// Manages episodic memory — past interactions the agent can recall.
 pub struct EpisodicMemory {
     /// In-memory cache of recent episodes for fast access.
-    recent: Vec<Episode>,
+    recent: VecDeque<Episode>,
     /// Shared database connection for persistence.
     db: Option<Arc<Mutex<Connection>>>,
 }
@@ -34,7 +35,7 @@ impl Default for EpisodicMemory {
 impl EpisodicMemory {
     pub fn new() -> Self {
         Self {
-            recent: Vec::new(),
+            recent: VecDeque::new(),
             db: None,
         }
     }
@@ -66,10 +67,10 @@ impl EpisodicMemory {
             );
         }
 
-        self.recent.push(episode);
+        self.recent.push_back(episode);
         // Keep only the most recent N episodes in memory
         if self.recent.len() > 100 {
-            self.recent.remove(0);
+            self.recent.pop_front();
         }
     }
 
@@ -80,7 +81,7 @@ impl EpisodicMemory {
         };
         let db = db.lock();
         let mut stmt = db
-            .prepare("SELECT id, session_id, summary, outcome, tags, created_at, updated_at FROM episodes ORDER BY created_at DESC LIMIT 100")
+            .prepare_cached("SELECT id, session_id, summary, outcome, tags, created_at, updated_at FROM episodes ORDER BY created_at DESC LIMIT 100")
             .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
 
         let rows = stmt
@@ -119,7 +120,7 @@ impl EpisodicMemory {
                 .map(|dt| dt.with_timezone(&Utc))
                 .unwrap_or_else(|_| Utc::now());
 
-            self.recent.push(Episode {
+            self.recent.push_back(Episode {
                 id,
                 session_id,
                 summary,
@@ -131,7 +132,9 @@ impl EpisodicMemory {
             count += 1;
         }
         // Reverse so oldest is first (we loaded DESC)
-        self.recent.reverse();
+        let mut vec: Vec<Episode> = self.recent.drain(..).collect();
+        vec.reverse();
+        self.recent = VecDeque::from(vec);
         Ok(count)
     }
 
@@ -150,9 +153,15 @@ impl EpisodicMemory {
     }
 
     /// Get the N most recent episodes.
-    pub fn recent(&self, n: usize) -> &[Episode] {
-        let start = self.recent.len().saturating_sub(n);
-        &self.recent[start..]
+    pub fn recent(&self, n: usize) -> Vec<&Episode> {
+        self.recent
+            .iter()
+            .rev()
+            .take(n)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
     }
 
     /// Get all episodes for a session.

@@ -319,7 +319,7 @@ impl LlmProvider for AnthropicProvider {
                                 // Process complete SSE lines
                                 while let Some(newline_pos) = buffer.find('\n') {
                                     let line = buffer[..newline_pos].trim().to_string();
-                                    buffer = buffer[newline_pos + 1..].to_string();
+                                    buffer.drain(..newline_pos + 1);
 
                                     if line.is_empty() || line.starts_with(':') {
                                         continue;

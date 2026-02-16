@@ -142,6 +142,6 @@ impl EventBus {
 
 impl Default for EventBus {
     fn default() -> Self {
-        Self::new(4096)
+        Self::new(256)
     }
 }

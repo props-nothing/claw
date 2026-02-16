@@ -1175,20 +1175,19 @@ async function renderTools(el) {
   }
 }
 
-// ── Skills Hub Page ───────────────────────────────────────────
+// ── Hub Page (Skills + Plugins) ───────────────────────────────
 
 async function renderHub(el) {
-  // Render skeleton immediately
+  // Render skeleton with tabs
   el.innerHTML = `
     <div class="page">
       <div class="page-header">
         <div>
-          <h1 class="page-title">Skills Hub</h1>
-          <p class="page-subtitle">Discover, publish, and install reusable skills from the central hub</p>
+          <h1 class="page-title">Hub</h1>
+          <p class="page-subtitle">Discover, publish, and install skills and plugins</p>
         </div>
         <div class="page-actions">
           <span class="hub-connection-badge" id="hub-connection">⏳ Connecting…</span>
-          <button class="btn btn-primary" id="hub-publish-btn">+ Publish Skill</button>
         </div>
       </div>
 
@@ -1196,7 +1195,7 @@ async function renderHub(el) {
       <div class="hub-no-connection" id="hub-no-connection" style="display:none">
         <div class="empty-state">
           <div class="empty-icon">🌐</div>
-          <div class="empty-text">No Skills Hub connected</div>
+          <div class="empty-text">No Hub connected</div>
           <p style="color:var(--text-secondary);font-size:13px;margin-top:8px">
             Set <code>services.hub_url</code> in your <code>claw.toml</code> to connect to a hub,<br>
             or run <code>claw hub serve</code> to host your own.
@@ -1206,34 +1205,73 @@ async function renderHub(el) {
 
       <!-- Hub content (hidden until connected) -->
       <div id="hub-content" style="display:none">
-        <!-- Stats bar -->
-        <div class="hub-stats-bar" id="hub-stats-bar">
-          <div class="stat-card"><div class="stat-label">Total Skills</div><div class="stat-value" id="hub-stat-total">—</div></div>
-          <div class="stat-card"><div class="stat-label">Total Downloads</div><div class="stat-value" id="hub-stat-downloads">—</div></div>
-          <div class="stat-card"><div class="stat-label">Top Tags</div><div class="stat-value" id="hub-stat-tags" style="font-size:13px;color:var(--text-secondary)">—</div></div>
+
+        <!-- Tab bar -->
+        <div class="hub-tabs">
+          <button class="hub-tab active" data-hub-tab="skills">📚 Skills</button>
+          <button class="hub-tab" data-hub-tab="plugins">🧩 Plugins</button>
         </div>
 
-        <!-- Search & Filters -->
-        <div class="hub-search-bar">
-          <input type="text" id="hub-search" class="search-input" placeholder="Search skills by name, description, or tag…" />
-          <select id="hub-sort" class="input" style="width:auto">
-            <option value="updated">Recently Updated</option>
-            <option value="downloads">Most Downloaded</option>
-            <option value="name">Alphabetical</option>
-          </select>
-          <button class="btn btn-primary" id="hub-search-btn">Search</button>
-        </div>
+        <!-- ═════ SKILLS TAB ═════ -->
+        <div class="hub-tab-panel" id="hub-panel-skills">
+          <div class="hub-panel-actions">
+            <button class="btn btn-primary" id="hub-publish-btn">+ Publish Skill</button>
+          </div>
 
-        <!-- Tag filter chips -->
-        <div class="hub-tags" id="hub-tags"></div>
+          <div class="hub-stats-bar" id="hub-stats-bar">
+            <div class="stat-card"><div class="stat-label">Total Skills</div><div class="stat-value" id="hub-stat-total">—</div></div>
+            <div class="stat-card"><div class="stat-label">Total Downloads</div><div class="stat-value" id="hub-stat-downloads">—</div></div>
+            <div class="stat-card"><div class="stat-label">Top Tags</div><div class="stat-value" id="hub-stat-tags" style="font-size:13px;color:var(--text-secondary)">—</div></div>
+          </div>
 
-      <!-- Skills grid -->
-      <div class="card-grid" id="hub-skills-grid">
-        <div class="loading"><div class="spinner"></div></div>
-      </div>
+          <div class="hub-search-bar">
+            <input type="text" id="hub-search" class="search-input" placeholder="Search skills by name, description, or tag…" />
+            <select id="hub-sort" class="input" style="width:auto">
+              <option value="updated">Recently Updated</option>
+              <option value="downloads">Most Downloaded</option>
+              <option value="name">Alphabetical</option>
+            </select>
+            <button class="btn btn-primary" id="hub-search-btn">Search</button>
+          </div>
+
+          <div class="hub-tags" id="hub-tags"></div>
+
+          <div class="card-grid" id="hub-skills-grid">
+            <div class="loading"><div class="spinner"></div></div>
+          </div>
+        </div><!-- /skills panel -->
+
+        <!-- ═════ PLUGINS TAB ═════ -->
+        <div class="hub-tab-panel" id="hub-panel-plugins" style="display:none">
+          <div class="hub-panel-actions">
+            <button class="btn btn-primary" id="hub-plugin-publish-btn">+ Publish Plugin</button>
+          </div>
+
+          <div class="hub-stats-bar" id="hub-plugin-stats-bar">
+            <div class="stat-card"><div class="stat-label">Total Plugins</div><div class="stat-value" id="hub-pstat-total">—</div></div>
+            <div class="stat-card"><div class="stat-label">Total Downloads</div><div class="stat-value" id="hub-pstat-downloads">—</div></div>
+            <div class="stat-card"><div class="stat-label">WASM Sandboxed</div><div class="stat-value" style="font-size:13px;color:var(--text-secondary)">🔒 Isolated</div></div>
+          </div>
+
+          <div class="hub-search-bar">
+            <input type="text" id="hub-plugin-search" class="search-input" placeholder="Search plugins by name or description…" />
+            <select id="hub-plugin-sort" class="input" style="width:auto">
+              <option value="updated">Recently Updated</option>
+              <option value="downloads">Most Downloaded</option>
+              <option value="name">Alphabetical</option>
+            </select>
+            <button class="btn btn-primary" id="hub-plugin-search-btn">Search</button>
+          </div>
+
+          <div class="card-grid" id="hub-plugins-grid">
+            <div class="loading"><div class="spinner"></div></div>
+          </div>
+        </div><!-- /plugins panel -->
       </div><!-- /hub-content -->
 
-      <!-- Publish modal -->
+      <!-- ═══ SKILL MODALS ═══ -->
+
+      <!-- Skill Publish modal -->
       <div class="modal-overlay" id="hub-publish-modal" style="display:none">
         <div class="modal">
           <div class="modal-header">
@@ -1255,7 +1293,7 @@ async function renderHub(el) {
         </div>
       </div>
 
-      <!-- Detail modal -->
+      <!-- Skill Detail modal -->
       <div class="modal-overlay" id="hub-detail-modal" style="display:none">
         <div class="modal modal-lg">
           <div class="modal-header">
@@ -1270,9 +1308,61 @@ async function renderHub(el) {
           </div>
         </div>
       </div>
+
+      <!-- ═══ PLUGIN MODALS ═══ -->
+
+      <!-- Plugin Publish modal -->
+      <div class="modal-overlay" id="hub-plugin-publish-modal" style="display:none">
+        <div class="modal modal-lg">
+          <div class="modal-header">
+            <h2>Publish Plugin</h2>
+            <button class="modal-close" id="hub-ppub-close">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p style="margin-bottom:12px;color:var(--text-secondary);font-size:13px">
+              Upload a WASM plugin with its manifest. The hub will validate and store it.
+            </p>
+            <div style="margin-bottom:16px">
+              <label class="hub-upload-label">plugin.toml manifest</label>
+              <textarea id="hub-plugin-toml" class="hub-toml-textarea" rows="10" placeholder="[plugin]&#10;name = &quot;my-plugin&quot;&#10;description = &quot;…&quot;&#10;version = &quot;0.1.0&quot;&#10;&#10;[[tools]]&#10;name = &quot;my_tool&quot;&#10;description = &quot;…&quot;"></textarea>
+            </div>
+            <div style="margin-bottom:12px">
+              <label class="hub-upload-label">WASM binary (.wasm file)</label>
+              <div class="hub-file-drop" id="hub-wasm-drop">
+                <input type="file" id="hub-wasm-file" accept=".wasm" style="display:none" />
+                <div class="hub-file-drop-text" id="hub-wasm-drop-text">
+                  📦 Click or drag a <code>.wasm</code> file here
+                </div>
+              </div>
+            </div>
+            <div id="hub-ppub-error" class="hub-publish-error" style="display:none"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn" id="hub-ppub-cancel">Cancel</button>
+            <button class="btn btn-primary" id="hub-ppub-submit">Publish Plugin</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Plugin Detail modal -->
+      <div class="modal-overlay" id="hub-plugin-detail-modal" style="display:none">
+        <div class="modal modal-lg">
+          <div class="modal-header">
+            <h2 id="hub-pdetail-title">Plugin Detail</h2>
+            <button class="modal-close" id="hub-pdetail-close">&times;</button>
+          </div>
+          <div class="modal-body" id="hub-pdetail-body"></div>
+          <div class="modal-footer">
+            <button class="btn" id="hub-pdetail-cancel">Close</button>
+            <button class="btn btn-primary" id="hub-pdetail-download">⬇ Download WASM</button>
+            <button class="btn btn-danger" id="hub-pdetail-delete" style="margin-left:auto">Delete</button>
+          </div>
+        </div>
+      </div>
+
     </div>`;
 
-  // ── Wire up event handlers ──
+  // ── Wire up DOM refs ──
   const searchInput = $("#hub-search");
   const sortSel = $("#hub-sort");
   const searchBtn = $("#hub-search-btn");
@@ -1280,7 +1370,34 @@ async function renderHub(el) {
   const publishModal = $("#hub-publish-modal");
   const detailModal = $("#hub-detail-modal");
 
+  const pSearchInput = $("#hub-plugin-search");
+  const pSortSel = $("#hub-plugin-sort");
+  const pSearchBtn = $("#hub-plugin-search-btn");
+  const pPublishBtn = $("#hub-plugin-publish-btn");
+  const pPublishModal = $("#hub-plugin-publish-modal");
+  const pDetailModal = $("#hub-plugin-detail-modal");
+
   let currentTag = null;
+  let selectedWasmFile = null;
+
+  // ── Tab switching ──
+  el.querySelectorAll(".hub-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      el.querySelectorAll(".hub-tab").forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      const which = tab.dataset.hubTab;
+      $("#hub-panel-skills").style.display = which === "skills" ? "" : "none";
+      $("#hub-panel-plugins").style.display = which === "plugins" ? "" : "none";
+      if (which === "plugins") {
+        loadPluginStats();
+        loadPlugins();
+      }
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  //  SKILLS — existing logic
+  // ═══════════════════════════════════════════════════════════
 
   async function loadStats() {
     try {
@@ -1299,7 +1416,6 @@ async function renderHub(el) {
       } else {
         tagsEl.textContent = "No tags yet";
       }
-      // Render tag chips bar
       const tagsBar = $("#hub-tags");
       if (stats.top_tags && stats.top_tags.length > 0) {
         tagsBar.innerHTML = stats.top_tags
@@ -1310,7 +1426,7 @@ async function renderHub(el) {
           .join("");
       }
     } catch {
-      // Stats are optional, ignore errors
+      // Stats are optional
     }
   }
 
@@ -1370,7 +1486,6 @@ async function renderHub(el) {
         )
         .join("");
 
-      // Click handler for skill cards
       grid.querySelectorAll(".hub-skill-card").forEach((card) => {
         card.addEventListener("click", () =>
           showSkillDetail(card.dataset.skill),
@@ -1427,7 +1542,6 @@ async function renderHub(el) {
           </div>
         </div>`;
 
-      // Copy button
       const copyBtn = $("#hub-copy-toml");
       if (copyBtn) {
         copyBtn.addEventListener("click", () => {
@@ -1438,7 +1552,6 @@ async function renderHub(el) {
         });
       }
 
-      // Pull button
       const pullBtn = $("#hub-detail-pull");
       pullBtn.onclick = async () => {
         pullBtn.disabled = true;
@@ -1458,7 +1571,6 @@ async function renderHub(el) {
         }
       };
 
-      // Delete button
       const deleteBtn = $("#hub-detail-delete");
       deleteBtn.onclick = async () => {
         if (!confirm(`Delete skill "${name}" from the hub?`)) return;
@@ -1482,20 +1594,19 @@ async function renderHub(el) {
     }
   }
 
-  // Search / sort handlers
+  // Skills search / sort handlers
   searchBtn.addEventListener("click", loadSkills);
   searchInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") loadSkills();
   });
   sortSel.addEventListener("change", loadSkills);
 
-  // Tag click handlers (in stats and tag bar)
+  // Tag click handlers
   el.addEventListener("click", (e) => {
     const tagEl = e.target.closest("[data-tag]");
     if (tagEl && !tagEl.closest(".modal-overlay")) {
       const tag = tagEl.dataset.tag;
       currentTag = currentTag === tag ? null : tag;
-      // Update active states
       el.querySelectorAll(".hub-tag-chip").forEach((c) => {
         c.classList.toggle("active", c.dataset.tag === currentTag);
       });
@@ -1503,7 +1614,7 @@ async function renderHub(el) {
     }
   });
 
-  // Publish modal
+  // Skill publish modal
   publishBtn.addEventListener("click", () => {
     publishModal.style.display = "flex";
     $("#hub-toml-input").value = "";
@@ -1535,7 +1646,7 @@ async function renderHub(el) {
     errEl.style.display = "none";
 
     try {
-      const result = await api("/api/v1/hub/skills", {
+      await api("/api/v1/hub/skills", {
         method: "POST",
         body: JSON.stringify({ toml_content: toml }),
       });
@@ -1552,7 +1663,7 @@ async function renderHub(el) {
     }
   });
 
-  // Detail modal close
+  // Skill detail modal close
   $("#hub-detail-close").addEventListener(
     "click",
     () => (detailModal.style.display = "none"),
@@ -1565,7 +1676,310 @@ async function renderHub(el) {
     if (e.target === detailModal) detailModal.style.display = "none";
   });
 
-  // Initial load — check hub connectivity first
+  // ═══════════════════════════════════════════════════════════
+  //  PLUGINS — new logic
+  // ═══════════════════════════════════════════════════════════
+
+  async function loadPluginStats() {
+    try {
+      const stats = await api("/api/v1/hub/stats");
+      $("#hub-pstat-total").textContent = stats.total_plugins;
+      $("#hub-pstat-downloads").textContent = stats.total_plugin_downloads;
+    } catch {
+      // optional
+    }
+  }
+
+  async function loadPlugins() {
+    const grid = $("#hub-plugins-grid");
+    grid.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+    try {
+      const q = pSearchInput.value.trim();
+      const sort = pSortSel.value;
+      let url;
+
+      if (q) {
+        const params = new URLSearchParams();
+        params.set("q", q);
+        params.set("sort", sort);
+        url = `/api/v1/hub/plugins/search?${params}`;
+      } else {
+        url = `/api/v1/hub/plugins?sort=${sort}&limit=100`;
+      }
+
+      const data = await api(url);
+      const plugins = data.plugins || [];
+
+      if (plugins.length === 0) {
+        grid.innerHTML = `
+          <div class="empty-state" style="grid-column:1/-1">
+            <div class="empty-icon">🧩</div>
+            <div class="empty-text">No plugins found${q ? " matching your search" : ""}. Publish your first WASM plugin!</div>
+          </div>`;
+        return;
+      }
+
+      grid.innerHTML = plugins
+        .map(
+          (p) => `
+        <div class="hub-plugin-card" data-plugin="${escHtml(p.name)}">
+          <div class="hub-skill-header">
+            <div class="hub-skill-name">🧩 ${escHtml(p.name)}</div>
+            <div class="hub-skill-version">v${escHtml(p.version)}</div>
+          </div>
+          <div class="hub-skill-desc">${escHtml(p.description)}</div>
+          <div class="hub-plugin-tools">
+            ${(p.tools || []).map((t) => `
+              <span class="hub-plugin-tool-chip" title="${escHtml(t.description)}">
+                ${t.is_mutating ? "✏️" : "🔍"} ${escHtml(t.name)}
+                <span class="hub-plugin-tool-risk">${t.risk_level}</span>
+              </span>
+            `).join("")}
+            ${(!p.tools || p.tools.length === 0) ? '<span class="badge badge-info">No tools</span>' : ""}
+          </div>
+          <div class="hub-skill-footer">
+            <span class="hub-skill-meta">
+              <span class="badge badge-accent">${formatBytes(p.wasm_size)}</span>
+              ${p.license ? `<span class="badge badge-info">${escHtml(p.license)}</span>` : ""}
+            </span>
+            <span class="hub-skill-downloads">⬇ ${p.downloads}</span>
+          </div>
+          ${p.authors && p.authors.length > 0 ? `<div class="hub-skill-author">by ${escHtml(p.authors.join(", "))}</div>` : ""}
+        </div>
+      `,
+        )
+        .join("");
+
+      grid.querySelectorAll(".hub-plugin-card").forEach((card) => {
+        card.addEventListener("click", () =>
+          showPluginDetail(card.dataset.plugin),
+        );
+      });
+    } catch (err) {
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">⚠️</div><div class="empty-text">${escHtml(err.message)}</div></div>`;
+    }
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  }
+
+  async function showPluginDetail(name) {
+    try {
+      const plugin = await api(`/api/v1/hub/plugins/${encodeURIComponent(name)}`);
+      $("#hub-pdetail-title").textContent = plugin.name;
+      $("#hub-pdetail-body").innerHTML = `
+        <div class="hub-detail-grid">
+          <div class="hub-detail-info">
+            <div class="hub-detail-row"><strong>Description:</strong> ${escHtml(plugin.description)}</div>
+            <div class="hub-detail-row"><strong>Version:</strong> ${escHtml(plugin.version)}</div>
+            <div class="hub-detail-row"><strong>Authors:</strong> ${escHtml((plugin.authors || []).join(", ") || "—")}</div>
+            <div class="hub-detail-row"><strong>License:</strong> ${escHtml(plugin.license || "—")}</div>
+            <div class="hub-detail-row"><strong>Checksum:</strong> <code style="font-size:11px">${escHtml(plugin.checksum || "—")}</code></div>
+            <div class="hub-detail-row"><strong>WASM Size:</strong> ${formatBytes(plugin.wasm_size)}</div>
+            <div class="hub-detail-row"><strong>Downloads:</strong> ${plugin.downloads}</div>
+            <div class="hub-detail-row"><strong>Published:</strong> ${formatDate(plugin.published_at)}</div>
+            <div class="hub-detail-row"><strong>Updated:</strong> ${formatDate(plugin.updated_at)}</div>
+          </div>
+          ${
+            plugin.tools && plugin.tools.length > 0
+              ? `
+            <div class="hub-plugin-detail-section">
+              <strong style="font-size:14px;color:var(--text-primary)">Tools (${plugin.tools.length})</strong>
+              <div class="hub-plugin-tools-list">
+                ${plugin.tools
+                  .map(
+                    (t) => `
+                  <div class="hub-plugin-tool-row">
+                    <div class="hub-plugin-tool-name">
+                      ${t.is_mutating ? "✏️" : "🔍"} <code>${escHtml(t.name)}</code>
+                      ${riskBadge(t.risk_level)}
+                      ${t.is_mutating ? '<span class="badge badge-warning">Mutating</span>' : '<span class="badge badge-success">Read-only</span>'}
+                    </div>
+                    <div class="hub-plugin-tool-desc">${escHtml(t.description)}</div>
+                  </div>
+                `,
+                  )
+                  .join("")}
+              </div>
+            </div>
+          `
+              : ""
+          }
+          ${
+            plugin.capabilities && Object.keys(plugin.capabilities).length > 0
+              ? `
+            <div class="hub-plugin-detail-section">
+              <strong style="font-size:14px;color:var(--text-primary)">Capabilities</strong>
+              <pre class="hub-toml-pre"><code>${escHtml(JSON.stringify(plugin.capabilities, null, 2))}</code></pre>
+            </div>
+          `
+              : ""
+          }
+        </div>`;
+
+      // Download button
+      const dlBtn = $("#hub-pdetail-download");
+      dlBtn.onclick = () => {
+        window.open(`${API}/api/v1/hub/plugins/${encodeURIComponent(name)}/${encodeURIComponent(plugin.version)}`, "_blank");
+      };
+
+      // Delete button
+      const deleteBtn = $("#hub-pdetail-delete");
+      deleteBtn.onclick = async () => {
+        if (!confirm(`Delete plugin "${name}" from the hub?`)) return;
+        deleteBtn.disabled = true;
+        try {
+          await api(`/api/v1/hub/plugins/${encodeURIComponent(name)}`, {
+            method: "DELETE",
+          });
+          pDetailModal.style.display = "none";
+          loadPluginStats();
+          loadPlugins();
+        } catch (err) {
+          alert("Delete failed: " + err.message);
+          deleteBtn.disabled = false;
+        }
+      };
+
+      pDetailModal.style.display = "flex";
+    } catch (err) {
+      alert("Failed to load plugin: " + err.message);
+    }
+  }
+
+  // Plugin search / sort handlers
+  pSearchBtn.addEventListener("click", loadPlugins);
+  pSearchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loadPlugins();
+  });
+  pSortSel.addEventListener("change", loadPlugins);
+
+  // Plugin publish modal
+  pPublishBtn.addEventListener("click", () => {
+    pPublishModal.style.display = "flex";
+    $("#hub-plugin-toml").value = "";
+    selectedWasmFile = null;
+    const dropText = $("#hub-wasm-drop-text");
+    dropText.innerHTML = '📦 Click or drag a <code>.wasm</code> file here';
+    $("#hub-ppub-error").style.display = "none";
+  });
+
+  $("#hub-ppub-close").addEventListener(
+    "click",
+    () => (pPublishModal.style.display = "none"),
+  );
+  $("#hub-ppub-cancel").addEventListener(
+    "click",
+    () => (pPublishModal.style.display = "none"),
+  );
+  pPublishModal.addEventListener("click", (e) => {
+    if (e.target === pPublishModal) pPublishModal.style.display = "none";
+  });
+
+  // WASM file drop zone
+  const wasmDrop = $("#hub-wasm-drop");
+  const wasmFileInput = $("#hub-wasm-file");
+  const wasmDropText = $("#hub-wasm-drop-text");
+
+  wasmDrop.addEventListener("click", () => wasmFileInput.click());
+  wasmFileInput.addEventListener("change", (e) => {
+    if (e.target.files.length > 0) {
+      selectedWasmFile = e.target.files[0];
+      wasmDropText.innerHTML = `✅ <strong>${escHtml(selectedWasmFile.name)}</strong> (${formatBytes(selectedWasmFile.size)})`;
+    }
+  });
+  wasmDrop.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    wasmDrop.classList.add("dragover");
+  });
+  wasmDrop.addEventListener("dragleave", () => {
+    wasmDrop.classList.remove("dragover");
+  });
+  wasmDrop.addEventListener("drop", (e) => {
+    e.preventDefault();
+    wasmDrop.classList.remove("dragover");
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      selectedWasmFile = files[0];
+      wasmDropText.innerHTML = `✅ <strong>${escHtml(selectedWasmFile.name)}</strong> (${formatBytes(selectedWasmFile.size)})`;
+    }
+  });
+
+  // Plugin publish submit
+  $("#hub-ppub-submit").addEventListener("click", async () => {
+    const toml = $("#hub-plugin-toml").value.trim();
+    const errEl = $("#hub-ppub-error");
+
+    if (!toml) {
+      errEl.textContent = "Please paste or type the plugin.toml manifest.";
+      errEl.style.display = "block";
+      return;
+    }
+    if (!selectedWasmFile) {
+      errEl.textContent = "Please select a .wasm file to upload.";
+      errEl.style.display = "block";
+      return;
+    }
+
+    const submitBtn = $("#hub-ppub-submit");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Uploading…";
+    errEl.style.display = "none";
+
+    try {
+      // Read WASM file as base64
+      const arrayBuf = await selectedWasmFile.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuf);
+      let binary = "";
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const wasmBase64 = btoa(binary);
+
+      await api("/api/v1/hub/plugins", {
+        method: "POST",
+        body: JSON.stringify({
+          manifest_toml: toml,
+          wasm_base64: wasmBase64,
+        }),
+      });
+
+      pPublishModal.style.display = "none";
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Publish Plugin";
+      loadPluginStats();
+      loadPlugins();
+    } catch (err) {
+      errEl.textContent = "Publish failed: " + err.message;
+      errEl.style.display = "block";
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Publish Plugin";
+    }
+  });
+
+  // Plugin detail modal close
+  $("#hub-pdetail-close").addEventListener(
+    "click",
+    () => (pDetailModal.style.display = "none"),
+  );
+  $("#hub-pdetail-cancel").addEventListener(
+    "click",
+    () => (pDetailModal.style.display = "none"),
+  );
+  pDetailModal.addEventListener("click", (e) => {
+    if (e.target === pDetailModal) pDetailModal.style.display = "none";
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  //  Initial load — check hub connectivity
+  // ═══════════════════════════════════════════════════════════
+
   async function checkHubConnection() {
     const badge = $("#hub-connection");
     const noConn = $("#hub-no-connection");

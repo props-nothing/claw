@@ -161,8 +161,18 @@ impl SemanticMemory {
             })
             .collect();
 
-        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        results.truncate(top_k);
+        if results.len() <= top_k {
+            // Few enough results — just sort them all
+            results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        } else {
+            // Partial sort: partition so top_k best are at the front — O(n) vs O(n log n)
+            results.select_nth_unstable_by(top_k, |a, b| {
+                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            results.truncate(top_k);
+            // Sort only the top_k elements for stable ordering
+            results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        }
         results
     }
 

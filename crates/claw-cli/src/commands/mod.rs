@@ -151,8 +151,14 @@ enum PluginAction {
     Search { query: String },
     /// Show detailed info about an installed plugin
     Info { name: String },
-    /// Scaffold a new plugin project
+    /// Scaffold a new plugin project in the current directory
     Create { name: String },
+    /// Build a plugin and install it (run from the plugin project directory)
+    Build {
+        /// Path to plugin project directory (defaults to current dir)
+        #[arg(default_value = ".")]
+        path: String,
+    },
 }
 
 #[derive(Subcommand)]

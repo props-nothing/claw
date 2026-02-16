@@ -231,7 +231,7 @@ mod tests {
         let req = LlmRequest {
             model: "test".into(),
             messages: vec![],
-            tools: vec![],
+            tools: Arc::new(vec![]),
             system: None,
             max_tokens: 100,
             temperature: 0.7,
@@ -252,7 +252,7 @@ mod tests {
         let req = LlmRequest {
             model: "test".into(),
             messages: vec![],
-            tools: vec![],
+            tools: Arc::new(vec![]),
             system: None,
             max_tokens: 100,
             temperature: 0.7,
@@ -272,7 +272,7 @@ mod tests {
         let req = LlmRequest {
             model: "test".into(),
             messages: vec![],
-            tools: vec![],
+            tools: Arc::new(vec![]),
             system: None,
             max_tokens: 100,
             temperature: 0.7,
@@ -290,7 +290,7 @@ mod tests {
         let req = LlmRequest {
             model: "test".into(),
             messages: vec![Message::text(uuid::Uuid::nil(), Role::User, "hello")],
-            tools: vec![],
+            tools: Arc::new(vec![]),
             system: Some("be nice".into()),
             max_tokens: 100,
             temperature: 0.7,
@@ -311,7 +311,7 @@ mod tests {
         let req = LlmRequest {
             model: "test".into(),
             messages: vec![],
-            tools: vec![],
+            tools: Arc::new(vec![]),
             system: None,
             max_tokens: 100,
             temperature: 0.7,
@@ -338,7 +338,7 @@ mod tests {
         let req = LlmRequest {
             model: "test".into(),
             messages: vec![],
-            tools: vec![],
+            tools: Arc::new(vec![]),
             system: None,
             max_tokens: 100,
             temperature: 0.7,

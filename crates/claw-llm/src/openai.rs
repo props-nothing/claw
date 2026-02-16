@@ -4,6 +4,31 @@ use tracing::info;
 
 use crate::provider::*;
 
+/// Serialize tools for the OpenAI API.
+/// Ensures every object schema has a `properties` key — OpenAI rejects
+/// `{ "type": "object" }` without it.
+fn tools_to_json(tools: &[claw_core::Tool]) -> Vec<serde_json::Value> {
+    tools
+        .iter()
+        .map(|t| {
+            let mut params = t.parameters.clone();
+            if params.get("type").and_then(|v| v.as_str()) == Some("object")
+                && params.get("properties").is_none()
+            {
+                params["properties"] = serde_json::Value::Object(serde_json::Map::new());
+            }
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": params,
+                }
+            })
+        })
+        .collect()
+}
+
 /// OpenAI-compatible API provider (works with OpenAI, Azure, Together, etc.)
 pub struct OpenAiProvider {
     client: reqwest::Client,
@@ -147,21 +172,7 @@ impl LlmProvider for OpenAiProvider {
         }
 
         if !request.tools.is_empty() {
-            let tools: Vec<serde_json::Value> = request
-                .tools
-                .iter()
-                .map(|t| {
-                    serde_json::json!({
-                        "type": "function",
-                        "function": {
-                            "name": t.name,
-                            "description": t.description,
-                            "parameters": t.parameters,
-                        }
-                    })
-                })
-                .collect();
-            body["tools"] = serde_json::json!(tools);
+            body["tools"] = serde_json::json!(tools_to_json(&request.tools));
         }
 
         let resp = self
@@ -349,21 +360,7 @@ impl LlmProvider for OpenAiProvider {
         }
 
         if !request.tools.is_empty() {
-            let tools: Vec<serde_json::Value> = request
-                .tools
-                .iter()
-                .map(|t| {
-                    serde_json::json!({
-                        "type": "function",
-                        "function": {
-                            "name": t.name,
-                            "description": t.description,
-                            "parameters": t.parameters,
-                        }
-                    })
-                })
-                .collect();
-            body["tools"] = serde_json::json!(tools);
+            body["tools"] = serde_json::json!(tools_to_json(&request.tools));
         }
 
         let client = self.client.clone();
@@ -398,7 +395,7 @@ impl LlmProvider for OpenAiProvider {
                                 // Process complete SSE lines
                                 while let Some(newline_pos) = buffer.find('\n') {
                                     let line = buffer[..newline_pos].trim().to_string();
-                                    buffer = buffer[newline_pos + 1..].to_string();
+                                    buffer.drain(..newline_pos + 1);
 
                                     if line.is_empty() || line.starts_with(':') {
                                         continue;

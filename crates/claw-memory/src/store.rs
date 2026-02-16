@@ -233,7 +233,7 @@ impl MemoryStore {
         let rows: Vec<(String, String, String, f64, Option<Vec<u8>>)> = {
             let db = self.db.lock();
             let mut stmt = db
-                .prepare("SELECT category, key, value, confidence, embedding FROM facts")
+                .prepare_cached("SELECT category, key, value, confidence, embedding FROM facts")
                 .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
 
             stmt.query_map([], |row| {
@@ -311,7 +311,7 @@ impl MemoryStore {
     /// Read recent audit log entries.
     pub fn audit_log(&self, limit: usize) -> Vec<(String, String, String, Option<String>)> {
         let db = self.db.lock();
-        let mut stmt = match db.prepare(
+        let mut stmt = match db.prepare_cached(
             "SELECT timestamp, event_type, action, details FROM audit_log ORDER BY id DESC LIMIT ?1"
         ) {
             Ok(s) => s,
@@ -395,60 +395,56 @@ impl MemoryStore {
         Ok(())
     }
 
-    /// Load all goals and their steps from SQLite. Returns the raw data as tuples
-    /// (id, description, status, priority, progress, parent_id).
+    /// Load all goals and their steps from SQLite in a single JOIN query.
     pub fn load_goals(&self) -> claw_core::Result<Vec<GoalRow>> {
         let db = self.db.lock();
         let mut stmt = db
-            .prepare(
-                "SELECT g.id, g.description, g.status, g.priority, g.progress, g.parent_id
+            .prepare_cached(
+                "SELECT g.id, g.description, g.status, g.priority, g.progress, g.parent_id,
+                        s.id, s.description, s.status, s.result
                  FROM goals g
-                 ORDER BY g.priority DESC",
+                 LEFT JOIN goal_steps s ON s.goal_id = g.id
+                 ORDER BY g.priority DESC, s.created_at ASC",
             )
             .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
 
-        let goals: Vec<GoalRow> = stmt
-            .query_map([], |row| {
-                let goal_id: String = row.get(0)?;
+        let mut goals_map: std::collections::HashMap<String, GoalRow> = std::collections::HashMap::new();
+        let mut goal_order: Vec<String> = Vec::new();
 
-                Ok(GoalRow {
-                    id: goal_id,
-                    description: row.get(1)?,
-                    status: row.get(2)?,
-                    priority: row.get::<_, i32>(3)? as u8,
-                    progress: row.get::<_, f64>(4)? as f32,
-                    parent_id: row.get(5)?,
+        stmt.query_map([], |row| {
+            let goal_id: String = row.get(0)?;
+            let step_id: Option<String> = row.get(6)?;
+            Ok((goal_id, row.get(1)?, row.get(2)?, row.get::<_, i32>(3)?, row.get::<_, f64>(4)?, row.get::<_, Option<String>>(5)?,
+                step_id, row.get::<_, Option<String>>(7)?, row.get::<_, Option<String>>(8)?, row.get::<_, Option<String>>(9)?))
+        })
+        .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?
+        .filter_map(|r| r.ok())
+        .for_each(|(goal_id, desc, status, priority, progress, parent_id, step_id, step_desc, step_status, step_result)| {
+            if !goals_map.contains_key(&goal_id) {
+                goal_order.push(goal_id.clone());
+                goals_map.insert(goal_id.clone(), GoalRow {
+                    id: goal_id.clone(),
+                    description: desc,
+                    status,
+                    priority: priority as u8,
+                    progress: progress as f32,
+                    parent_id,
                     steps: Vec::new(),
-                })
-            })
-            .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?
-            .filter_map(|r| r.ok())
-            .collect();
+                });
+            }
+            if let (Some(sid), Some(sd), Some(ss)) = (step_id, step_desc, step_status) {
+                if let Some(goal) = goals_map.get_mut(&goal_id) {
+                    goal.steps.push(GoalStepRow {
+                        id: sid,
+                        description: sd,
+                        status: ss,
+                        result: step_result,
+                    });
+                }
+            }
+        });
 
-        // Load steps for each goal
-        let mut result = goals;
-        for goal in &mut result {
-            let mut step_stmt = db
-                .prepare(
-                    "SELECT id, description, status, result FROM goal_steps WHERE goal_id = ?1 ORDER BY created_at"
-                )
-                .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
-
-            goal.steps = step_stmt
-                .query_map(rusqlite::params![goal.id], |row| {
-                    Ok(GoalStepRow {
-                        id: row.get(0)?,
-                        description: row.get(1)?,
-                        status: row.get(2)?,
-                        result: row.get(3)?,
-                    })
-                })
-                .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?
-                .filter_map(|r| r.ok())
-                .collect();
-        }
-
-        Ok(result)
+        Ok(goal_order.into_iter().filter_map(|id| goals_map.remove(&id)).collect())
     }
 }
 
@@ -524,7 +520,7 @@ impl MemoryStore {
     pub fn load_sessions(&self, limit: usize) -> claw_core::Result<Vec<SessionRow>> {
         let db = self.db.lock();
         let mut stmt = db
-            .prepare(
+            .prepare_cached(
                 "SELECT id, name, channel, target, active, message_count, created_at
                  FROM sessions
                  ORDER BY updated_at DESC
@@ -594,7 +590,7 @@ impl MemoryStore {
     ) -> claw_core::Result<Vec<claw_core::Message>> {
         let db = self.db.lock();
         let mut stmt = db
-            .prepare("SELECT messages_json FROM session_messages WHERE session_id = ?1")
+            .prepare_cached("SELECT messages_json FROM session_messages WHERE session_id = ?1")
             .map_err(|e| claw_core::ClawError::Memory(e.to_string()))?;
 
         let json: Option<String> = stmt
@@ -663,7 +659,7 @@ impl MemoryStore {
     pub fn load_scheduled_tasks(&self) -> claw_core::Result<Vec<ScheduledTaskRow>> {
         let db = self.db.lock();
         let mut stmt = db
-            .prepare(
+            .prepare_cached(
                 "SELECT id, label, description, kind_json, created_at, session_id, active, fire_count, last_fired
                  FROM scheduled_tasks"
             )

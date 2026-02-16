@@ -13,7 +13,7 @@ mod tests {
             messages: vec![Message::text(Uuid::nil(), Role::User, "Hello")],
             max_tokens: 100,
             temperature: 0.7,
-            tools: vec![],
+            tools: Arc::new(vec![]),
             system: None,
             stream: false,
             thinking_level: None,

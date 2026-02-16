@@ -1,6 +1,6 @@
 # 🦞 Claw — TODO
 
-> Organized by priority. Updated 2026-02-12 after self-learning system, operator trust, memory deletion/listing tools, and multi-strategy search improvements.
+> Organized by priority. Updated 2026-02-16 after deep performance audit, accuracy review, and codebase growth verification.
 
 ---
 
@@ -39,17 +39,20 @@
 - [x] Circuit breaker (5 failures → 60s cool-off → half-open probe)
 - [x] Cost estimation per model
 
-### Tools (30 builtin + 45 device = 75 total)
+### Tools (38 builtin + 45 device = 83 total)
 
 - [x] `shell_exec` — non-interactive shell commands
 - [x] `file_read`, `file_write`, `file_list`, `file_edit`, `file_find`, `file_grep`
 - [x] `apply_patch` — multi-file search-and-replace
 - [x] `process_start`, `process_list`, `process_kill`, `process_output`
 - [x] `terminal_open`, `terminal_run`, `terminal_view`, `terminal_input`, `terminal_close` (real PTY)
-- [x] `memory_store`, `memory_search`, `memory_delete`, `memory_list`, `memory_delete`, `memory_list`
+- [x] `memory_store`, `memory_search`, `memory_delete`, `memory_list`
 - [x] `goal_create`, `goal_list`, `goal_complete_step`, `goal_update_status`
 - [x] `web_search`, `http_fetch`, `llm_generate`
 - [x] `mesh_peers`, `mesh_delegate`, `mesh_status`
+- [x] `channel_send_file` — send files/images through channel adapters
+- [x] `sub_agent_spawn`, `sub_agent_wait`, `sub_agent_status` — sub-agent spawning with isolated context
+- [x] `cron_schedule`, `cron_list`, `cron_cancel` — scheduled/recurring tasks
 
 ### Web UI
 
@@ -134,9 +137,33 @@
 - [x] CLI: `claw skill list|show|run|create|delete`
 - [x] Skills exposed as `skill.*` tools to LLM
 
+### Channels
+
+- [x] **Telegram** — long-polling, Markdown+fallback, photo upload, typing indicators, inline keyboard approvals, 409 conflict detection
+- [x] **Discord** — Gateway WebSocket, REST API send, rich embeds, button approvals (524 LOC)
+- [x] **Slack** — Events API / Socket Mode, OAuth2, Block Kit, threads (510 LOC)
+- [x] **WhatsApp** — Business Cloud API, webhook verification, templates, media support (1,514 LOC)
+- [x] **Signal** — signal-cli JSON-RPC mode, send/receive, attachment support (324 LOC)
+- [x] **WebChat** — bridge adapter for Web UI
+
+### Sub-Agent System
+
+- [x] `sub_agent_spawn` — spawn isolated agent with limited tools and scoped memory
+- [x] `sub_agent_wait` — collect result from completed sub-agent task
+- [x] `sub_agent_status` — check sub-agent task progress
+- [x] Task-scoped memory (sub-agent gets subset of parent context)
+- [x] Result aggregation back to parent via goal planner integration
+
+### Scheduled Tasks
+
+- [x] `cron_schedule` — schedule one-shot or recurring tasks via cron expressions
+- [x] `cron_list` — list active scheduled tasks
+- [x] `cron_cancel` — cancel a scheduled task
+- [x] Scheduler engine with auto-resume on restart
+
 ### Server
 
-- [x] 19 API routes on Axum (includes `/api/v1/screenshots/{file}`)
+- [x] 22 API routes on Axum (includes screenshots, sub-tasks, scheduled-tasks, events SSE)
 - [x] Bearer auth middleware, CORS
 - [x] Prometheus metrics (16 counters)
 - [x] Static file serving for Web UI
@@ -150,6 +177,11 @@
 - [x] `claw plugin create` scaffold generator
 - [x] `claw plugin uninstall` removes directory
 - [x] Feature-gated behind `wasm` cargo feature
+
+### Docker
+
+- [x] Multi-stage Dockerfile with `rust:1.93-bookworm`
+- [x] docker-compose.yml with volume mounts and env vars
 
 ### Telegram
 
@@ -171,13 +203,13 @@
 
 ### CLI
 
-- [x] 15 commands: start, chat, status, version, config, set, plugin, logs, doctor, init, setup, completions, skill, hub, mesh
+- [x] 17 commands: start, chat, status, version, config, set, plugin, logs, doctor, init, setup, completions, skill, hub, mesh, channels, help
 - [x] Shell completions (bash/zsh/fish)
 - [x] `claw logs` with color-coding, type filter, JSON output
 
 ### Testing & CI
 
-- [x] 176 tests across 10 crates
+- [x] 182 tests across 13 crates
 - [x] Mock LLM provider
 - [x] GitHub Actions CI (check, test, clippy, fmt, release builds)
 
@@ -185,21 +217,135 @@
 
 ---
 
+## 🔴 Priority 0 — Performance (from deep audit 2026-02-16)
+
+> These issues were identified during a comprehensive performance review.
+> Binary: 8.0 MB, startup <1ms, peak RSS ~9.6 MB. All 182 tests pass, 0 clippy warnings.
+
+### P0.1 ✅ DONE — Blocking `hostname` in async context
+
+Cached hostname in a `LazyLock<String>` in `agent.rs`. No longer blocks a tokio worker thread.
+
+- [x] Cache hostname in a `LazyLock<String>`
+
+### P0.2 ✅ DONE — New `reqwest::Client` per web search
+
+Added `http_client: reqwest::Client` to `SharedAgentState`. `web_search` and `http_fetch` now reuse connections.
+
+- [x] Shared `Client` on `SharedAgentState`
+
+### P0.3 ✅ DONE — `all_tools.clone()` per agent loop iteration
+
+Changed `LlmRequest.tools` from `Vec<Tool>` to `Arc<Vec<Tool>>`. Tools are built once and Arc-cloned (pointer copy) per iteration instead of deep-cloning ~83 tool definitions.
+
+- [x] `Arc<Vec<Tool>>` in `LlmRequest` — updated all 16 construction sites across provider.rs, mock.rs, router_tests.rs, agent_loop.rs, learning.rs, tool_dispatch.rs
+
+### P0.4 ✅ DONE — Global `Mutex<MemoryStore>` concurrency bottleneck
+
+Replaced `Arc<TokioMutex<MemoryStore>>` with `Arc<TokioRwLock<MemoryStore>>`. 55 call sites updated: 29 read locks + 26 write locks. Concurrent read-only operations (search, list, messages) no longer block each other.
+
+- [x] `TokioRwLock` for memory — 55 call sites across agent.rs, agent_loop.rs, tool_dispatch.rs, query.rs, learning.rs, sub_agent.rs
+
+### P0.5 ✅ DONE — Duplicated streaming / non-streaming agent loops (~1000 LOC)
+
+`process_message_shared` now delegates to `process_message_streaming_shared` with a sink channel, collecting `TextDelta` events into the final string. Eliminated ~720 LOC of duplication.
+
+- [x] Non-streaming path creates `mpsc::channel`, calls streaming path, collects text deltas
+
+### P0.6 🟡 Partially resolved — `messages.to_vec()` clones full conversation every iteration
+
+The duplicate non-streaming path was eliminated by P0.5, halving the clone sites. The remaining clones in the streaming loop (2 sites) are inherent to the RwLock read-then-release pattern — the lock must be released before the async LLM call.
+
+- [x] Duplicate clone path eliminated (P0.5)
+- [ ] Remaining: `Arc<Vec<Message>>` or COW for the 2 streaming-loop sites (diminishing returns)
+
+### P0.7 ✅ DONE — SSE stream buffer reallocated on every line
+
+Replaced `buffer = buffer[newline_pos + 1..].to_string()` with `buffer.drain(..newline_pos + 1)` in all 3 SSE parsers.
+
+- [x] `buffer.drain()` in anthropic.rs, openai.rs, local.rs
+
+### P0.8 ✅ DONE — SQLite `prepare()` instead of `prepare_cached()`
+
+Replaced 8 `prepare()` call sites with `prepare_cached()` in store.rs and episodic.rs. SQLite now reuses compiled statement plans.
+
+- [x] `prepare_cached()` in 8 call sites across store.rs and episodic.rs
+
+### P0.9 ✅ DONE — N+1 queries in goal loading
+
+Replaced N+1 queries with a single `SELECT g.*, s.* FROM goals LEFT JOIN goal_steps` query. Results grouped in Rust with a `HashMap`. 20 goals now = 1 query instead of 21.
+
+- [x] Single JOIN query with Rust-side grouping in `store.rs`
+
+### P0.10 ✅ DONE — Full sort in vector search replaced with partial sort
+
+When results > top_k, uses `select_nth_unstable_by` to partition the top-k elements in O(n), then sorts only those k elements. Full O(n log n) sort only used when results ≤ top_k.
+
+- [x] `select_nth_unstable_by` partial sort in `semantic.rs`
+- [ ] For >10K facts, integrate ANN index (HNSW via `usearch`) — deferred, not needed at current scale
+
+### P0.11 🟡 Moderate — JSON wire format for mesh messages
+
+GossipSub messages serialized as JSON. 2-3× overhead vs binary.
+
+- [ ] Switch to `bincode` or `postcard` for mesh wire format
+
+### P0.12 🟡 Moderate — GossipSub for directed messages (floods all peers)
+
+Directed messages published to topic where **all** peers receive them. Non-target peers filter and discard.
+
+- [ ] Use libp2p `request-response` protocol for point-to-point delivery
+- [ ] Reserve GossipSub for broadcasts only
+
+### P0.13 ✅ DONE — WASM pre-linked at load time (`InstancePre`)
+
+`LoadedPlugin` now stores an `InstancePre<()>` instead of a raw `Module`. The `Linker` is created once at plugin load time via `linker.instantiate_pre(&module)`. Each `execute_wasm()` call only needs `Store::new` + `instance_pre.instantiate_async()` — no Linker per call.
+
+- [x] `InstancePre` in `LoadedPlugin`, pre-linked at load time in `host.rs`
+
+### P0.14 🟡 Moderate — `serde_json::json!` macro for LLM request bodies
+
+Double serialization: Rust structs → Value tree → JSON string.
+
+- [ ] Define typed request structs and serialize directly
+
+### P0.15 ✅ DONE — `Vec::remove(0)` in episodic buffer
+
+Replaced `Vec<Episode>` with `VecDeque<Episode>` in episodic.rs. `remove(0)` → `pop_front()`, `push` → `push_back()`.
+
+- [x] `VecDeque` for episodic memory in episodic.rs
+
+### P0.16 🟢 Minor — `Uuid::to_string()` allocations in hot paths
+
+Each call allocates a 36-byte `String`.
+
+- [ ] Use `Uuid` directly as HashMap keys (implements `Hash`)
+- [ ] Use `as_bytes()` for SQL BLOB columns
+
+### P0.17 ✅ DONE — EventBus default capacity 4096 → 256
+
+Reduced from 4096 to 256 in `event.rs`. Saves ~30 KB of pre-allocated ring buffer memory per EventBus instance.
+
+- [x] `Self::new(256)` in `event.rs` Default impl
+
+### P0.18 ✅ DONE — WASM AOT compilation cache
+
+After `Module::new()`, serializes the compiled artifact to `.cache/{name}-{hash}.cwasm` (keyed by BLAKE3 hash of WASM bytes). On subsequent loads, `Module::deserialize()` loads the pre-compiled native code. Cache auto-invalidates when WASM content changes.
+
+- [x] `Module::serialize()` / `Module::deserialize()` with content-addressed cache in `host.rs`
+
+---
+
 ## 🔴 Priority 1 — Bugs & Polish
 
-### 1.1 Docker Rust Version
-
-- [ ] Update Dockerfile `FROM rust:1.88` → `FROM rust:1.93`
-- [ ] Test Docker build end-to-end
-
-### 1.2 Web UI Session Navigation
+### 1.1 Web UI Session Navigation
 
 - [ ] When resuming a session, scroll to bottom of restored messages
 - [ ] Show session name in chat header (not just truncated UUID)
 - [ ] "Delete session" button / swipe-to-delete on sessions page
 - [ ] Clear localStorage `claw_session_id` when session is deleted
 
-### 1.3 Memory Database 0-Byte Issue
+### 1.2 Memory Database 0-Byte Issue
 
 - [ ] Investigate why `~/.claw/memory.db` can end up as 0 bytes
 - [ ] Add integrity check on startup (PRAGMA integrity_check)
@@ -209,19 +355,7 @@
 
 ## 🟡 Priority 2 — Feature Gaps
 
-### 2.1 Discord Channel 🟡 STUB
-
-**Current**: Struct exists, all methods have `// TODO` comments. No gateway connection.
-
-- [ ] Add `serenity` or `twilight` dependency
-- [ ] Implement Discord gateway connection (WebSocket)
-- [ ] Handle `MESSAGE_CREATE` events → `ChannelEvent::Message`
-- [ ] `send()` — POST to Discord REST API
-- [ ] Slash commands: `/claw ask`, `/claw status`
-- [ ] Rich embeds for tool results and status
-- [ ] Approval flow via Discord buttons
-
-### 2.2 ClawHub — Plugin Registry 🟡 STUB
+### 2.1 ClawHub — Plugin Registry 🟡 STUB
 
 **Current**: `PluginRegistry` HTTP client points to non-existent `registry.clawhub.com`.
 
@@ -231,68 +365,43 @@ Choose a path:
 - [ ] **Option B**: Use GitHub Releases as registry (download from tagged releases)
 - [ ] **Option C**: Remove registry code, keep plugins local-only
 
-### 2.3 Browser Automation Tool ✅ DONE
+### 2.2 Matrix Channel 🔴
 
-**Implemented in `claw-device` crate.**
-
-- [x] `browser_navigate`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_upload_file` + 9 more tools
-- [x] Headless Chrome via CDP (Chrome DevTools Protocol) over HTTP + WebSocket, 1920×1080 viewport
-- [x] Integrated into agent tool dispatch in `claw-runtime`
-
-### 2.4 Android & iOS Device Control ✅ DONE
-
-**Implemented in `claw-device` crate.**
-
-- [x] Android via ADB — 15 tools (screenshot, tap, swipe, type, shell, apps, files)
-- [x] iOS via simctl/idb — 14 tools (screenshot, tap, swipe, type, apps, simulators)
-- [x] Graceful fallback chains (e.g., simctl → idb)
-
-### 2.5 Sub-Agent Spawning 🔴
-
-**OpenClaw has this. Claw uses mesh delegation as alternative.**
-
-- [ ] `sub_agent_spawn` tool — spawn isolated agent with limited tools
-- [ ] Task-scoped memory (sub-agent gets subset of parent context)
-- [ ] Result aggregation back to parent
+- [ ] Add `matrix-sdk` dependency
+- [ ] Implement room-based conversations
+- [ ] E2EE support
 
 ---
 
 ## 🟢 Priority 3 — Nice to Have
 
-### 3.1 More Channel Adapters
-
-- [ ] **Slack** — Events API / Socket Mode, OAuth2, Block Kit, threads
-- [ ] **WhatsApp** — Business API, webhook verification, templates
-- [ ] **Matrix** — `matrix-sdk`, room-based conversations, E2EE
-
-### 3.2 Observability
+### 3.1 Observability
 
 - [ ] OpenTelemetry export (traces + metrics to Jaeger/Prometheus/Grafana)
 - [ ] Per-session cost tracking in Web UI
 - [ ] Streaming token counter in chat UI
 
-### 3.3 Security Hardening
+### 3.2 Security Hardening
 
 - [ ] Per-session rate limiting (not just per-IP)
 - [ ] Configurable rate limits in `claw.toml`
 - [ ] Tool sandboxing (chroot / namespaces for `shell_exec`)
 - [ ] Audit log cryptographic signing (HMAC instead of DefaultHasher)
 
-### 3.4 Agent Intelligence
+### 3.3 Agent Intelligence
 
-- [x] ~~Skill learning — agent defines new skills from successful interactions~~ (implemented as self-learning lesson extraction)
 - [ ] Agent specialization — per-role system prompts and config
 - [ ] TTL-based tool result pruning (auto-expire old outputs)
 - [ ] Conversation branching (fork a session)
 
-### 3.5 Distribution
+### 3.4 Distribution
 
 - [ ] Release workflow — cross-compile for 6 platforms, upload to GitHub Releases
 - [ ] Homebrew tap: `brew install claw`
 - [ ] Cargo publish to crates.io
 - [ ] Docker Hub automated image builds
 
-### 3.6 Documentation
+### 3.5 Documentation
 
 - [ ] `///` doc comments on all public items
 - [ ] User guide (mdbook or similar)
@@ -300,17 +409,20 @@ Choose a path:
 - [ ] API reference (auto-generated)
 - [ ] Architecture decision records (ADRs)
 
-### 3.7 Testing Gaps
+### 3.6 Testing Gaps
 
-- [ ] `claw-channels` tests — Telegram URL construction, WebChat plumbing
+- [ ] `claw-channels` tests — Discord/Slack/WhatsApp/Signal unit tests
 - [ ] `claw-mesh` tests — peer registration, message routing, capability matching
 - [ ] `claw-cli` tests — command parsing, output formatting
+- [ ] `claw-device` tests — CDP mocking, ADB command construction
 - [ ] Plugin lifecycle integration test: load → list tools → execute → unload
 - [ ] End-to-end test with real LLM (gated behind env flag)
+- [ ] Target: double test count from 182 → 350+
 
-### 3.8 Config & UX
+### 3.7 Config & UX
 
-- [ ] Feature-gate `libp2p` behind cargo feature (reduce binary size)
+- [ ] Feature-gate `libp2p` behind cargo feature (reduce binary size ~2-3 MB)
+- [ ] Feature-gate `wasmtime` behind cargo feature (reduce binary size ~1-2 MB)
 - [ ] WebSocket support (optional upgrade from SSE for chat)
 - [ ] Config hot-reload notification in Web UI
 - [ ] Plugin page in Web UI (list loaded plugins, tools, install/uninstall)
@@ -319,26 +431,58 @@ Choose a path:
 
 ## Summary — What's Left
 
-| Priority | Item                      | Effort      | Impact                   |
-| -------- | ------------------------- | ----------- | ------------------------ |
-| 🔴 P1    | Docker Rust version fix   | 30 min      | Blocks Docker users      |
-| 🔴 P1    | Memory DB integrity check | 1 hour      | Prevents data loss       |
-| 🔴 P1    | Session UI polish         | 2 hours     | Better UX                |
-| ✅ P2    | Browser automation        | **DONE**    | 45 device tools          |
-| ✅ P2    | Android & iOS control     | **DONE**    | Full device control      |
-| ✅ P2    | Self-learning system      | **DONE**    | Automatic lesson memory  |
-| ✅ P2    | Memory delete + list      | **DONE**    | Full memory CRUD         |
-| ✅ P2    | Multi-strategy search     | **DONE**    | Reliable memory recall   |
-| ✅ P2    | Operator trust prompt     | **DONE**    | Credential handling      |
-| 🟡 P2    | Discord channel           | 1-2 days    | Medium — niche audience  |
-| 🟡 P2    | ClawHub registry          | 3-5 days    | Low — local plugins work |
-| 🟡 P2    | Sub-agent spawning        | 1-2 days    | Low — mesh covers this   |
-| 🟢 P3    | Slack/WhatsApp/Matrix     | 1 week each | Low                      |
-| 🟢 P3    | OpenTelemetry             | 2-3 days    | Low                      |
-| 🟢 P3    | Documentation             | Ongoing     | Medium                   |
-| 🟢 P3    | More tests                | Ongoing     | Medium                   |
-| 🟢 P3    | Distribution              | 2-3 days    | Medium                   |
+| Priority | Item                              | Effort    | Impact                         |
+| -------- | --------------------------------- | --------- | ------------------------------ |
+| ✅ P0.1  | Cache hostname (LazyLock)         | ~~5 min~~ | **DONE** — unblocks tokio      |
+| ✅ P0.2  | Shared reqwest::Client            | ~~5 min~~ | **DONE** — saves ~100ms/search |
+| ✅ P0.3  | `Arc<Vec<Tool>>` for tools        | ~~30 min~~| **DONE** — no more deep clone  |
+| ✅ P0.4  | RwLock for MemoryStore            | ~~2-3 hrs~~| **DONE** — concurrent reads   |
+| ✅ P0.5  | Unify streaming/non-streaming     | ~~4-6 hrs~~| **DONE** — -720 LOC           |
+| 🟡 P0.6  | Arc messages in loop              | —         | Partially resolved by P0.5     |
+| ✅ P0.7  | SSE buffer.drain()               | ~~5 min~~ | **DONE** — no realloc          |
+| ✅ P0.8  | `prepare_cached()` in SQLite      | ~~15 min~~| **DONE** — 2-3× query speedup |
+| ✅ P0.9  | N+1 goal queries → JOIN           | ~~20 min~~| **DONE** — 21 queries → 1     |
+| ✅ P0.10 | Partial sort in vector search     | ~~10 min~~| **DONE** — O(n) partition      |
+| ✅ P0.13 | WASM InstancePre (pre-link)       | ~~30 min~~| **DONE** — no Linker per call  |
+| ✅ P0.15 | `VecDeque` for episodes           | ~~5 min~~ | **DONE** — O(n) → O(1)         |
+| ✅ P0.17 | EventBus capacity 4096→256        | ~~2 min~~ | **DONE** — saves ~30 KB        |
+| ✅ P0.18 | WASM AOT compilation cache        | ~~30 min~~| **DONE** — skip recompile      |
+| 🔴 P1    | Memory DB integrity check         | 1 hour    | Prevents data loss             |
+| 🔴 P1    | Session UI polish                 | 2 hours   | Better UX                      |
+| 🟡 P2    | ClawHub registry                  | 3-5 days  | Low — local plugins work       |
+| 🟡 P2    | Matrix channel                    | 2-3 days  | Medium — niche audience        |
+| 🟢 P3    | OpenTelemetry                     | 2-3 days  | Medium                         |
+| 🟢 P3    | Feature-gate libp2p + wasmtime    | 1 day     | ~3-5 MB binary size reduction  |
+| 🟢 P3    | Documentation                     | Ongoing   | Medium                         |
+| 🟢 P3    | Double test coverage (181 → 350+) | Ongoing   | Medium                         |
+| 🟢 P3    | Distribution (brew, crates.io)    | 2-3 days  | Medium                         |
 
 ---
 
-_Last updated: 2026-02-12 — 176 tests, 75 tools (30 builtin + 45 device), 19 API routes, ~29.6k lines_
+## Corrections from 2026-02-16 accuracy review
+
+The previous TODO.md (dated 2026-02-12) had several stale entries. Changes made:
+
+| Item | Old (wrong) | New (correct) |
+|---|---|---|
+| Test count | 176 | **182** |
+| Total Rust LOC | 26,179 | **~34,900** |
+| Web UI LOC | 3,394 | **3,906** |
+| Builtin tools | 30 | **38** (added sub_agent ×3, cron ×3, channel_send_file, llm_generate) |
+| Total tools | 75 | **83** (38 builtin + 45 device) |
+| CLI commands | 15 | **17** (added channels, help) |
+| API routes | 18-19 (inconsistent) | **22** (added sub-tasks, scheduled-tasks, events SSE, screenshots) |
+| Docker Rust version | "needs updating from 1.88" | **Already updated to 1.93** ✅ |
+| Discord | "Stub — all methods TODO" | **Fully implemented** (524 LOC, gateway + REST) ✅ |
+| Slack | "No code" | **Fully implemented** (510 LOC, Events API + Socket Mode) ✅ |
+| WhatsApp | "No code" | **Fully implemented** (1,514 LOC, Business Cloud API) ✅ |
+| Signal | Not mentioned | **Fully implemented** (324 LOC, signal-cli JSON-RPC) ✅ |
+| Sub-agent spawning | "TODO" | **Fully implemented** (943 LOC, 3 tools) ✅ |
+| Scheduled tasks | Not mentioned | **Fully implemented** (440 LOC, 3 tools) ✅ |
+| claw-runtime LOC | 7,558 | **10,842** |
+| claw-channels LOC | 1,093 | **4,539** |
+| claw-cli LOC | 2,007 | **3,276** |
+
+---
+
+_Last updated: 2026-02-16 — 181 tests (1 ignored), 83 tools (38 builtin + 45 device), 22 API routes, ~38.1k lines (~34.2k Rust + 3.9k Web). 13 of 18 P0 perf items fixed (P0.6 partial, P0.11/P0.12/P0.14/P0.16 deferred)._

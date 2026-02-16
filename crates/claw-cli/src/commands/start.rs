@@ -174,8 +174,25 @@ pub(super) async fn cmd_start(
         // Start the API server in the background
         let server_config = config.server.clone();
         let hub_url = config.services.hub_url.clone();
+
+        // Resolve local skills/plugins directories so the Hub page can show them
+        let config_base = dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".claw");
+        let plugin_dir = config.plugins.plugin_dir.clone();
+        let skills_dir = if plugin_dir.is_absolute() {
+            plugin_dir
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .join("skills")
+        } else {
+            config_base.join("skills")
+        };
+
         tokio::spawn(async move {
-            if let Err(e) = claw_server::start_server(server_config, hub_url).await {
+            if let Err(e) =
+                claw_server::start_server(server_config, hub_url, skills_dir, plugin_dir).await
+            {
                 error!(error = %e, "API server failed");
             }
         });

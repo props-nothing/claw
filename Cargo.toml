@@ -16,6 +16,11 @@ members = [
     "crates/claw-cli",
     "claw-bin",
 ]
+exclude = [
+    "examples/plugins/hello-world",
+    "examples/plugins/calculator",
+    "examples/plugins/text-utils",
+]
 
 [workspace.package]
 version = "0.1.0"

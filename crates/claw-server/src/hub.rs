@@ -90,7 +90,25 @@ impl HubState {
                 updated_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name);
-            CREATE INDEX IF NOT EXISTS idx_skills_tags ON skills(tags);",
+            CREATE INDEX IF NOT EXISTS idx_skills_tags ON skills(tags);
+
+            CREATE TABLE IF NOT EXISTS plugins (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT NOT NULL DEFAULT '',
+                version TEXT NOT NULL DEFAULT '0.1.0',
+                authors TEXT NOT NULL DEFAULT '[]',
+                license TEXT NOT NULL DEFAULT '',
+                checksum TEXT NOT NULL DEFAULT '',
+                tools_json TEXT NOT NULL DEFAULT '[]',
+                capabilities_json TEXT NOT NULL DEFAULT '{}',
+                wasm_bytes BLOB NOT NULL,
+                manifest_toml TEXT NOT NULL,
+                downloads INTEGER NOT NULL DEFAULT 0,
+                published_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_plugins_name ON plugins(name);",
         )
         .map_err(|e| format!("failed to create hub tables: {e}"))?;
 
@@ -111,6 +129,7 @@ pub fn standalone_hub_router(db_path: &std::path::Path) -> Result<Router, String
 
     let router = Router::new()
         .route("/health", get(hub_health))
+        // Skills
         .route("/api/v1/hub/skills", get(list_skills).post(publish_skill))
         .route("/api/v1/hub/skills/search", get(search_skills))
         .route(
@@ -118,6 +137,15 @@ pub fn standalone_hub_router(db_path: &std::path::Path) -> Result<Router, String
             get(get_skill).delete(delete_skill),
         )
         .route("/api/v1/hub/skills/{name}/pull", post(pull_skill))
+        // Plugins
+        .route("/api/v1/hub/plugins", get(list_plugins).post(publish_plugin))
+        .route("/api/v1/hub/plugins/search", get(search_plugins))
+        .route(
+            "/api/v1/hub/plugins/{name}",
+            get(get_plugin).delete(delete_plugin),
+        )
+        .route("/api/v1/hub/plugins/{name}/{version}", get(download_plugin))
+        // Stats
         .route("/api/v1/hub/stats", get(hub_stats))
         .with_state(state)
         .layer(CorsLayer::permissive());
@@ -147,6 +175,7 @@ pub struct HubProxy {
 /// Merged into the agent's router when `services.hub_url` is set.
 pub fn hub_proxy_routes() -> Router<Arc<crate::AppState>> {
     Router::new()
+        // Skills
         .route("/api/v1/hub/skills", get(proxy_forward).post(proxy_forward))
         .route("/api/v1/hub/skills/search", get(proxy_forward))
         .route(
@@ -154,12 +183,280 @@ pub fn hub_proxy_routes() -> Router<Arc<crate::AppState>> {
             get(proxy_forward).delete(proxy_forward),
         )
         .route("/api/v1/hub/skills/{name}/pull", post(proxy_forward))
+        // Plugins
+        .route("/api/v1/hub/plugins", get(proxy_forward).post(proxy_forward))
+        .route("/api/v1/hub/plugins/search", get(proxy_forward))
+        .route(
+            "/api/v1/hub/plugins/{name}",
+            get(proxy_forward).delete(proxy_forward),
+        )
+        .route("/api/v1/hub/plugins/{name}/{version}", get(proxy_forward))
+        // Stats + Health
         .route("/api/v1/hub/stats", get(proxy_forward))
         .route("/api/v1/hub/health", get(proxy_forward))
 }
 
 /// Generic proxy handler — forwards the request to the remote hub, streams
 /// the response back verbatim.
+
+// ═══════════════════════════════════════════════════════════════
+// MODE 3 — Local hub (no remote hub configured)
+//
+// Serves skills from the local skills directory (~/.claw/skills/)
+// and plugins from the local plugins directory (~/.claw/plugins/)
+// so the web UI's Hub page always shows something useful.
+// ═══════════════════════════════════════════════════════════════
+
+/// Build routes that serve local skills + plugins from the filesystem.
+/// Merged into the agent's router when NO `services.hub_url` is set.
+pub fn local_hub_routes() -> Router<Arc<crate::AppState>> {
+    Router::new()
+        .route("/api/v1/hub/skills", get(local_list_skills))
+        .route("/api/v1/hub/skills/search", get(local_list_skills))
+        .route("/api/v1/hub/skills/{name}", get(local_get_skill))
+        .route("/api/v1/hub/plugins", get(local_list_plugins))
+        .route("/api/v1/hub/plugins/search", get(local_list_plugins))
+        .route("/api/v1/hub/plugins/{name}", get(local_get_plugin))
+        .route("/api/v1/hub/stats", get(local_hub_stats))
+}
+
+/// List skills from the local filesystem.
+async fn local_list_skills(
+    State(state): State<Arc<crate::AppState>>,
+    Query(params): Query<SearchParams>,
+) -> Json<serde_json::Value> {
+    let skills = discover_local_skills(&state.skills_dir);
+
+    let q = params.q.to_lowercase();
+    let tag = params.tag.clone().unwrap_or_default().to_lowercase();
+
+    let filtered: Vec<_> = skills
+        .into_iter()
+        .filter(|s| {
+            (q.is_empty()
+                || s["name"]
+                    .as_str()
+                    .is_some_and(|n| n.to_lowercase().contains(&q))
+                || s["description"]
+                    .as_str()
+                    .is_some_and(|d| d.to_lowercase().contains(&q)))
+                && (tag.is_empty()
+                    || s["tags"]
+                        .as_array()
+                        .is_some_and(|tags| {
+                            tags.iter()
+                                .any(|t| t.as_str().is_some_and(|t| t.to_lowercase() == tag))
+                        }))
+        })
+        .collect();
+
+    let total = filtered.len();
+
+    Json(serde_json::json!({
+        "skills": filtered,
+        "total": total,
+        "limit": params.limit,
+        "offset": params.offset,
+    }))
+}
+
+/// Get a single skill by name.
+async fn local_get_skill(
+    State(state): State<Arc<crate::AppState>>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let skills = discover_local_skills(&state.skills_dir);
+    skills
+        .into_iter()
+        .find(|s| s["name"].as_str() == Some(&name))
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+/// List plugins from the local filesystem.
+async fn local_list_plugins(
+    State(state): State<Arc<crate::AppState>>,
+    Query(params): Query<SearchParams>,
+) -> Json<serde_json::Value> {
+    let plugins = discover_local_plugins(&state.plugin_dir);
+
+    let q = params.q.to_lowercase();
+    let filtered: Vec<_> = plugins
+        .into_iter()
+        .filter(|p| {
+            q.is_empty()
+                || p["name"]
+                    .as_str()
+                    .is_some_and(|n| n.to_lowercase().contains(&q))
+                || p["description"]
+                    .as_str()
+                    .is_some_and(|d| d.to_lowercase().contains(&q))
+        })
+        .collect();
+
+    let total = filtered.len();
+
+    Json(serde_json::json!({
+        "plugins": filtered,
+        "total": total,
+        "limit": params.limit,
+        "offset": params.offset,
+    }))
+}
+
+/// Get a single plugin by name.
+async fn local_get_plugin(
+    State(state): State<Arc<crate::AppState>>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let plugins = discover_local_plugins(&state.plugin_dir);
+    plugins
+        .into_iter()
+        .find(|p| p["name"].as_str() == Some(name.as_str()))
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+/// Hub stats from the local filesystem.
+async fn local_hub_stats(
+    State(state): State<Arc<crate::AppState>>,
+) -> Json<serde_json::Value> {
+    let skills = discover_local_skills(&state.skills_dir);
+    let plugins = discover_local_plugins(&state.plugin_dir);
+
+    // Gather tags
+    let mut tag_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for skill in &skills {
+        if let Some(tags) = skill["tags"].as_array() {
+            for tag in tags {
+                if let Some(t) = tag.as_str() {
+                    *tag_counts.entry(t.to_string()).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+    let mut top_tags: Vec<(String, usize)> = tag_counts.into_iter().collect();
+    top_tags.sort_by(|a, b| b.1.cmp(&a.1));
+    top_tags.truncate(20);
+
+    Json(serde_json::json!({
+        "total_skills": skills.len(),
+        "total_downloads": 0,
+        "total_plugins": plugins.len(),
+        "total_plugin_downloads": 0,
+        "top_tags": top_tags.iter().map(|(t, c)| serde_json::json!({"tag": t, "count": c})).collect::<Vec<_>>(),
+    }))
+}
+
+/// Scan the skills directory and return JSON objects matching the HubSkill shape.
+fn discover_local_skills(skills_dir: &std::path::Path) -> Vec<serde_json::Value> {
+    let mut registry = claw_skills::SkillRegistry::new_single(skills_dir);
+    let _ = registry.discover();
+
+    registry
+        .list()
+        .into_iter()
+        .map(|def| {
+            // Count steps: lines starting with a number, "- Step", or "## Step"
+            let steps_count = def
+                .body
+                .lines()
+                .filter(|l| {
+                    let t = l.trim();
+                    t.starts_with("## Step")
+                        || t.starts_with("- Step")
+                        || t.chars()
+                            .next()
+                            .is_some_and(|c| c.is_ascii_digit() && t.contains('.'))
+                })
+                .count()
+                .max(1);
+
+            serde_json::json!({
+                "id": format!("{}@{}", def.name, def.version),
+                "name": def.name,
+                "description": def.description,
+                "version": def.version,
+                "author": def.author.as_deref().unwrap_or(""),
+                "tags": def.tags,
+                "skill_content": format!("---\nname: {}\ndescription: {}\nversion: {}\ntags: {:?}\n---\n\n{}", def.name, def.description, def.version, def.tags, def.body),
+                "downloads": 0,
+                "steps_count": steps_count,
+                "risk_level": 0,
+                "published_at": "",
+                "updated_at": "",
+            })
+        })
+        .collect()
+}
+
+/// Scan the plugins directory and return JSON objects matching the HubPlugin shape.
+fn discover_local_plugins(plugin_dir: &std::path::Path) -> Vec<serde_json::Value> {
+    let mut host = match claw_plugin::PluginHost::new(plugin_dir) {
+        Ok(h) => h,
+        Err(_) => return vec![],
+    };
+    let _ = host.discover();
+
+    host.loaded()
+        .into_iter()
+        .map(|manifest| {
+            // Compute WASM size by finding the .wasm file
+            let wasm_size = find_wasm_size(plugin_dir, &manifest.plugin.name);
+
+            let tools: Vec<serde_json::Value> = manifest
+                .tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "name": t.name,
+                        "description": t.description,
+                        "risk_level": t.risk_level,
+                        "is_mutating": t.is_mutating,
+                    })
+                })
+                .collect();
+
+            serde_json::json!({
+                "id": format!("{}@{}", manifest.plugin.name, manifest.plugin.version),
+                "name": manifest.plugin.name,
+                "description": manifest.plugin.description,
+                "version": manifest.plugin.version,
+                "authors": manifest.plugin.authors,
+                "license": manifest.plugin.license.as_deref().unwrap_or(""),
+                "checksum": manifest.plugin.checksum.as_deref().unwrap_or(""),
+                "tools": tools,
+                "capabilities": serde_json::json!({
+                    "network": manifest.capabilities.network,
+                    "filesystem": manifest.capabilities.filesystem,
+                    "shell": manifest.capabilities.shell,
+                }),
+                "wasm_size": wasm_size,
+                "downloads": 0,
+                "published_at": "",
+                "updated_at": "",
+            })
+        })
+        .collect()
+}
+
+/// Find the size of the .wasm file in a plugin directory.
+fn find_wasm_size(plugin_dir: &std::path::Path, name: &str) -> u64 {
+    let dir = plugin_dir.join(name);
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            if entry
+                .path()
+                .extension()
+                .is_some_and(|e| e == "wasm")
+            {
+                return entry.metadata().map(|m| m.len()).unwrap_or(0);
+            }
+        }
+    }
+    0
+}
 async fn proxy_forward(
     State(state): State<Arc<crate::AppState>>,
     req: Request,
@@ -483,6 +780,16 @@ async fn hub_stats(
         })
         .unwrap_or(0);
 
+    let total_plugins: i64 = db
+        .query_row("SELECT COUNT(*) FROM plugins", [], |r| r.get(0))
+        .unwrap_or(0);
+
+    let total_plugin_downloads: i64 = db
+        .query_row("SELECT COALESCE(SUM(downloads), 0) FROM plugins", [], |r| {
+            r.get(0)
+        })
+        .unwrap_or(0);
+
     let mut stmt = db
         .prepare("SELECT tags FROM skills")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -507,6 +814,8 @@ async fn hub_stats(
     Ok(Json(serde_json::json!({
         "total_skills": total_skills,
         "total_downloads": total_downloads,
+        "total_plugins": total_plugins,
+        "total_plugin_downloads": total_plugin_downloads,
         "top_tags": top_tags.iter().map(|(t, c)| serde_json::json!({"tag": t, "count": c})).collect::<Vec<_>>(),
     })))
 }
@@ -528,5 +837,296 @@ fn row_to_skill(row: &rusqlite::Row) -> HubSkill {
         downloads: row.get::<_, i64>(7).unwrap_or(0) as u64,
         published_at: row.get(8).unwrap_or_default(),
         updated_at: row.get(9).unwrap_or_default(),
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Plugin Hub — WASM plugin registry
+// ═══════════════════════════════════════════════════════════════
+
+/// A plugin published to the hub (metadata only — WASM blob excluded for list views).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HubPlugin {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub authors: Vec<String>,
+    pub license: String,
+    pub checksum: String,
+    pub tools: Vec<HubPluginTool>,
+    pub capabilities: serde_json::Value,
+    pub downloads: u64,
+    pub wasm_size: u64,
+    pub published_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HubPluginTool {
+    pub name: String,
+    pub description: String,
+    pub risk_level: u8,
+    pub is_mutating: bool,
+}
+
+async fn list_plugins(
+    State(hub): State<Arc<HubState>>,
+    Query(params): Query<SearchParams>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let db = hub.db.lock().await;
+
+    let sort_clause = match params.sort.as_deref() {
+        Some("downloads") => "ORDER BY downloads DESC",
+        Some("name") => "ORDER BY name ASC",
+        Some("updated") => "ORDER BY updated_at DESC",
+        _ => "ORDER BY updated_at DESC",
+    };
+
+    let sql = format!(
+        "SELECT id, name, description, version, authors, license, checksum, \
+         tools_json, capabilities_json, length(wasm_bytes), downloads, published_at, updated_at \
+         FROM plugins {sort_clause} LIMIT ?1 OFFSET ?2"
+    );
+
+    let mut stmt = db.prepare(&sql).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let plugins: Vec<HubPlugin> = stmt
+        .query_map(
+            rusqlite::params![params.limit as i64, params.offset as i64],
+            |row| Ok(row_to_plugin(row)),
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let total: i64 = db
+        .query_row("SELECT COUNT(*) FROM plugins", [], |r| r.get(0))
+        .unwrap_or(0);
+
+    Ok(Json(serde_json::json!({
+        "plugins": plugins,
+        "total": total,
+        "limit": params.limit,
+        "offset": params.offset,
+    })))
+}
+
+async fn search_plugins(
+    State(hub): State<Arc<HubState>>,
+    Query(params): Query<SearchParams>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let db = hub.db.lock().await;
+
+    let sql = "SELECT id, name, description, version, authors, license, checksum, \
+               tools_json, capabilities_json, length(wasm_bytes), downloads, published_at, updated_at \
+               FROM plugins WHERE name LIKE ?1 OR description LIKE ?1 \
+               ORDER BY downloads DESC LIMIT ?2 OFFSET ?3";
+
+    let pattern = format!("%{}%", params.q);
+    let mut stmt = db.prepare(sql).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let plugins: Vec<HubPlugin> = stmt
+        .query_map(
+            rusqlite::params![pattern, params.limit as i64, params.offset as i64],
+            |row| Ok(row_to_plugin(row)),
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "plugins": plugins,
+        "query": params.q,
+    })))
+}
+
+async fn get_plugin(
+    State(hub): State<Arc<HubState>>,
+    Path(name): Path<String>,
+) -> Result<Json<HubPlugin>, StatusCode> {
+    let db = hub.db.lock().await;
+
+    let plugin = db
+        .query_row(
+            "SELECT id, name, description, version, authors, license, checksum, \
+             tools_json, capabilities_json, length(wasm_bytes), downloads, published_at, updated_at \
+             FROM plugins WHERE name = ?1",
+            [&name],
+            |row| Ok(row_to_plugin(row)),
+        )
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    Ok(Json(plugin))
+}
+
+/// Download the WASM binary for a plugin.
+/// GET /api/v1/hub/plugins/{name}/{version}
+/// Returns the raw .wasm bytes (application/wasm) for `claw plugin install`.
+async fn download_plugin(
+    State(hub): State<Arc<HubState>>,
+    Path((name, _version)): Path<(String, String)>,
+) -> Result<Response<Body>, StatusCode> {
+    let db = hub.db.lock().await;
+
+    let result: Result<(Vec<u8>, String), _> = db.query_row(
+        "SELECT wasm_bytes, manifest_toml FROM plugins WHERE name = ?1",
+        [&name],
+        |row| {
+            Ok((
+                row.get::<_, Vec<u8>>(0)?,
+                row.get::<_, String>(1)?,
+            ))
+        },
+    );
+
+    match result {
+        Ok((wasm_bytes, _manifest)) => {
+            let _ = db.execute(
+                "UPDATE plugins SET downloads = downloads + 1 WHERE name = ?1",
+                [&name],
+            );
+            info!(plugin = %name, "plugin downloaded from hub");
+
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "application/wasm")
+                .header("Content-Disposition", format!("attachment; filename=\"{name}.wasm\""))
+                .body(Body::from(wasm_bytes))
+                .unwrap())
+        }
+        Err(_) => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+/// Publish a plugin — multipart form with `manifest` (TOML text) + `wasm` (binary).
+/// If multipart isn't convenient, also accepts JSON with base64-encoded WASM.
+async fn publish_plugin(
+    State(hub): State<Arc<HubState>>,
+    Json(req): Json<PublishPluginRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    // Parse the manifest
+    let manifest: claw_plugin::PluginManifest =
+        toml::from_str(&req.manifest_toml).map_err(|e| {
+            warn!(error = %e, "invalid plugin.toml submitted to hub");
+            StatusCode::BAD_REQUEST
+        })?;
+
+    // Decode base64 WASM bytes
+    use base64::Engine as _;
+    let wasm_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&req.wasm_base64)
+        .map_err(|e| {
+            warn!(error = %e, "invalid base64 WASM data");
+            StatusCode::BAD_REQUEST
+        })?;
+
+    // Verify checksum if provided
+    if !manifest.verify_checksum(&wasm_bytes) {
+        warn!(plugin = %manifest.plugin.name, "checksum mismatch on upload");
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let name = &manifest.plugin.name;
+    let now = chrono::Utc::now().to_rfc3339();
+    let id = format!("{}@{}", name, manifest.plugin.version);
+    let checksum = blake3::hash(&wasm_bytes).to_hex().to_string();
+    let authors_json = serde_json::to_string(&manifest.plugin.authors).unwrap_or_else(|_| "[]".into());
+    let tools_json = serde_json::to_string(&manifest.tools).unwrap_or_else(|_| "[]".into());
+    let caps_json = serde_json::to_string(&manifest.capabilities).unwrap_or_else(|_| "{}".into());
+
+    let db = hub.db.lock().await;
+
+    db.execute(
+        "INSERT INTO plugins (id, name, description, version, authors, license, checksum, \
+         tools_json, capabilities_json, wasm_bytes, manifest_toml, downloads, published_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?12)
+         ON CONFLICT(name) DO UPDATE SET
+            id = ?1, description = ?3, version = ?4, authors = ?5, license = ?6,
+            checksum = ?7, tools_json = ?8, capabilities_json = ?9,
+            wasm_bytes = ?10, manifest_toml = ?11, updated_at = ?12",
+        rusqlite::params![
+            id,
+            name,
+            manifest.plugin.description,
+            manifest.plugin.version,
+            authors_json,
+            manifest.plugin.license.as_deref().unwrap_or(""),
+            checksum,
+            tools_json,
+            caps_json,
+            wasm_bytes,
+            req.manifest_toml,
+            now,
+        ],
+    )
+    .map_err(|e| {
+        warn!(error = %e, "failed to publish plugin");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    info!(plugin = %name, version = %manifest.plugin.version, wasm_size = wasm_bytes.len(), "plugin published to hub");
+
+    Ok(Json(serde_json::json!({
+        "status": "published",
+        "name": name,
+        "version": manifest.plugin.version,
+        "checksum": checksum,
+        "wasm_size": wasm_bytes.len(),
+    })))
+}
+
+async fn delete_plugin(
+    State(hub): State<Arc<HubState>>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let db = hub.db.lock().await;
+
+    let affected = db
+        .execute("DELETE FROM plugins WHERE name = ?1", [&name])
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if affected == 0 {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    info!(plugin = %name, "plugin deleted from hub");
+
+    Ok(Json(serde_json::json!({
+        "status": "deleted",
+        "name": name,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct PublishPluginRequest {
+    /// The plugin.toml manifest content
+    pub manifest_toml: String,
+    /// Base64-encoded WASM binary
+    pub wasm_base64: String,
+}
+
+fn row_to_plugin(row: &rusqlite::Row) -> HubPlugin {
+    let authors_str: String = row.get(4).unwrap_or_default();
+    let authors: Vec<String> = serde_json::from_str(&authors_str).unwrap_or_default();
+    let tools_str: String = row.get(7).unwrap_or_default();
+    let tools: Vec<HubPluginTool> = serde_json::from_str(&tools_str).unwrap_or_default();
+    let caps_str: String = row.get(8).unwrap_or_default();
+    let capabilities: serde_json::Value = serde_json::from_str(&caps_str).unwrap_or_default();
+
+    HubPlugin {
+        id: row.get(0).unwrap_or_default(),
+        name: row.get(1).unwrap_or_default(),
+        description: row.get(2).unwrap_or_default(),
+        version: row.get(3).unwrap_or_default(),
+        authors,
+        license: row.get(5).unwrap_or_default(),
+        checksum: row.get(6).unwrap_or_default(),
+        tools,
+        capabilities,
+        wasm_size: row.get::<_, i64>(9).unwrap_or(0) as u64,
+        downloads: row.get::<_, i64>(10).unwrap_or(0) as u64,
+        published_at: row.get(11).unwrap_or_default(),
+        updated_at: row.get(12).unwrap_or_default(),
     }
 }
